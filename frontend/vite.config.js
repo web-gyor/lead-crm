@@ -12,9 +12,9 @@ export default defineConfig({
         enabled: true
       },
       manifest: {
-        id: '/lead-crm-v3/',
-        name: 'Lead CRM Pro v3',
-        short_name: 'CRM v3',
+        id: '/lead-crm-v4/',
+        name: 'Lead CRM Pro v4',
+short_name: 'CRM v4',
         description: 'Lead Management System for WebGyor Media',
         start_url: '/',
         scope: '/',
