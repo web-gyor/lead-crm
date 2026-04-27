@@ -876,8 +876,8 @@ useEffect(() => {
         )}
 
         {/* Desktop filter bar */}
-        <div className="hidden sm:flex flex-wrap items-center gap-2 px-4 py-2 mb-0">
-          <div className="relative w-48 shrink-0">
+      <div className="hidden sm:flex flex-wrap items-center gap-2 gap-y-2 px-4 py-2 mb-0 w-full overflow-x-auto">
+          <div className="relative w-full sm:w-48 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
             <input type="text" placeholder="Search name, phone or ID…" value={filters.search}
               onChange={(e) => updateFilters({ search: e.target.value })}
@@ -913,7 +913,7 @@ useEffect(() => {
             </button>
           ))}
 
-          <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border shrink-0 ${
+          <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border min-w-[220px] ${
             filters.startDate || filters.endDate ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700"
           }`}>
             <Calendar size={12} className="text-gray-400 shrink-0" />
