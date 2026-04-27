@@ -624,7 +624,7 @@ const handleBulkUpdate = async () => {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-gray-500  text-[10px] font-bold align-middle">{lead.city || "—"}</td>
+              
                   <td className="px-4 py-2 align-middle whitespace-nowrap"><SourceBadge lead={lead} sources={sourceOptions} /></td>
                   {isAdmin && (
                     <td className="px-3 py-2 align-middle min-w-[130px]">

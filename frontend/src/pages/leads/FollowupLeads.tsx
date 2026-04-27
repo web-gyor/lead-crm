@@ -613,9 +613,9 @@ export default function FollowupLeads() {
                 <th className="px-3 py-4 w-8 text-center"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-3.5 h-3.5 accent-amber-600" aria-label="Select all" /></th>
                 <th className="px-2 py-4 w-8 text-center">#</th>
                 <th className="px-4 py-4">Entry Date</th>
-                <th className="px-4 py-4">Name</th>
-                <th className="px-4 py-4">Contact</th>
-                <th className="px-4 py-4">Batch/Edu</th>
+                <th className="px-4 py-4">Lead</th>
+                <th className="px-4 py-4">Course</th>
+                <th className="px-4 py-4">Batch</th>
 
                 <th className="px-4 py-4">Source</th>
                 <th className="px-4 py-4 text-amber-600">Follow-up Date</th>
@@ -635,7 +635,7 @@ export default function FollowupLeads() {
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
-                <tr><td colSpan={isAdmin ? 12 : 11} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">📭 No follow-ups found</td></tr>
+                <tr><td colSpan={isAdmin ? 12 : 11} className="py-20 text-center text-gray-400 font-bold  tracking-widest text-xs">📭 No follow-ups found</td></tr>
               ) : leads.map((lead, index) => {
                 const fuStatus = getFollowUpStatus(lead.next_follow_up_date);
                 return (
@@ -651,21 +651,31 @@ export default function FollowupLeads() {
                       <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">{fmtDate(lead.created_at) ?? "—"}</p>
                       <p className="text-[8px] text-gray-400 uppercase tracking-tighter">Initial Entry</p>
                     </td>
-                    <td className="px-4 py-1.5 font-bold  text-[12px] text-gray-800 dark:text-white align-middle truncate max-w-[130px]">{lead.full_name}</td>
-                   <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="flex flex-col leading-tight">
-                      {/* Phone Number */}
-                      <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
-                        {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
-                      </span>
-                      
-                      {/* City Sub-text */}
-                      <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider">
-                        {lead.city || "—"}
-                      </span>
-                    </div>
-                  </td>
-                                            <td className="px-4 py-2 align-middle">
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5">
+                        {/* Name - Prominent */}
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-white leading-none">
+                          {lead.full_name}
+                        </span>
+                        
+                        {/* Secondary Info Line (Phone & City) */}
+                        <div className="flex items-center gap-2 leading-none">
+                          <span className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 tabular-nums">
+                            {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
+                          </span>
+                          
+                          {/* Small dot separator only if city exists */}
+                          {lead.city && <span className="text-[8px] text-gray-300">•</span>}
+                          
+                          <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium">
+                            {lead.city || ""}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-1.5 text-gray-600 dark:text-gray-300 text-[11px] truncate max-w-[110px] align-middle">{lead.interested_course || "General"}</td>
+                  
+                <td className="px-4 py-2 align-middle">
                     <div className="flex flex-col">
                       {/* Qualification - Primary */}
                       <span className="text-blue-600 dark:text-blue-400 uppercase text-[10px] font-black tracking-tight leading-none">

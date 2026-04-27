@@ -545,9 +545,9 @@ export default function RejectedLeads() {
                 <th className="px-3 py-4 w-8 text-center"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-3.5 h-3.5 accent-rose-600" aria-label="Select all" /></th>
                 <th className="px-2 py-4 w-8 text-center">#</th>
                 <th className="px-4 py-4">Entry Date</th>
-                <th className="px-4 py-4">Name</th>
-                <th className="px-4 py-4">Contact</th>
-                <th className="px-4 py-4">Batch/Edu</th>
+                <th className="px-4 py-4">Lead</th>
+
+                <th className="px-4 py-4">Batch</th>
           
   
                 <th className="px-4 py-4">Source</th>
@@ -579,20 +579,29 @@ export default function RejectedLeads() {
                     <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">{fmtDate(lead.created_at)}</p>
                     <p className="text-[8px] text-gray-400 uppercase tracking-tighter">Initial Entry</p>
                   </td>
-                  <td className="px-4 py-1.5 font-bold text-[11px] text-gray-800 dark:text-white align-middle truncate max-w-[130px]">{lead.full_name}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="flex flex-col leading-tight">
-                      {/* Phone Number */}
-                      <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                   <td className="px-4 py-2 whitespace-nowrap">
+                  <div className="flex flex-col gap-0.5">
+                    {/* Name - Prominent */}
+                    <span className="text-[12px] font-bold text-gray-900 dark:text-white leading-none">
+                      {lead.full_name}
+                    </span>
+                    
+                    {/* Secondary Info Line (Phone & City) */}
+                    <div className="flex items-center gap-2 leading-none">
+                      <span className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 tabular-nums">
                         {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
                       </span>
                       
-                      {/* City Sub-text */}
-                      <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider">
-                        {lead.city || "—"}
+                      {/* Small dot separator only if city exists */}
+                      {lead.city && <span className="text-[8px] text-gray-300">•</span>}
+                      
+                      <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium">
+                        {lead.city || ""}
                       </span>
                     </div>
-                  </td>
+                  </div>
+                </td>
+                 
                       <td className="px-4 py-2 align-middle">
                     <div className="flex flex-col">
                       {/* Qualification - Primary */}
