@@ -174,11 +174,7 @@ function NotifCard({ icon, title, count, sub, bg, border, text, onClick }: any) 
     </button>
   );
 }
-declare global {
-  interface Window {
-    deferredPrompt: any;
-  }
-}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function MainLayout() {
   const { user, logout, permissions } = useAuth();
@@ -367,14 +363,7 @@ export default function MainLayout() {
 
   const sidebarWidth = collapsed ? "w-[60px]" : "w-56";
   
-  const installApp = async () => {
-  const prompt = window.deferredPrompt;
-  if (prompt) {
-    prompt.prompt();
-    const result = await prompt.userChoice;
-    console.log(result);
-  }
-};
+ 
 
   // ══════════════════════════════════════════════════════════════════════════════
   return (
@@ -465,9 +454,7 @@ export default function MainLayout() {
             {pageTitle}
           </h1>
 
-          <button onClick={installApp}>
-  Install App
-</button>
+        
 
           {/* RIGHT — actions */}
           <div className="flex items-center gap-2 ml-auto">
