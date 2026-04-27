@@ -13,24 +13,31 @@ export default defineConfig({
         cleanupOutdatedCaches: true
       },
       manifest: {
-        name: 'Lead CRM Pro',
-        short_name: 'CRM Pro',
-        theme_color: '#0F172A',
-        background_color: '#0F172A',
-        display: 'standalone',
-        icons: [
-          {
-            src: '/icon-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          }
-        ]
-      }
+  name: 'Lead CRM Pro',
+  short_name: 'CRM Pro',
+  description: 'Lead Management CRM System',
+  theme_color: '#0F172A',
+  background_color: '#0F172A',
+
+  display: 'standalone',
+  start_url: '/',
+  scope: '/',
+
+  orientation: 'any',
+
+  icons: [
+    {
+      src: '/icon-192x192.png?v=3',
+      sizes: '192x192',
+      type: 'image/png'
+    },
+    {
+      src: '/icon-512x512.png?v=3',
+      sizes: '512x512',
+      type: 'image/png'
+    }
+  ]
+}
     })
   ]
 })
