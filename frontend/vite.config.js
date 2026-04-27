@@ -12,9 +12,9 @@ export default defineConfig({
         enabled: true
       },
       manifest: {
-        id: '/',
-        name: 'Lead CRM Pro',
-        short_name: 'CRM Pro',
+        id: '/lead-crm-v3/',
+        name: 'Lead CRM Pro v3',
+        short_name: 'CRM v3',
         description: 'Lead Management System for WebGyor Media',
         start_url: '/',
         scope: '/',
@@ -23,13 +23,14 @@ export default defineConfig({
         background_color: '#0F172A',
         icons: [
           {
-            src: '/icon-192x192.png', // Clean URL
+            src: '/icon-192x192.png?v=2026',
+
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any'
           },
           {
-            src: '/icon-512x512.png', // Clean URL
+            src: '/icon-512x512.png?v=2026',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable' // Fix 1: Covers both requirements
