@@ -551,7 +551,7 @@ export default function ConvertedLeads() {
                 <th className="px-4 py-4">Course</th>
                 <th className="px-4 py-4">Phone</th>
                 <th className="px-4 py-4">Batch/Edu</th>
-                <th className="px-4 py-4">Batch</th>
+          
                 <th className="px-4 py-4">City</th>
                 <th className="px-4 py-4">Source</th>
                 <th className="px-4 py-4 text-green-600">Admission</th>
