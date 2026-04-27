@@ -1,28 +1,31 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    
-    <link rel="manifest" href="/manifest.webmanifest">
-    <meta name="theme-color" content="#0F172A">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lead CRM Pro | WebGyor Media</title>
-    
-    <script>
-      (function() {
-        const isDark = localStorage.getItem('darkMode') === 'true';
-        if (isDark) {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
-      })();
-    </script>
-  </head>
+ <head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  
+  <link rel="manifest" href="/manifest.webmanifest">
+  
+  <link rel="apple-touch-icon" href="/icon-192x192.png">
+  
+  <meta name="theme-color" content="#0F172A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead CRM Pro | WebGyor Media</title>
+  
+  <script>
+    (function() {
+      const isDark = localStorage.getItem('darkMode') === 'true';
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    })();
+  </script>
+</head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
