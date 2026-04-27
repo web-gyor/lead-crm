@@ -6,12 +6,18 @@ import { AuthProvider } from "./context/AuthContext";
 import AppRoutes from "./routes/AppRoutes";
 import "./index.css";
 
+// ADD THIS LINE:
+import { registerSW } from 'virtual:pwa-register';
+
+// Register the Service Worker
+registerSW({ immediate: true });
+
 const root = document.getElementById("root");
 if (root) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <ToastProvider>
-        <AuthProvider> {/* 👈 Wrap your routes here */}
+        <AuthProvider>
           <BrowserRouter>
             <AppRoutes />
           </BrowserRouter>
