@@ -12,11 +12,12 @@ export default defineConfig({
         enabled: true
       },
       manifest: {
-        id: '/lead-crm-v4/',
-        name: 'Lead CRM Pro v4',
-short_name: 'CRM v4',
+       id: '/',
+  start_url: '/',
+  name: 'Lead CRM Pro', // This will fix the "frontend" name in the popup
+  short_name: 'CRM Pro',
         description: 'Lead Management System for WebGyor Media',
-        start_url: '/',
+
         scope: '/',
         display: 'standalone',
         theme_color: '#0F172A',
