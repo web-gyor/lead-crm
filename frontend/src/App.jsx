@@ -6,27 +6,13 @@ import "./App.css";
 import { useEffect } from "react";
 
 function App() {
-
-  useEffect(() => {
-    let deferredPrompt;
-
-    const handler = (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-
-      // Store globally (optional)
-      window.deferredPrompt = deferredPrompt;
-
-      console.log("PWA install ready (desktop/mobile)");
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-    };
-  }, []);
-
+useEffect(() => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(() => {
+      console.log("Service Worker Active ✅");
+    });
+  }
+}, []);
   return (
     <AuthProvider>
       <Router>

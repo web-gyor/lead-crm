@@ -7,34 +7,32 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
-        cleanupOutdatedCaches: true
-      },
-      manifest: {
-  name: 'Lead CRM Pro',
-  short_name: 'CRM Pro',
-  description: 'Lead Management CRM System',
-  theme_color: '#0F172A',
-  background_color: '#0F172A',
-
-  display: 'standalone',
-  start_url: '/',
-  scope: '/',
-
-  orientation: 'any',
+workbox: {
+  skipWaiting: true,
+  clientsClaim: true,
+  cleanupOutdatedCaches: true
+},
+     manifest: {
+  id: "/",
+  name: "Lead CRM Pro",
+  short_name: "CRM Pro",
+  description: "Lead Management System",
+  start_url: "/",
+  scope: "/",
+  display: "standalone",
+  theme_color: "#0F172A",
+  background_color: "#0F172A",
 
   icons: [
     {
-      src: '/icon-192x192.png?v=3',
-      sizes: '192x192',
-      type: 'image/png'
+      src: "/icon-192x192.png?v=3",
+      sizes: "192x192",
+      type: "image/png"
     },
     {
-      src: '/icon-512x512.png?v=3',
-      sizes: '512x512',
-      type: 'image/png'
+      src: "/icon-512x512.png?v=3",
+      sizes: "512x512",
+      type: "image/png"
     }
   ]
 }
