@@ -565,11 +565,11 @@ const handleBulkUpdate = async () => {
                 <th className="px-2 py-4 w-8 text-center">#</th>
                 <th className="px-4 py-4">Entry</th>
                 <th className="px-4 py-4">Name</th>
-                <th className="px-4 py-4">Phone</th>
+                <th className="px-4 py-4">Contact</th>
                 <th className="px-4 py-4">Email</th>
                 <th className="px-4 py-4">Batch/Edu</th>
              
-                <th className="px-4 py-4">City</th>
+                
                 <th className="px-4 py-4">Source</th>
                 {isAdmin && <th className="px-4 py-4 text-blue-600">Assigned To</th>}
                 <th className="px-4 py-4 text-right">Actions</th>
@@ -595,8 +595,19 @@ const handleBulkUpdate = async () => {
                     <p className="text-[8px] text-gray-400 uppercase tracking-tighter">Initial Entry</p>
                   </td>
                   <td className="px-4 py-2 font-bold text-[12px] text-gray-800 dark:text-white align-middle truncate max-w-[150px]">{lead.full_name}</td>
-                  <td className="px-4 py-2 tabular-nums font-bold text-[11px] text-gray-600 dark:text-gray-200 align-middle  whitespace-nowrap">
-                    {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"} </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                      <div className="flex flex-col leading-tight">
+                        {/* Phone Number */}
+                        <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                          {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
+                        </span>
+                        
+                        {/* City Sub-text */}
+                        <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium  tracking-wider">
+                          {lead.city || "—"}
+                        </span>
+                      </div>
+                    </td>
                   <td className="px-4 py-2 text-gray-500 dark:text-gray-400 truncate max-w-[120px] align-middle text-[11px]">{lead.email || "—"}</td>
                             <td className="px-4 py-2 align-middle">
                     <div className="flex flex-col">

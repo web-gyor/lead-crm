@@ -947,7 +947,7 @@ useEffect(() => {
           <table className="w-full text-sm min-w-[960px]">
             <thead className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700">
               <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                {["#", "ID", "Date", "Name", "Course", "Phone", "City", "Source", "Status", "Quality", "Follow-up", "Assigned", "Notes", "Actions"].map((h) => (
+                {["#", "ID", "Date", "Name", "Course", "Contact",  "Source", "Status", "Quality", "Follow-up", "Assigned", "Notes", "Actions"].map((h) => (
                   <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${h === "Actions" ? "text-right" : "text-left"}`}>{h}</th>
                 ))}
               </tr>
@@ -983,11 +983,18 @@ useEffect(() => {
                       </td>
                       <td className="px-3 py-2 max-w-[110px]"><span className="text-[10px] text-gray-600 dark:text-gray-300 truncate block">{lead.interested_course || "General"}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
-                          {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
-                        </span>
+                        <div className="flex flex-col leading-tight">
+                          {/* Phone Number */}
+                          <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                            {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
+                          </span>
+                          
+                          {/* City Sub-text */}
+                          <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium  tracking-wider">
+                            {lead.city || "—"}
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-3 py-2"><span className="text-[10px] text-gray-500  font-bold">{lead.city || "—"}</span></td>
                       <td className="px-3 py-2  whitespace-nowrap"><SourceBadge lead={lead} sources={sourceOptions} /></td>
                       <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={lead.lead_status} /></td>
                       <td className="px-3 py-2 whitespace-nowrap text-center"><QualityBadge quality={lead.lead_quality} /></td>

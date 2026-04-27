@@ -569,10 +569,10 @@ export default function ContactedLeads() {
                 <th className="px-4 py-4">Entry</th>
                 <th className="px-4 py-4">Name</th>
                 <th className="px-4 py-4">Course</th>
-                <th className="px-4 py-4">Phone</th>
+                <th className="px-4 py-4">Contact</th>
                 <th className="px-4 py-4">Batch/Edu</th>
     
-                <th className="px-4 py-4">City</th>
+        
                 <th className="px-4 py-4">Source</th>
                 <th className="px-4 py-4">Quality</th>
                 <th className="px-4 py-4">Contacted</th>
@@ -605,8 +605,19 @@ export default function ContactedLeads() {
                   </td>
                   <td className="px-4 py-1.5 font-bold text-[12px] text-gray-900 dark:text-white align-middle whitespace-nowrap">{lead.full_name}</td>
                   <td className="px-4 py-1.5 text-gray-600 dark:text-gray-300 text-[11px] truncate max-w-[110px] align-middle">{lead.interested_course || "General"}</td>
-                  <td className="px-4 py-1.5 tabular-nums font-bold text-gray-700 dark:text-gray-200 text-[11px] align-middle whitespace-nowrap">
-                     {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"} </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex flex-col leading-tight">
+                      {/* Phone Number */}
+                      <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                        {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
+                      </span>
+                      
+                      {/* City Sub-text */}
+                      <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium  tracking-wider">
+                        {lead.city || "—"}
+                      </span>
+                    </div>
+                  </td>
                  <td className="px-4 py-2 align-middle">
                   <div className="flex flex-col">
                     {/* Qualification - Primary */}
@@ -622,7 +633,7 @@ export default function ContactedLeads() {
                     )}
                   </div>
                 </td>
-                  <td className="px-4 py-1.5 text-gray-500  text-[10px] font-bold align-middle">{lead.city || "—"}</td>
+             
                   <td className="px-4 py-1.5 whitespace-nowrap  align-middle"><SourceBadge lead={lead} sources={sourceOptions} /></td>
                   <td className="px-4 py-1.5 align-middle text-center"><QualityBadge quality={lead.lead_quality} /></td>
                   <td className="px-4 py-1.5 whitespace-nowrap align-middle">

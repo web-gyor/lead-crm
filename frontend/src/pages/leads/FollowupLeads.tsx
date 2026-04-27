@@ -543,7 +543,7 @@ export default function FollowupLeads() {
         <div className="flex flex-col lg:flex-row gap-3">
           <div className="relative w-full sm:max-w-xs xl:max-w-[240px] flex-shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-            <input type="text" placeholder="Search follow-ups…"
+            <input type="text" placeholder="Search by name or phone"
               value={filters.search} onChange={(e) => updateFilters({ search: e.target.value })}
               className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:border-amber-400 transition-all" />
           </div>
@@ -614,9 +614,9 @@ export default function FollowupLeads() {
                 <th className="px-2 py-4 w-8 text-center">#</th>
                 <th className="px-4 py-4">Entry Date</th>
                 <th className="px-4 py-4">Name</th>
-                <th className="px-4 py-4">Phone</th>
+                <th className="px-4 py-4">Contact</th>
                 <th className="px-4 py-4">Batch/Edu</th>
-                <th className="px-4 py-4">City</th>
+
                 <th className="px-4 py-4">Source</th>
                 <th className="px-4 py-4 text-amber-600">Follow-up Date</th>
                 {isAdmin && <th className="px-4 py-4 text-amber-600">Assigned To</th>}
@@ -652,9 +652,20 @@ export default function FollowupLeads() {
                       <p className="text-[8px] text-gray-400 uppercase tracking-tighter">Initial Entry</p>
                     </td>
                     <td className="px-4 py-1.5 font-bold  text-[12px] text-gray-800 dark:text-white align-middle truncate max-w-[130px]">{lead.full_name}</td>
-                    <td className="px-4 py-1.5 tabular-nums font-bold text-gray-700 dark:text-gray-200 text-[11px] align-middle whitespace-nowrap">
-                     {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"} </td>
-                          <td className="px-4 py-2 align-middle">
+                   <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex flex-col leading-tight">
+                      {/* Phone Number */}
+                      <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                        {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
+                      </span>
+                      
+                      {/* City Sub-text */}
+                      <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider">
+                        {lead.city || "—"}
+                      </span>
+                    </div>
+                  </td>
+                                            <td className="px-4 py-2 align-middle">
                     <div className="flex flex-col">
                       {/* Qualification - Primary */}
                       <span className="text-blue-600 dark:text-blue-400 uppercase text-[10px] font-black tracking-tight leading-none">
@@ -669,7 +680,7 @@ export default function FollowupLeads() {
                       )}
                     </div>
                   </td>
-                    <td className="px-4 py-1.5 text-gray-500  text-[10px] font-bold align-middle">{lead.city || "—"}</td>
+                 
                     <td className="px-4 py-1.5 align-middle whitespace-nowrap"><SourceBadge lead={lead} sources={sourceOptions} /></td>
                     <td className="px-4 py-1.5 align-middle whitespace-nowrap">
                       <FollowUpCell dateStr={lead.next_follow_up_date} onSetDate={() => openEdit(lead)} />
