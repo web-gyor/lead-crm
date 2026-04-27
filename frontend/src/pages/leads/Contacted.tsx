@@ -494,25 +494,25 @@ export default function ContactedLeads() {
 
       {/* ── Filter Bar ── */}
       <div className="bg-white -mt-3 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-3 sm:p-2">
-        <div className="flex flex-col lg:flex-row gap-3">
-          <div className="relative w-full sm:max-w-xs">
+        <div className="flex flex-col xl:flex-row xl:items-center gap-3">
+          <div className="relative w-full sm:max-w-xs xl:max-w-[240px] flex-shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-            <input type="text" placeholder="Search contacted leads…"
+            <input type="text" placeholder="Search by name or phone."
               value={filters.search} onChange={(e) => updateFilters({ search: e.target.value })}
               className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:border-indigo-400 transition-all" />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 w-full">
             {/* Source */}
             <select value={filters.sourceId} onChange={(e) => updateFilters({ sourceId: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Sources</option>
               {sourceOptions.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
             </select>
 
             {/* Counselor */}
             <select value={filters.counselorId} onChange={(e) => updateFilters({ counselorId: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Counselors</option>
               <option value="unassigned">Unassigned</option>
               {counselors.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
@@ -535,7 +535,7 @@ export default function ContactedLeads() {
             </div>
 
             {/* Custom date */}
-            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all ${
+            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border flex-shrink-0 transition-all ${
               filters.startDate || filters.endDate ? "bg-indigo-50 border-indigo-300" : "bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700"
             }`}>
               <Calendar size={12} className="text-gray-400 shrink-0" />

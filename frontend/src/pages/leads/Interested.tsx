@@ -501,17 +501,17 @@ export default function InterestedLeads() {
               className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:border-violet-400 transition-all" />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 w-full">
             {/* Source */}
             <select value={filters.sourceId} onChange={(e) => updateFilters({ sourceId: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Sources</option>
               {sourceOptions.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
             </select>
 
             {/* Counselor */}
             <select value={filters.counselorId} onChange={(e) => updateFilters({ counselorId: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Counselors</option>
               <option value="unassigned">Unassigned</option>
               {counselors.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
@@ -534,7 +534,7 @@ export default function InterestedLeads() {
             </div>
 
             {/* Custom date */}
-            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all ${
+            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border flex-shrink-0 transition-all ${
               filters.startDate || filters.endDate ? "bg-violet-50 border-violet-300" : "bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700"
             }`}>
               <Calendar size={12} className="text-gray-400 shrink-0" />

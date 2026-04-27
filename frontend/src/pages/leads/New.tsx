@@ -500,14 +500,14 @@ const handleBulkUpdate = async () => {
           <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 w-full">
             {/* Source */}
             <select value={filters.sourceId} onChange={(e) => updateFilters({ sourceId: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Sources</option>
               {sourceOptions.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
             </select>
 
             {/* Counselor */}
             <select value={filters.counselorId} onChange={(e) => updateFilters({ counselorId: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Counselors</option>
               <option value="unassigned">Unassigned</option>
               {counselors.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
