@@ -849,22 +849,52 @@ useEffect(() => {
               </div>
             </div>
 
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Custom Date Range</p>
-              <div className="flex items-center gap-2">
-                <input type="date" value={filters.startDate}
-                  onChange={(e) => updateFilters({ range: "custom", startDate: e.target.value })}
-                  className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-[11px] bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
-                <span className="text-gray-400 text-[10px] font-bold">TO</span>
-                <input type="date" value={filters.endDate}
-                  onChange={(e) => updateFilters({ range: "custom", endDate: e.target.value })}
-                  className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-[11px] bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" />
-                {(filters.startDate || filters.endDate) && (
-                  <button type="button" onClick={() => updateFilters({ range: "all", startDate: "", endDate: "" })}
-                    className="p-1.5 hover:bg-red-100 rounded-lg text-red-400"><X size={13} /></button>
-                )}
-              </div>
-            </div>
+            {/* Custom Date Range — Android PWA compatible */}
+<div>
+  <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+    Custom Date Range
+  </p>
+
+  {/* Stack vertically on mobile — side-by-side kills date visibility on Android */}
+  <div className="flex flex-col gap-2">
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] font-bold text-gray-400 w-7 shrink-0">From</span>
+      <input
+        type="date"
+        value={filters.startDate}
+        onChange={(e) => updateFilters({ range: "custom", startDate: e.target.value })}
+        className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg
+          text-sm          /* 14px — Android won't clip below this */
+          bg-gray-50 dark:bg-gray-700 dark:text-white
+          outline-none focus:border-blue-500 transition-colors"
+      />
+    </div>
+
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] font-bold text-gray-400 w-7 shrink-0">To</span>
+      <input
+        type="date"
+        value={filters.endDate}
+        onChange={(e) => updateFilters({ range: "custom", endDate: e.target.value })}
+        className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg
+          text-sm
+          bg-gray-50 dark:bg-gray-700 dark:text-white
+          outline-none focus:border-blue-500 transition-colors"
+      />
+    </div>
+  </div>
+
+  {(filters.startDate || filters.endDate) && (
+    <button
+      type="button"
+      onClick={() => updateFilters({ range: "all", startDate: "", endDate: "" })}
+      className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-rose-400
+        hover:text-rose-600 transition-colors"
+    >
+      <X size={11} /> Clear dates
+    </button>
+  )}
+</div>
 
             {hasActiveFilters && (
               <button type="button" onClick={clearAllFilters}
@@ -876,7 +906,7 @@ useEffect(() => {
         )}
 
         {/* Desktop filter bar */}
-      <div className="hidden sm:flex flex-wrap items-center gap-2 gap-y-2 px-4 py-2 mb-0 w-full overflow-x-auto">
+     <div className="hidden sm:flex flex-nowrap items-center gap-1.5 px-4 py-2 mb-0 w-full overflow-x-auto scrollbar-hide">
           <div className="relative w-full sm:w-48 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
             <input type="text" placeholder="Search name, phone or ID…" value={filters.search}

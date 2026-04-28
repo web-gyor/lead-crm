@@ -389,7 +389,7 @@ export default function MainLayout() {
         {/* Brand + collapse toggle */}
         <div className={`h-14 flex items-center border-b border-gray-100 dark:border-gray-800 flex-shrink-0
           ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}>
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden bg-white-600 flex-shrink-0 shadow-md shadow-blue-600/20">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden bg-[#02302d] flex-shrink-0 shadow-md shadow-blue-600/20">
             {logo
               ? <img src={logo} alt="logo" className="w-full h-full object-contain p-0.5" />
               : <Zap size={14} className="text-white" fill="currentColor" />}

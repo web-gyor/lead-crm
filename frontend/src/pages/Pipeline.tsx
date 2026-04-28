@@ -41,17 +41,20 @@ interface Lead {
   full_name: string;
   phone?: string;
   lead_status: string;
-  lead_source_name?: string;
+  source?: string;       // 👈 Add this
+  source_name?: string;  // 👈 And this
   interested_course?: string;
   assigned_user_name?: string;
   updated_at?: string;
 }
-
 // ─── Lead Card ────────────────────────────────────────────────────────────────
 
 function SortableLeadCard({ lead, stage }: { lead: Lead; stage: Stage }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
+
+  // This checks every possible field the backend might be sending
+  const displaySource = lead.source_name || lead.lead_source || lead.source || "Direct";
 
   return (
     <div
@@ -77,8 +80,8 @@ function SortableLeadCard({ lead, stage }: { lead: Lead; stage: Stage }) {
               {lead.full_name}
             </h3>
             <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase shrink-0 ${stage.light} ${stage.text}`}>
-              {lead.lead_source_name || "Direct"}
-            </span>
+  {lead.source || lead.source_name || "Direct"}
+</span>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -263,7 +266,7 @@ export default function Pipeline() {
       if (searchTerm && !l.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) && !l.phone?.includes(searchTerm)) return false;
       if (courseFilter     && l.interested_course  !== courseFilter)     return false;
       if (counsellorFilter && l.assigned_user_name !== counsellorFilter) return false;
-      if (sourceFilter     && String(l.lead_source_name) !== sourceFilter) return false;
+      if (sourceFilter && String(l.source_name) !== sourceFilter) return false;
       return true;
     });
   }, [leads, searchTerm, courseFilter, counsellorFilter, sourceFilter]);

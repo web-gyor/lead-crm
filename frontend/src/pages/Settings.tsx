@@ -281,7 +281,7 @@ export default function Settings() {
                   <div className={[
                     "w-20 h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all",
                     displayLogo
-                      ? "border-blue-200 bg-white dark:bg-gray-800 shadow-md"
+                      ? "border-blue-200 bg-[#02302d] dark:bg-gray-800 shadow-md"
                       : "border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
                   ].join(" ")}>
                     {displayLogo ? (
