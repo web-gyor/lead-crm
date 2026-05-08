@@ -16,9 +16,9 @@ const dbConfig = {
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  namedPlaceholders: true
+  namedPlaceholders: true,
+  dateStrings: true
 };
-
 const pool = mysql.createPool(dbConfig);
 
 // Test DB connection

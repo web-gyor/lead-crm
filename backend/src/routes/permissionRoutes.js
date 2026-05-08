@@ -28,18 +28,19 @@ router.get('/:role', authenticateToken, async (req, res) => {
   const { role } = req.params;
   try {
     const [rows] = await pool.query(
-      `SELECT role, feature_name, is_enabled 
+      `SELECT role, feature_name, permission_key, is_enabled 
        FROM role_permissions 
        WHERE LOWER(role) = LOWER(?)`,
       [role]
     );
-    return res.status(200).json(rows);
+    
+    // Most of your frontend components expect the data inside a 'data' property
+    return res.status(200).json({ success: true, data: rows });
   } catch (err) {
     console.error("Permissions.fetchByRole Error:", err.message);
     return res.status(500).json({ error: "Database fetch failed" });
   }
 });
-
 // Update a specific feature permission toggle
 router.post('/update', authenticateToken, async (req, res) => {
   const { role, feature_name, is_enabled } = req.body;

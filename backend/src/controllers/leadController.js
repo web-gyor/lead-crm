@@ -1,7 +1,7 @@
 const { pool } = require('../config/db'); 
 const jwt = require('jsonwebtoken');
 const activityController = require("./activityController");
-
+const leadDistributor = require("../services/leadDistributor");
 /**
  * Authentication Middleware
  */
@@ -18,164 +18,8 @@ const authenticateToken = (req, res, next) => {
 });
 };
 
-/**
- * Fetch Dashboard Statistics and KPIs
- */
-const getDashboardStats = async (req, res) => {
-  try {
-    const role   = req.user?.role?.toLowerCase() || "";
-    const userId = req.user?.id;
 
-    // ── Role-based filter ─────────────────────────────────────────────────────
-    const isAdmin     = role === "admin" || role === "superadmin" || role === "manager";
-    const whereClause = isAdmin ? "1=1" : "l.assigned_user_id = ?";
-    const params      = isAdmin ? [] : [userId];
 
-    // ── KPI stats ─────────────────────────────────────────────────────────────
-    const [stats] = await pool.query(`
-      SELECT
-        COUNT(*)                                                                      AS totalLeads,
-        SUM(CASE WHEN DATE(l.created_at)       = CURDATE() THEN 1 ELSE 0 END)        AS newToday,
-        SUM(CASE WHEN l.lead_status = 'Converted'          THEN 1 ELSE 0 END)        AS converted,
-        SUM(CASE WHEN l.lead_status = 'Follow-up'          THEN 1 ELSE 0 END)        AS trueFollowupCount,
-        SUM(CASE WHEN l.lead_status = 'Interested'         THEN 1 ELSE 0 END)        AS interestedCount,
-        SUM(CASE WHEN l.lead_status = 'New'                THEN 1 ELSE 0 END)        AS newCount,
-        SUM(CASE WHEN l.lead_status IN ('Lost','Not Interested') THEN 1 ELSE 0 END)  AS lostRejected,
-        SUM(CASE WHEN l.lead_status != 'New'               THEN 1 ELSE 0 END)        AS contactedCount,
-        SUM(CASE WHEN DATE(l.first_contacted_at) = CURDATE() THEN 1 ELSE 0 END)      AS callsMadeToday,
-        SUM(CASE WHEN DATE(l.updated_at)         = CURDATE() THEN 1 ELSE 0 END)      AS handledToday
-      FROM leads l
-      WHERE ${whereClause}
-    `, params);
-
-    // ── Recent leads ──────────────────────────────────────────────────────────
-    const [recent] = await pool.query(`
-      SELECT l.full_name, l.interested_course, l.lead_status, l.created_at
-      FROM   leads l
-      WHERE  ${whereClause}
-      ORDER  BY l.created_at DESC
-      LIMIT  5
-    `, params);
-
-    // ── Source stats ──────────────────────────────────────────────────────────
-    // FIX: old code used sourceParams = [...params, ...params] to supply the
-    // WHERE clause twice — once in the subquery, once in the outer query.
-    // Rewriting with a window function / single pass eliminates the duplication
-    // and the parameter-count mismatch that caused incorrect percentages.
-    const [sourceStats] = await pool.query(`
-      SELECT
-        COALESCE(ls.name, 'Bulk Import')                                     AS name,
-        COUNT(l.id)                                                           AS value,
-        SUM(CASE WHEN l.lead_status = 'Converted' THEN 1 ELSE 0 END)        AS converted,
-        ROUND(
-          COUNT(l.id) * 100.0 /
-          NULLIF(SUM(COUNT(l.id)) OVER (), 0)
-        )                                                                     AS percentage
-      FROM  leads l
-      LEFT  JOIN lead_sources ls ON l.lead_source_id = ls.id
-      WHERE ${whereClause}
-      GROUP BY ls.id, ls.name
-      ORDER BY value DESC
-    `, params);
-
-    // ── Daily — last 7 days ───────────────────────────────────────────────────
-    const [dailyConversions] = await pool.query(`
-      SELECT
-        DATE(l.created_at)                                               AS date,
-        COUNT(*)                                                          AS total,
-        SUM(CASE WHEN l.lead_status = 'Converted' THEN 1 ELSE 0 END)   AS converted
-      FROM  leads l
-      WHERE ${whereClause}
-        AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-      GROUP BY DATE(l.created_at)
-      ORDER BY date ASC
-    `, params);
-
-    // ── Weekly — last 6 weeks ─────────────────────────────────────────────────
-    // FIX: old GROUP BY used the formatted label string which can collide across
-    // years (e.g. "03 Apr 2025" vs "03 Apr 2026" both format to "03 Apr").
-    // Group by the actual Monday date, format only for display.
-    const [weeklyConversions] = await pool.query(`
-      SELECT
-        DATE_SUB(DATE(l.created_at), INTERVAL WEEKDAY(l.created_at) DAY) AS week_start,
-        DATE_FORMAT(
-          DATE_SUB(DATE(l.created_at), INTERVAL WEEKDAY(l.created_at) DAY),
-          '%d %b'
-        )                                                                  AS label,
-        COUNT(*)                                                           AS total,
-        SUM(CASE WHEN l.lead_status = 'Converted' THEN 1 ELSE 0 END)    AS converted
-      FROM  leads l
-      WHERE ${whereClause}
-        AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 41 DAY)
-      GROUP BY week_start, label
-      ORDER BY week_start ASC
-    `, params);
-
-    // ── Monthly — last 6 months ───────────────────────────────────────────────
-    // FIX: old code grouped by DATE_FORMAT(...'%Y-%m') AND the display label
-    // separately, which works but is redundant. Group by the truncated month
-    // date so ORDER BY is deterministic and timezone-safe.
-    const [monthlyConversions] = await pool.query(`
-      SELECT
-        DATE_FORMAT(l.created_at, '%Y-%m-01')                           AS month_start,
-        DATE_FORMAT(l.created_at, '%b %Y')                              AS label,
-        COUNT(*)                                                          AS total,
-        SUM(CASE WHEN l.lead_status = 'Converted' THEN 1 ELSE 0 END)   AS converted
-      FROM  leads l
-      WHERE ${whereClause}
-        AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
-      GROUP BY month_start, label
-      ORDER BY month_start ASC
-    `, params);
-
-    // ── Build response ────────────────────────────────────────────────────────
-    const s = stats[0] || {};
-
-    // FIX: stats[0] values come back as BigInt strings from mysql2 when
-    // COUNT/SUM returns large numbers. Coerce to Number throughout.
-    const n = (v) => Number(v) || 0;
-
-    return res.json({
-      success: true,
-
-      // KPIs
-      totalLeads:       n(s.totalLeads),
-      newToday:         n(s.newToday),
-      callsMadeToday:   n(s.callsMadeToday),
-      handledToday:     n(s.handledToday),
-      pendingFollowUps: n(s.trueFollowupCount),
-      highIntentLeads:  n(s.interestedCount),
-      lostRejected:     n(s.lostRejected),
-      conversionRate:   n(s.totalLeads) > 0
-        ? Math.round((n(s.converted) / n(s.totalLeads)) * 100)
-        : 0,
-
-      // Lists & charts
-      recentLeads:        recent             || [],
-      sourceStats:        sourceStats        || [],
-      dailyConversions:   dailyConversions   || [],
-      weeklyConversions:  weeklyConversions  || [],
-      monthlyConversions: monthlyConversions || [],
-
-      // Status breakdown
-      statusStats: {
-        new:        n(s.newCount),
-        contacted:  n(s.contactedCount),
-        followup:   n(s.trueFollowupCount),
-        interested: n(s.interestedCount),
-        converted:  n(s.converted),
-        lost:       n(s.lostRejected),
-      },
-    });
-
-  } catch (error) {
-    console.error("Dashboard fetch error:", error.message);
-    return res.status(500).json({ error: "Server error during dashboard fetch" });
-  }
-};
-/**
- * Fetch All Leads with Filters and Pagination
- */
 const getAllLeads = async (req, res) => {
   try {
     const page   = parseInt(req.query.page)  || 1;
@@ -185,17 +29,19 @@ const getAllLeads = async (req, res) => {
     let whereClause = "1=1";
     let params = [];
     
-    // --- UPDATED: Added assigned_user_id to the destructuring ---
     const { 
       search, 
       status, 
       lead_source_id, 
       source_id, 
-      assigned_user_id, // From your new counselor filter
+      assigned_user_id, 
       startDate, 
       endDate, 
-      range 
+      range,
+      localDate // ✅ Receive the YYYY-MM-DD from Kozhikode
     } = req.query;
+
+const today = localDate || new Date().toLocaleDateString('en-CA');
 
     const finalSourceId = lead_source_id || source_id;
 
@@ -253,17 +99,23 @@ if (assigned_user_id) {
 }
 
     // Date Range Logic
+  // Date Range Logic - REVISED TO STOP SNAP-BACK
     if (range === 'today') {
-      whereClause += " AND DATE(l.created_at) = CURDATE()";
+      // ✅ Use STR_TO_DATE with the localDate variable instead of CURDATE()
+      whereClause += " AND DATE(l.created_at) = STR_TO_DATE(?, '%Y-%m-%d')";
+      params.push(today);
     } 
     else if (range === 'this_week') {
-      whereClause += " AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
+      whereClause += " AND l.created_at >= DATE_SUB(STR_TO_DATE(?, '%Y-%m-%d'), INTERVAL 7 DAY)";
+      params.push(today);
     } 
     else if (range === 'this_month') {
-      whereClause += " AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      whereClause += " AND l.created_at >= DATE_SUB(STR_TO_DATE(?, '%Y-%m-%d'), INTERVAL 30 DAY)";
+      params.push(today);
     } 
     else if (range === 'this_year') {
-      whereClause += " AND YEAR(l.created_at) = YEAR(CURDATE())";
+      whereClause += " AND YEAR(l.created_at) = YEAR(STR_TO_DATE(?, '%Y-%m-%d'))";
+      params.push(today);
     } 
     else if (startDate && endDate) {
       whereClause += " AND l.created_at >= ? AND l.created_at <= ?";
@@ -309,6 +161,7 @@ const [leads] = await pool.query(`
  */
 const createLead = async (req, res) => {
   try {
+         const allowedGenders = ["Male", "Female", "Other"];
     const {
       full_name, parent_name, parent_contact, phone, email, city, age, gender,
       qualification, year_of_passing,
@@ -375,177 +228,380 @@ const getLeadById = async (req, res) => {
   }
 };
 
-/**
- * Update Lead and Log Changes
- */
+
 const updateLead = async (req, res) => {
-  const { id }    = req.params;
-  const updates   = req.body;
+  console.log("🔥 UPDATE LEAD HIT");
+  console.log("ID:", req.params.id);
+  console.log("BODY:", req.body);
+
+  const { id } = req.params;
+  const updates = req.body;
+
   try {
-    const [current] = await pool.query("SELECT * FROM leads WHERE id = ?", [id]);
-    if (current.length === 0) return res.status(404).json({ error: "Lead not found" });
+    // ─────────────────────────────
+    // FETCH EXISTING
+    // ─────────────────────────────
+    const [current] = await pool.query(
+      "SELECT * FROM leads WHERE id = ?",
+      [id]
+    );
+
+    if (!current.length) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
 
     const old = current[0];
 
+    // ─────────────────────────────
+    // SAFE VALUE HANDLER
+    // ─────────────────────────────
+    const safe = (newVal, oldVal, type = "string") => {
+      if (newVal === undefined) return oldVal;
+
+      if (type === "number") {
+        if (newVal === null || newVal === "") return oldVal;
+        const n = Number(newVal);
+        return isNaN(n) ? oldVal : n;
+      }
+
+      if (type === "string") {
+        if (newVal === null) return oldVal;
+        const val = String(newVal).trim();
+        return val === "" ? null : val; // ✅ critical fix
+      }
+
+      return newVal;
+    };
+
+    // ─────────────────────────────
+    // FIRST CONTACT LOGIC
+    // ─────────────────────────────
     let firstContactedAt = old.first_contacted_at;
-    if ((updates.lead_status === 'Contacted' || updates.lead_status === 'Follow-up') && !firstContactedAt) {
+
+    if (
+      (updates.lead_status === "Contacted" ||
+        updates.lead_status === "Follow-up") &&
+      !firstContactedAt
+    ) {
       firstContactedAt = new Date();
     }
 
+    // ─────────────────────────────
+    // BUILD DATA OBJECT
+    // ─────────────────────────────
     const data = {
-      ...old,
-      ...updates,
+      full_name:        safe(updates.full_name, old.full_name),
+      phone:            safe(updates.phone, old.phone),
+      email:            safe(updates.email, old.email),
+      city:             safe(updates.city, old.city),
+      age:              safe(updates.age, old.age, "number"),
+      gender:           safe(updates.gender, old.gender, "string"),
+      qualification:    safe(updates.qualification, old.qualification),
+      year_of_passing:  safe(updates.year_of_passing, old.year_of_passing, "number"),
+      parent_name:      safe(updates.parent_name, old.parent_name),
+      parent_contact:   safe(updates.parent_contact, old.parent_contact),
+      lead_status:      safe(updates.lead_status, old.lead_status || "New"),
+      lead_source_id:   safe(updates.lead_source_id, old.lead_source_id, "number"),
+
+      assigned_user_id:
+        updates.assigned_user_id === ""
+          ? null
+          : safe(updates.assigned_user_id, old.assigned_user_id, "number"),
+
+      interested_course: safe(updates.interested_course, old.interested_course),
+      counselor_remarks: safe(updates.counselor_remarks, old.counselor_remarks),
+
+      next_follow_up_date: updates.hasOwnProperty("next_follow_up_date")
+        ? (updates.next_follow_up_date
+            ? String(updates.next_follow_up_date).split("T")[0].trim()
+            : null)
+        : (() => {
+            if (!old.next_follow_up_date) return null;
+            if (old.next_follow_up_date instanceof Date) {
+              return old.next_follow_up_date.toISOString().split("T")[0];
+            }
+            return String(old.next_follow_up_date).split("T")[0].trim();
+          })(),
+
+      urgency:      safe(updates.urgency, old.urgency),
+      lead_quality: safe(updates.lead_quality, old.lead_quality),
+
+      whatsapp_same: updates.hasOwnProperty("whatsapp_same")
+        ? (updates.whatsapp_same ? 1 : 0)
+        : (old.whatsapp_same ?? 0),
+
       first_contacted_at: firstContactedAt,
-      updated_at:  new Date(),
-      lead_status: updates.lead_status || old.lead_status || 'New',
+      updated_at: new Date(),
     };
 
-    await pool.query(`
+    // ─────────────────────────────
+    // VALIDATION (AFTER DATA BUILD)
+    // ─────────────────────────────
+
+    const allowedGenders = ["Male", "Female", "Other"];
+    if (data.gender && !allowedGenders.includes(data.gender)) {
+      data.gender = null;
+    }
+
+    if (data.age && (data.age < 1 || data.age > 100)) {
+      data.age = old.age;
+    }
+
+    // ─────────────────────────────
+    // BUSINESS RULES
+    // ─────────────────────────────
+    const terminalStatuses = ["Converted", "Lost", "Rejected", "Closed"];
+
+    if (terminalStatuses.includes(data.lead_status)) {
+      data.next_follow_up_date = null;
+    }
+
+    // ─────────────────────────────
+    // UPDATE QUERY
+    // ─────────────────────────────
+    await pool.query(
+      `
       UPDATE leads 
-      SET full_name=?, phone=?, email=?, city=?, age=?, gender=?, qualification=?, 
-          year_of_passing=?, parent_name=?, parent_contact=?, lead_status=?, 
-          lead_source_id=?, assigned_user_id=?, interested_course=?, 
-          counselor_remarks=?, next_follow_up_date=?, urgency=?, lead_quality=?, whatsapp_same=?,
-          first_contacted_at=?, updated_at=? 
-      WHERE id = ?`,
+      SET 
+        full_name=?,
+        phone=?,
+        email=?,
+        city=?,
+        age=?,
+        gender=?,
+        qualification=?,
+        year_of_passing=?,
+        parent_name=?,
+        parent_contact=?,
+        lead_status=?,
+        lead_source_id=?,
+        assigned_user_id=?,
+        interested_course=?,
+        counselor_remarks=?,
+        next_follow_up_date=?,
+        urgency=?,
+        lead_quality=?,
+        whatsapp_same=?,
+        first_contacted_at=?,
+        updated_at=?
+      WHERE id=?
+      `,
       [
-        data.full_name, data.phone, data.email, data.city, data.age, data.gender,
-        data.qualification, data.year_of_passing, data.parent_name, data.parent_contact,
+        data.full_name,
+        data.phone,
+        data.email,
+        data.city,
+        data.age,
+        data.gender,
+        data.qualification,
+        data.year_of_passing,
+        data.parent_name,
+        data.parent_contact,
         data.lead_status,
-        data.lead_source_id || null,
-        (data.assigned_user_id === "" || data.assigned_user_id === "0") ? null : (data.assigned_user_id || null),
-        data.interested_course, data.counselor_remarks, data.next_follow_up_date,
-        data.urgency, data.lead_quality, data.whatsapp_same, data.first_contacted_at, data.updated_at, id
+        data.lead_source_id,
+        data.assigned_user_id,
+        data.interested_course,
+        data.counselor_remarks,
+        data.next_follow_up_date,
+        data.urgency,
+        data.lead_quality,
+        data.whatsapp_same,
+        data.first_contacted_at,
+        data.updated_at,
+        id,
       ]
     );
 
-    const userId = req.user?.id;
+    // ─────────────────────────────
+    return res.json({
+      success: true,
+      message: "Updated successfully",
+    });
 
-    if (updates.lead_status && updates.lead_status !== old.lead_status) {
-      await activityController.record({
-        userId,
-        leadId:      id,
-        actionType:  'STATUS_UPDATE',
-        description: `Status changed from "${old.lead_status}" to "${updates.lead_status}"`,
-        oldValue:    old.lead_status,
-        newValue:    updates.lead_status,
-      });
-    }
-
-    if (updates.assigned_user_id && String(updates.assigned_user_id) !== String(old.assigned_user_id)) {
-      await activityController.record({
-        userId,
-        leadId:      id,
-        actionType:  'ASSIGNED',
-        description: `Lead reassigned to user ID ${updates.assigned_user_id}`,
-        oldValue:    String(old.assigned_user_id || 'Unassigned'),
-        newValue:    String(updates.assigned_user_id),
-      });
-    }
-
-    if (updates.counselor_remarks && updates.counselor_remarks !== old.counselor_remarks) {
-      await activityController.record({
-        userId,
-        leadId:      id,
-        actionType:  'NOTE_ADDED',
-        description: `Remark updated: "${updates.counselor_remarks}"`,
-        oldValue:    old.counselor_remarks || '',
-        newValue:    updates.counselor_remarks,
-      });
-    }
-
-    res.json({ success: true, message: "Updated successfully" });
   } catch (error) {
-    console.error("Update Lead Error:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("🔥 FULL ERROR:", error);
+    return res.status(500).json({
+      error: error.message,
+    });
   }
 };
 
-/**
- * Bulk Assign Leads and Log Activity
- */
 const bulkAssignLeads = async (req, res) => {
   const { leadIds, assigned_user_id, lead_status } = req.body;
+  
   if (!Array.isArray(leadIds) || leadIds.length === 0) {
     return res.status(400).json({ error: "No leads selected" });
   }
+
   try {
+    // 1. UPDATE
     await pool.query(
       `UPDATE leads SET assigned_user_id = ?, lead_status = ? WHERE id IN (?)`,
       [assigned_user_id, lead_status || 'New', leadIds]
     );
 
+    // 2. FETCH NAMES FOR OPTIMISTIC UI
+    const [updatedData] = await pool.query(
+      `SELECT 
+        (SELECT name FROM users WHERE id = ?) AS assigned_user_name,
+        (SELECT name FROM lead_sources ls JOIN leads l ON l.lead_source_id = ls.id WHERE l.id = ?) AS lead_source_name
+      `,
+      [assigned_user_id, leadIds[0]]
+    );
+
+    // 3. RECORD ACTIVITIES (Existing Functionality)
     await Promise.all(leadIds.map(leadId =>
       activityController.record({
         userId:      req.user?.id,
         leadId,
         actionType:  'ASSIGNED',
-        description: `Bulk assigned to user ID ${assigned_user_id} with status "${lead_status || 'New'}"`,
+        description: `Bulk assigned to ${updatedData[0]?.assigned_user_name || assigned_user_id} with status "${lead_status || 'New'}"`,
         oldValue:    null,
         newValue:    String(assigned_user_id),
       })
     ));
 
-    res.json({ message: `Successfully updated ${leadIds.length} leads` });
+    // 4. RETURN DATA FOR OPTIMISTIC UI
+  res.json({ 
+      success: true,
+      message: `Successfully updated ${leadIds.length} leads`,
+      assigned_user_name: updatedData[0]?.assigned_user_name || 'Assigned',
+      lead_source_name: updatedData[0]?.lead_source_name
+    });
   } catch (error) {
-    console.error("Bulk Assignment Error:", error.message);
     res.status(500).json({ error: "Bulk update failed" });
   }
 };
-
 /**
  * Bulk Import Leads
  */
+
+
+
 const bulkImportLeads = async (req, res) => {
-  const { leads } = req.body;
+  const { leads, autoDistribute = true } = req.body;
   const createdBy = req.user?.id || 1;
 
+  // Counters for the final response
+  let inserted = 0;
+  let assigned = 0;
+  let duplicates = 0;
+  let invalid = 0;
+  let failed = 0;
+
+  if (!Array.isArray(leads) || leads.length === 0) {
+    return res.status(400).json({ success: false, message: "No leads provided" });
+  }
+
   try {
-    // First, get the ID of "Bulk Import" source
-    const [bulkSource] = await pool.query(
+    console.log(`[Import] Processing ${leads.length} leads...`);
+
+    // 1. Get Bulk Import Source ID
+    const [sourceRows] = await pool.query(
       "SELECT id FROM lead_sources WHERE name = 'Bulk Import' LIMIT 1"
     );
+    const sourceId = sourceRows.length > 0 ? sourceRows[0].id : null;
 
-    const bulkImportSourceId = bulkSource.length > 0 ? bulkSource[0].id : null;
+    if (!sourceId) throw new Error("Bulk Import source missing in lead_sources table");
 
-    const values = leads.map(l => [
-      l.full_name, 
-      l.phone, 
-      l.email || null, 
-      l.age || null, 
-      l.gender || null,
-      l.city || null, 
-      l.qualification || null, 
-      l.year_of_passing || null,
-      l.parent_name || null, 
-      l.parent_contact || null, 
-      l.interested_course || null,
-      l.counselor_remarks || null, 
-      bulkImportSourceId,           // ← Force Bulk Import
-      'New', 
-      createdBy
-    ]);
+    for (const l of leads) {
+      try {
+        // 2. Normalize and Clean Data
+        const fullName = String(l.full_name || "").trim();
+        const cleanPhone = String(l.phone || "").replace(/\D/g, "").slice(-10);
 
-    await pool.query(
-      `INSERT INTO leads 
-       (full_name, phone, email, age, gender, city, qualification, year_of_passing, 
-        parent_name, parent_contact, interested_course, counselor_remarks, 
-        lead_source_id, lead_status, created_by) 
-       VALUES ? 
-       ON DUPLICATE KEY UPDATE updated_at = NOW()`,
-      [values]
-    );
+        if (!fullName || cleanPhone.length < 10) {
+          invalid++;
+          continue;
+        }
 
-    res.json({ 
-      success: true, 
-      message: `Successfully imported ${leads.length} leads as Bulk Import` 
+        // 3. Duplicate Check
+        const [existing] = await pool.query(
+          "SELECT id FROM leads WHERE phone = ? LIMIT 1", 
+          [cleanPhone]
+        );
+        if (existing.length > 0) {
+          duplicates++;
+          continue;
+        }
+
+        // 4. FIX: Professional UID Generation (L26-XXXX)
+        // This ensures correct alphabetical sorting in your DB
+        const year = "26"; 
+        const randomPart = Math.floor(1000 + Math.random() * 9000);
+        const leadUid = `L${year}-${randomPart}`;
+
+        // 5. Database Insert
+        const [insertOp] = await pool.query(
+          `INSERT INTO leads 
+           (full_name, phone, email, city, country, interested_course, lead_source_id, lead_status, is_archived, lead_uid, created_by) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [
+            fullName, 
+            cleanPhone, 
+            l.email || null, 
+            l.city || null, 
+            l.country || "India", 
+            l.interested_course || "Inquiry", 
+            sourceId, 
+            "New", 
+            leadUid, 
+            createdBy
+          ]
+        );
+
+        if (insertOp.insertId) {
+          inserted++;
+
+          // 6. Distribution Engine
+          if (autoDistribute) {
+            try {
+              // Pass normalized data to ensure the engine has enough context
+              const distResult = await leadDistributor.distribute(
+                { 
+                  id: insertOp.insertId, 
+                  full_name: fullName, 
+                  phone: cleanPhone,
+                  country: l.country || "India",
+                  interested_course: l.interested_course || "Inquiry"
+                }, 
+                createdBy
+              );
+              
+              if (distResult?.success) assigned++;
+            } catch (distErr) {
+              console.error(`[Engine] Dist Error for ID ${insertOp.insertId}:`, distErr.message);
+            }
+          }
+        }
+      } catch (rowErr) {
+        failed++;
+        console.error("Row Error:", rowErr.message);
+      }
+    }
+
+    // FINAL RESPONSE
+    return res.status(200).json({
+      success: true,
+      inserted,
+      assigned,
+      duplicates,
+      invalid,
+      failed,
+      message: `${inserted} leads processed. ${assigned} auto-assigned.`
     });
 
-  } catch (error) {
-    console.error("Bulk Import Error:", error.message);
-    res.status(500).json({ error: "Bulk import failed" });
+  } catch (masterErr) {
+    console.error("MASTER IMPORT ERROR:", masterErr.message);
+    return res.status(500).json({ 
+      success: false, 
+      error: masterErr.message, 
+      message: "Critical error during import process" 
+    });
   }
 };
+
+module.exports = { bulkImportLeads };
 
 /**
  * Delete Individual Lead (Admin Only)
@@ -562,78 +618,8 @@ const deleteLead = async (req, res) => {
   }
 };
 
-/**
- * Fetch Scheduled Follow-ups for Today
- */
-const getTodayTasks = async (req, res) => {
-  try {
-    const role   = req.user?.role?.toLowerCase() || '';
-    const userId = req.user?.id;
-    let whereClause = "(DATE(next_follow_up_date) <= CURDATE() AND lead_status NOT IN ('Converted', 'Lost', 'Not Interested'))";
-    const params = [];
-    if (role !== 'admin' && userId) {
-      whereClause += " AND assigned_user_id = ?";
-      params.push(userId);
-    }
-    const [rows] = await pool.query(
-      `SELECT * FROM leads WHERE ${whereClause} ORDER BY next_follow_up_date ASC`, params
-    );
-    res.json({ leads: rows || [], tasks: rows || [], data: rows || [] });
-  } catch (error) {
-    console.error("Today Tasks Error:", error.message);
-    res.status(500).json({ error: "Failed to fetch today's tasks" });
-  }
-};
 
-/**
- * Fetch Pipeline Leads (Active Statuses)
- */
-const getPipeline = async (req, res) => {
-  try {
-    const role   = req.user?.role?.toLowerCase() || '';
-    const userId = req.user?.id;
-    let whereClause = "lead_status IN ('New', 'Contacted', 'Interested', 'Follow-up')";
-    const params = [];
-    if (role !== 'admin' && userId) {
-      whereClause += " AND assigned_user_id = ?";
-      params.push(userId);
-    }
-    const [rows] = await pool.query(
-      `SELECT * FROM leads WHERE ${whereClause} ORDER BY updated_at DESC`, params
-    );
-    res.json({ leads: rows || [], data: rows || [], success: true });
-  } catch (error) {
-    console.error("Pipeline Error:", error.message);
-    res.status(500).json({ error: "Failed to fetch pipeline data" });
-  }
-};
 
-/**
- * Fetch Recent Communication Logs/Remarks
- */
-const getCommLogs = async (req, res) => {
-  try {
-    const role   = req.user?.role?.toLowerCase() || '';
-    const userId = req.user?.id;
-    let query = `
-      SELECT l.id, l.full_name, l.counselor_remarks as message, l.updated_at as timestamp, u.name as staff_name
-      FROM leads l
-      JOIN users u ON l.assigned_user_id = u.id
-      WHERE l.counselor_remarks IS NOT NULL AND l.counselor_remarks != ''
-    `;
-    const params = [];
-    if (role !== 'admin' && userId) {
-      query += " AND l.assigned_user_id = ?";
-      params.push(userId);
-    }
-    query += " ORDER BY l.updated_at DESC LIMIT 50";
-    const [rows] = await pool.query(query, params);
-    res.json(rows);
-  } catch (error) {
-    console.error("Communication Logs Error:", error.message);
-    res.status(500).json({ error: "Failed to load communication logs" });
-  }
-};
 
 /**
  * Export Leads to CSV
@@ -805,7 +791,7 @@ const bulkUpdateLeads = async (req, res) => {
 
 module.exports = {
   authenticateToken,
-  getDashboardStats,
+
   getAllLeads,
   createLead,
   getLeadById,
@@ -813,13 +799,13 @@ module.exports = {
   bulkAssignLeads,
   bulkImportLeads,
   deleteLead,
-  getTodayTasks,
-  getPipeline,
+
+
   checkDuplicate,
   exportLeads,
   getSources,
   logInteraction,
-  getCommLogs,
+
   updateLeadStatus,
   getNewLeadCount,
   bulkUpdateLeads,

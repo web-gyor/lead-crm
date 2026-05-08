@@ -9,24 +9,60 @@ const rateLimit = require('express-rate-limit');
 const { pool, testConnection } = require('./config/db');
 
 // Route Imports
-const courseRoutes = require('./routes/courseRoutes');
+
+const webhookRoutes = require("./routes/webhookRoutes");
 const leadRoutes = require('./routes/leadRoutes');
+const { authenticateToken: protect } = require("./middleware/auth");
 const userRoutes = require('./routes/userRoutes');
 const logRoutes = require('./routes/logRoutes');
 const permissionsRouter = require('./routes/permissionRoutes');
 const activityRoutes = require("./routes/activityRoutes");
 
 // Controller Imports
+
 const courseController = require('./controllers/courseController');
+const countryRoutes = require('./routes/countryRoutes');
 const analyticsController = require('./controllers/analyticsController');
 const { authenticateToken } = require('./middleware/auth');
+const distributionRoutes = require('./routes/distributionRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes');
+const courseRoutes = require('./routes/courseRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+app.use((req, res, next) => {
+    console.log(`Incoming Request: ${req.method} ${req.url}`);
+    next();
+});
+
 // Global Middleware
-app.use(cors());
-app.use(express.json({ limit: '4mb' }));
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://lead-crm-alpha.vercel.app', // Replace with your ACTUAL Vercel URL
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    // Check if the origin is in our allowed list or is a Vercel preview URL
+    const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(morgan('dev'));
 
 // Rate Limiter for Authentication
@@ -49,13 +85,20 @@ app.use('/api/users', userRoutes);  // Handles: POST /api/users/forgot-password 
 
 // Core Functional Routes
 app.use('/api/courses', courseRoutes);
+app.use('/api/countries', countryRoutes);
 app.use('/api/permissions', permissionsRouter);
 app.use('/api/masters', leadRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api', logRoutes);
-
+app.use('/api/distribution', require('./routes/distributionRoutes'));
+app.use('/api/attendance', attendanceRoutes);
 // --- ANALYTICS & CUSTOM ENDPOINTS ---
+// Public webhooks (NO auth middleware here)
+app.use("/api/v1/webhooks", webhookRoutes);
+
+// Protected CRM routes
+app.use("/api/v1/leads", protect, leadRoutes);
 
 app.get('/api/analytics/business-overview', authenticateToken, analyticsController.getBusinessOverview);
 
@@ -215,15 +258,22 @@ app.put('/api/settings', async (req, res) => {
   }
 });
 
+
+
 // Server Initialization
 async function start() {
   try {
     await testConnection();
-    app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
+    
+    // Explicitly add '127.0.0.1' as the second argument
+   const PORT = process.env.PORT || 4000;
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ CRM Server Active: http://0.0.0.0:${PORT}`);
+});
   } catch (err) {
     console.error("Initialization Failed:", err.message);
     process.exit(1);
   }
 }
-
 start();
