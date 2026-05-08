@@ -3,39 +3,34 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  base: '', 
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      disable: false, 
       manifest: {
-        name: 'CRM Alpha',
-        short_name: 'CRMAlpha',
-        description: 'WebGyor CRM Lead Management',
-        theme_color: '#ffffff',
+        name: 'Lead CRM Pro V3',
+        short_name: 'CRM V3',
+        start_url: '.',
+        display: 'standalone',
+        theme_color: '#0F172A',
+        background_color: '#0F172A',
         icons: [
-  {
-    src: 'pwa-192x192.png',
-    sizes: '192x192',
-    type: 'image/png'
-  },
-  {
-    src: 'pwa-512x512.png',
-    sizes: '512x512',
-    type: 'image/png'
-  }
-]
+          // Using the names you have in your public folder now
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' }
+        ]
+      },
+      workbox: {
+        // ✅ THIS PREVENTS THE BUILD CRASH
+        globPatterns: [], 
+        navigateFallback: null 
       }
     })
   ],
   build: {
-    chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'lucide-react', 'recharts']
-        }
-      }
-    }
+    emptyOutDir: true,
+    assetsDir: 'assets',
   }
 })
