@@ -5,7 +5,7 @@ import {
   Edit3, X, Calendar, Clock, Globe, Zap, AlertCircle, UserCheck,
 } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "../../utils/api";
-import toast from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
 import PaginationFooter from "../../components/leads/PaginationFooter";
 import LeadEditModal from "../../components/leads/LeadEditModal";
 import DeleteModal from "../../components/DeleteModal";
@@ -42,13 +42,39 @@ interface Filters {
   endDate: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Revised Helpers ──────────────────────────────────────────────────────────
+
+
+
+const getLocalTodayStr = () => {
+  return new Date().toLocaleDateString('en-CA'); // Returns "2026-05-06"
+};
+
+function getFollowUpStatus(dateStr?: string): "overdue" | "today" | "upcoming" | null {
+  if (!dateStr || dateStr === "0000-00-00") return null;
+
+  const todayStr = getLocalTodayStr(); // Correctly identifies May 6th
+  const fuStr = String(dateStr).split("T")[0];
+
+  if (fuStr < todayStr) return "overdue";
+  if (fuStr === todayStr) return "today";
+  return "upcoming";
+}
+
 
 function getRangeDates(range: string): { startDate: string; endDate: string } | null {
   if (range === "all" || range === "custom") return null;
-  const today = new Date(); today.setHours(23, 59, 59, 999);
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  if (range === "this_week") {
+  
+  // Use local time instead of UTC to calculate ranges
+  const today = new Date();
+  const todayStr = getLocalTodayStr();
+  
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  if (range === "today") {
+    return { startDate: todayStr, endDate: todayStr };
+  } else if (range === "this_week") {
     const d = start.getDay();
     start.setDate(start.getDate() - d + (d === 0 ? -6 : 1));
   } else if (range === "this_month") {
@@ -56,21 +82,22 @@ function getRangeDates(range: string): { startDate: string; endDate: string } | 
   } else if (range === "this_year") {
     start.setMonth(0, 1);
   }
-  return { startDate: start.toISOString().split("T")[0], endDate: today.toISOString().split("T")[0] };
+
+  return { 
+    startDate: start.toLocaleDateString('en-CA'), 
+    endDate: todayStr 
+  };
 }
 
 function fmtDate(iso?: string) {
-  if (!iso || iso === "0000-00-00") return null;
-  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
+  if (!iso || iso === "0000-00-00" || iso === "") return null;
 
-function getFollowUpStatus(dateStr?: string): "overdue" | "today" | "upcoming" | null {
-  if (!dateStr || dateStr === "0000-00-00") return null;
-  const todayStr = new Date().toLocaleDateString("en-CA");
-  const fuStr    = new Date(dateStr).toLocaleDateString("en-CA");
-  if (fuStr < todayStr)  return "overdue";
-  if (fuStr === todayStr) return "today";
-  return "upcoming";
+  // Split by 'T' or space to get only the YYYY-MM-DD part
+  const clean = iso.split("T")[0].split(" ")[0];
+  const [y, m, d] = clean.split("-");
+
+  if (!y || !m || !d) return null;
+  return `${d}-${m}-${y}`; // Returns 06-05-2026
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -117,11 +144,6 @@ function FollowUpCell({ dateStr, onSetDate }: { dateStr?: string; onSetDate: () 
     : status === "today" ? "text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded"
     : "text-orange-700 dark:text-orange-400";
 
-  const icon =
-    status === "overdue" ? <Calendar size={11} className="text-red-500 shrink-0" />
-    : status === "today"  ? <Calendar size={11} className="text-blue-500 shrink-0" />
-    : <Calendar size={11} className="text-orange-500 shrink-0" />;
-
   const label =
     status === "overdue" ? "⚠ Overdue"
     : status === "today"  ? "📅 Today"
@@ -129,7 +151,7 @@ function FollowUpCell({ dateStr, onSetDate }: { dateStr?: string; onSetDate: () 
 
   return (
     <div className="flex items-center gap-1.5">
-      {icon}
+      <Calendar size={11} className={status === "overdue" ? "text-red-500" : status === "today" ? "text-blue-500" : "text-orange-500"} />
       <div>
         <span className={`text-[11px] font-bold ${cls}`}>{display}</span>
         {label && <p className="text-[8px] font-black uppercase tracking-tighter mt-0.5 text-inherit opacity-80">{label}</p>}
@@ -137,7 +159,6 @@ function FollowUpCell({ dateStr, onSetDate }: { dateStr?: string; onSetDate: () 
     </div>
   );
 }
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function FollowupLeads() {
@@ -239,40 +260,52 @@ export default function FollowupLeads() {
 
   // ── Load leads ────────────────────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = {
-        page:   String(currentPage),
-        limit:  String(rowsPerPage),
-        search: filters.search,
-        status: LEAD_STATUS,
-      };
-      if (filters.sourceId)    params.source_id        = filters.sourceId;
-      if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+  const loadData = useCallback(async (silent = false) => {
+  if (!silent) setLoading(true);
 
-      const dates = filters.range === "custom"
-        ? { startDate: filters.startDate, endDate: filters.endDate }
-        : getRangeDates(filters.range);
-      if (dates?.startDate) params.startDate = dates.startDate;
-      if (dates?.endDate)   params.endDate   = dates.endDate;
+  try {
+    const params: Record<string, string> = {
+      page:   String(currentPage),
+      limit:  String(rowsPerPage),
+      search: filters.search,
+      status: LEAD_STATUS,
+      localDate: getLocalTodayStr(),
+    };
 
-      const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
-      if (res) {
-        setLeads(Array.isArray(res.data) ? res.data : []);
-        setTotalPages(res.pagination?.totalPages ?? 1);
-        setTotalCount(res.pagination?.totalItems  ?? 0);
-      } else {
-        setLeads([]);
-        setTotalCount(0);
-      }
-    } catch {
-      toast.error("Failed to load follow-ups");
-      setLeads([]);
-    } finally {
-      setLoading(false);
+    if (filters.sourceId)    params.source_id        = filters.sourceId;
+    if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+
+    const dates = filters.range === "custom"
+      ? { startDate: filters.startDate, endDate: filters.endDate }
+      : getRangeDates(filters.range);
+
+    if (dates?.startDate) params.startDate = dates.startDate;
+    if (dates?.endDate)   params.endDate   = dates.endDate;
+
+    const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
+
+    if (res?.data) {
+      const newData = Array.isArray(res.data) ? res.data : [];
+
+      // ✅ KEEP UI STABLE
+      setLeads(newData);
+
+      setTotalPages(res.pagination?.totalPages ?? 1);
+      setTotalCount(res.pagination?.totalItems ?? 0);
     }
-  }, [currentPage, rowsPerPage, filters]);
+
+    // ❌ DO NOT clear leads if res fails
+    // removing this prevents flicker
+
+  } catch {
+    toast.error("Failed to load follow-ups");
+
+    // ❌ DO NOT setLeads([])
+    // keep old data visible
+  } finally {
+    if (!silent) setLoading(false);
+  }
+}, [currentPage, rowsPerPage, filters]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -283,7 +316,7 @@ export default function FollowupLeads() {
     try {
       await apiPut(`/api/leads/${leadId}`, { assigned_user_id: userId, lead_status: LEAD_STATUS });
       toast.success("Lead assigned");
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Assignment failed");
     }
@@ -304,7 +337,7 @@ export default function FollowupLeads() {
       toast.success(`${selectedLeads.length} lead(s) assigned`);
       setSelectedLeads([]);
       setTargetCounselorId("");
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Bulk assignment failed");
     } finally {
@@ -327,7 +360,7 @@ export default function FollowupLeads() {
       setSelectedLeads([]);
       setBulkSourceId("");
       setBulkStatus("");
-      loadData();
+      loadData(true);
     } catch (err: any) {
       toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
     }
@@ -343,7 +376,7 @@ export default function FollowupLeads() {
       await apiDelete(`/api/leads/${deleteId}`);
       toast.success("Lead removed", { id: toastId });
       setDeleteId(null);
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Delete failed", { id: toastId });
     } finally {
@@ -363,7 +396,7 @@ export default function FollowupLeads() {
         toast.success(`${selectedLeads.length} leads deleted`, { id: toastId });
         setSelectedLeads([]);
         setShowBulkDeleteModal(false);
-        loadData();
+        loadData(true);
       } else {
         toast.error(res?.message ?? "Bulk delete failed", { id: toastId });
       }
@@ -397,7 +430,7 @@ export default function FollowupLeads() {
       toast.success("Follow-up updated");
       setShowEditForm(false);
       setEditingLead(null);
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Update failed");
     }
@@ -427,7 +460,7 @@ export default function FollowupLeads() {
 
   return (
     <div className="space-y-4 pb-8">
-
+<Toaster position="top-right" reverseOrder={false} />
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>

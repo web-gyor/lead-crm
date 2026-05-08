@@ -1,19 +1,18 @@
 // src/utils/permissions.ts
 export const hasPermission = (user: any, permissions: any[], permissionKey: string) => {
   if (!user) return false;
+  
   const role = user.role?.toLowerCase();
+  if (role === 'admin') return true;
 
-  // 1. Admin Bypass
-  if (role === 'admin' || role === 'superadmin') return true;
-
-  // 2. Dynamic Toggle Check (Case-Insensitive)
-  if (permissions && Array.isArray(permissions)) {
-    return permissions.some(
-      (p: any) => 
-        p.feature_name?.toLowerCase() === permissionKey?.toLowerCase() && 
-        p.is_enabled === 1
-    );
+  if (!permissions || !Array.isArray(permissions)) {
+    console.error("Permissions array is missing or invalid");
+    return false;
   }
 
-  return false;
+  // Find by the technical KEY (e.g., 'master.course')
+  return permissions.some(p => 
+    p.permission_key === permissionKey && 
+    Number(p.is_enabled) === 1
+  );
 };

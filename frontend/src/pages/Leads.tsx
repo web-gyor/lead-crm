@@ -1,5 +1,5 @@
 // src/pages/Leads.tsx
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
@@ -356,40 +356,43 @@ const k = stats || {};
   }, []);
 
   // ── Load leads ────────────────────────────────────────────────────────────
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = {
-        page:   String(currentPage),
-        limit:  String(rowsPerPage),
-        search: debouncedSearch,
-        status: filters.status === "all" ? "" : (filters.status || ""),
-      };
+  const loadData = useCallback(async (silent = false) => {
+  if (!silent) setLoading(true);
 
-      if (filters.sourceId)    params.source_id        = filters.sourceId;
-      if (filters.quality)     params.quality          = filters.quality;
-      // "unassigned" is a sentinel the backend should handle (WHERE assigned_user_id IS NULL)
-      if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+  try {
+    const params: Record<string, string> = {
+      page: String(currentPage),
+      limit: String(rowsPerPage),
+      search: debouncedSearch,
+      status: filters.status === "all" ? "" : (filters.status || ""),
+    };
 
-      const dates = filters.range === "custom"
+    if (filters.sourceId) params.source_id = filters.sourceId;
+    if (filters.quality) params.quality = filters.quality;
+    if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+
+    const dates =
+      filters.range === "custom"
         ? { startDate: filters.startDate, endDate: filters.endDate }
         : getRangeDates(filters.range);
-      if (dates?.startDate) params.startDate = dates.startDate;
-      if (dates?.endDate)   params.endDate   = dates.endDate;
 
-      const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
-      if (res) {
-        setLeads(res.data ?? []);
-        setTotalCount(res.pagination?.totalItems ?? 0);
-        setTotalPages(res.pagination?.totalPages  ?? 1);
-      }
-    } catch {
-      toast.error("Failed to load leads");
-    } finally {
-      setLoading(false);
+    if (dates?.startDate) params.startDate = dates.startDate;
+    if (dates?.endDate) params.endDate = dates.endDate;
+
+    const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
+
+    if (res) {
+      setLeads(res.data ?? []);
+      setTotalCount(res.pagination?.totalItems ?? 0);
+      setTotalPages(res.pagination?.totalPages ?? 1);
+      fetchSummary();
     }
-  }, [currentPage, rowsPerPage, debouncedSearch, filters]);
-
+  } catch {
+    toast.error("Failed to load leads");
+  } finally {
+    if (!silent) setLoading(false);
+  }
+}, [currentPage, rowsPerPage, debouncedSearch, filters]);
   const fetchSummary = useCallback(async () => {
   try {
     const res = await apiGet("/api/leads/dashboard-data");
@@ -409,10 +412,38 @@ const k = stats || {};
 
 useEffect(() => {
   loadData();    // Your existing table fetch
-  fetchSummary(); // The new dashboard-style fetch
 }, [loadData, fetchSummary]);
 
   // ── Filter helpers ────────────────────────────────────────────────────────
+  // ✅ SINGLE SOURCE OF TRUTH: KPI DATA
+const kpiStats = useMemo(() => {
+  return {
+    // 1. Use the total count from the backend pagination metadata
+    total: totalCount, 
+
+    // 2. Use the global stats from the fetchSummary API (k variable)
+    highIntent: Number(k.highIntentLeads || 0), 
+
+    // 3. Use the global stats for follow-ups
+    followUp: Number(k.pendingFollowUps || 0),
+
+    // 4. Calculate local conversion if needed, or use k.conversionRate
+    conversionRate: k.conversionRate || 0
+  };
+}, [totalCount, k]); // Re-runs when the global summary or total count changes
+  const handleStatusChange = async (leadId, newStatus) => {
+  try {
+    await apiPost(`/api/leads/update/${leadId}`, { status: newStatus });
+    toast.success("Status updated");
+    
+    // 🔄 THIS REFRESHES KPIs AND TABLE WITHOUT A PAGE RELOAD
+    loadData(true); 
+  } catch (err) {
+    toast.error("Failed to update");
+  }
+};
+
+
   const updateFilters = (patch: Partial<Filters>) => {
     setFilters((prev) => ({ ...prev, ...patch }));
     setCurrentPage(1);
@@ -515,7 +546,7 @@ useEffect(() => {
     setPhone("");
     setDuplicateLead(null);
     setSelectedCourse("");
-    loadData();
+    loadData(true);
 
     toast.success("Lead registered successfully");
   } catch (err: any) {
@@ -547,7 +578,7 @@ useEffect(() => {
     await apiPut(`/api/leads/${editingLead.id}`, payload);
 
     setShowEditForm(false); 
-    loadData();
+    loadData(true);
     toast.success("Lead profile updated");
   } catch (err: any) { 
     // This will trigger if the network is actually down
@@ -777,6 +808,9 @@ useEffect(() => {
         </div>
       </div>
     </div>
+
+
+
   ))}
 </div>
 
@@ -849,51 +883,38 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* Custom Date Range — Android PWA compatible */}
-<div>
-  <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
-    Custom Date Range
-  </p>
+          <div>
+  <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Custom Date Range</p>
+  <div className="flex items-center gap-2">
+    {/* Start Date */}
+    <input 
+      type={filters.startDate ? "date" : "text"} 
+      onFocus={(e) => (e.target.type = "date")}
+      onBlur={(e) => !filters.startDate && (e.target.type = "text")}
+      placeholder="DD-MM-YYYY"
+      value={filters.startDate}
+      onChange={(e) => updateFilters({ range: "custom", startDate: e.target.value })}
+      className="flex-1 px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[11px] bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" 
+    />
 
-  {/* Stack vertically on mobile — side-by-side kills date visibility on Android */}
-  <div className="flex flex-col gap-2">
-    <div className="flex items-center gap-2">
-      <span className="text-[11px] font-bold text-gray-400 w-7 shrink-0">From</span>
-      <input
-        type="date"
-        value={filters.startDate}
-        onChange={(e) => updateFilters({ range: "custom", startDate: e.target.value })}
-        className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg
-          text-sm          /* 14px — Android won't clip below this */
-          bg-gray-50 dark:bg-gray-700 dark:text-white
-          outline-none focus:border-blue-500 transition-colors"
-      />
-    </div>
+    <span className="text-gray-400 text-[10px] font-bold">TO</span>
 
-    <div className="flex items-center gap-2">
-      <span className="text-[11px] font-bold text-gray-400 w-7 shrink-0">To</span>
-      <input
-        type="date"
-        value={filters.endDate}
-        onChange={(e) => updateFilters({ range: "custom", endDate: e.target.value })}
-        className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg
-          text-sm
-          bg-gray-50 dark:bg-gray-700 dark:text-white
-          outline-none focus:border-blue-500 transition-colors"
-      />
-    </div>
+    {/* End Date */}
+    <input 
+      type={filters.endDate ? "date" : "text"}
+      onFocus={(e) => (e.target.type = "date")}
+      onBlur={(e) => !filters.endDate && (e.target.type = "text")}
+      placeholder="DD-MM-YYYY"
+      value={filters.endDate}
+      onChange={(e) => updateFilters({ range: "custom", endDate: e.target.value })}
+      className="flex-1 px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[11px] bg-gray-50 dark:bg-gray-700 dark:text-white outline-none" 
+    />
+
+    {(filters.startDate || filters.endDate) && (
+      <button type="button" onClick={() => updateFilters({ range: "all", startDate: "", endDate: "" })}
+        className="p-1.5 hover:bg-red-100 rounded-lg text-red-400"><X size={13} /></button>
+    )}
   </div>
-
-  {(filters.startDate || filters.endDate) && (
-    <button
-      type="button"
-      onClick={() => updateFilters({ range: "all", startDate: "", endDate: "" })}
-      className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-rose-400
-        hover:text-rose-600 transition-colors"
-    >
-      <X size={11} /> Clear dates
-    </button>
-  )}
 </div>
 
             {hasActiveFilters && (
@@ -906,7 +927,7 @@ useEffect(() => {
         )}
 
         {/* Desktop filter bar */}
-     <div className="hidden sm:flex flex-nowrap items-center gap-1.5 px-4 py-2 mb-0 w-full overflow-x-auto scrollbar-hide">
+     <div className="hidden sm:flex flex-wrap items-center gap-1.5 px-4 py-2 mb-0 w-full overflow-x-auto scrollbar-hide">
           <div className="relative w-full sm:w-48 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
             <input type="text" placeholder="Search name, phone or ID…" value={filters.search}
@@ -962,7 +983,7 @@ useEffect(() => {
 
           {hasActiveFilters && (
             <button type="button" onClick={clearAllFilters}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-all shrink-0">
+              className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-all shrink-0">
               <X size={12} /> Clear
             </button>
           )}

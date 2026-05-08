@@ -1,36 +1,35 @@
 import React from "react";
-import { X, Zap, Phone, MessageCircle, Clock, Globe, Users, UserX } from "lucide-react";
+import {
+  X,
+  Zap,
+  Phone,
+  MessageCircle,
+  Clock,
+  Globe,
+  Users,
+  UserX,
+} from "lucide-react";
 import ActivityLogsMini from "../ActivityLogsMini";
 
 const statusOptions = [
-  { value: 'New', label: 'New' },
-  { value: 'Contacted', label: 'Contacted' },
-  { value: 'Interested', label: 'Interested' },
-  { value: 'Follow-up', label: 'Follow-up' },
-  { value: 'Converted', label: 'Won' },
-  { value: 'Lost', label: 'Lost' },
-  { value: 'Not Interested', label: 'Rejected' }
+  { value: "New", label: "New" },
+  { value: "Contacted", label: "Contacted" },
+  { value: "Interested", label: "Interested" },
+  { value: "Follow-up", label: "Follow-up" },
+  { value: "Converted", label: "Won" },
+  { value: "Lost", label: "Lost" },
+  { value: "Not Interested", label: "Rejected" },
 ];
-
-interface LeadEditModalProps {
-  editingLead: any;
-  status: string;
-  setStatus: (s: string) => void;
-  sourceOptions: any[];
-  masterCourses: any[];
-  onClose: () => void;
-  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
-}
 
 export default function LeadEditModal({
   editingLead,
   status,
   setStatus,
   sourceOptions = [],
-  masterCourses = [],
+  dbCourses = [],   // ✅ change here
   onClose,
-  onSubmit
-}: LeadEditModalProps) {
+  onSubmit,
+}) {
   if (!editingLead) return null;
 
   return (
@@ -52,7 +51,7 @@ export default function LeadEditModal({
         <div className="flex flex-col md:flex-row overflow-hidden h-full">
           
           {/* LEFT SIDE: FORM (Full Logic Restored) */}
-          <form onSubmit={onSubmit} className="flex-1 px-5 py-4 overflow-y-auto space-y-4 border-r border-gray-100 dark:border-gray-800">
+         <form onSubmit={onSubmit} className="flex-1 px-5 py-4 overflow-y-auto space-y-4 border-r border-gray-100 dark:border-gray-800">
             
             {/* QUICK ACTION ENGINE */}
             <div className="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 space-y-2">
@@ -94,11 +93,57 @@ export default function LeadEditModal({
               <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Gender</label><select name="gender" defaultValue={editingLead.gender || ''} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Phone</label><div className="flex gap-2"><input required type="tel" name="phone" defaultValue={editingLead.phone || ''} className="flex-1 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none" /><label className="flex items-center gap-1.5 px-2 border rounded bg-gray-50 dark:bg-gray-800 cursor-pointer"><input type="checkbox" name="is_whatsapp" defaultChecked={editingLead.is_whatsapp === 1} className="w-4 h-4 text-green-600 rounded" /><span className="text-[10px] font-bold text-green-600 uppercase">WA</span></label></div></div>
-              <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Email</label><input type="email" name="email" defaultValue={editingLead.email || ''} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none" /></div>
-            </div>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+  
+  {/* PHONE + WHATSAPP */}
+  <div className="space-y-0.5">
+    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+      Phone
+    </label>
 
+    <div className="flex gap-2">
+      
+      <input
+        required
+        type="tel"
+        name="phone"
+        defaultValue={editingLead.phone || ""}
+        className="flex-1 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none"
+      />
+
+      {/* FIXED CHECKBOX NAME */}
+      <label className="flex items-center gap-1.5 px-2 border rounded bg-gray-50 dark:bg-gray-800 cursor-pointer">
+        
+        <input
+          type="checkbox"
+          name="whatsapp_same"
+          defaultChecked={Number(editingLead.whatsapp_same) === 1}
+          className="w-4 h-4 text-green-600 rounded"
+        />
+
+        <span className="text-[10px] font-bold text-green-600 uppercase">
+          WA
+        </span>
+      </label>
+
+    </div>
+  </div>
+
+  {/* EMAIL */}
+  <div className="space-y-0.5">
+    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+      Email
+    </label>
+
+    <input
+      type="email"
+      name="email"
+      defaultValue={editingLead.email || ""}
+      className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none"
+    />
+  </div>
+
+</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="p-2 bg-gray-50 dark:bg-gray-800/20 rounded-lg border border-gray-200 grid grid-cols-2 gap-2">
                 <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Qualification</label><input name="qualification" defaultValue={editingLead.qualification || ''} className="w-full px-2 py-1 text-sm rounded border border-gray-300 outline-none" /></div>
@@ -116,17 +161,46 @@ export default function LeadEditModal({
                 <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Course</label>
                 <select name="interested_course" defaultValue={editingLead.interested_course || ''} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none">
                   <option value="">Select Course</option>
-                  {masterCourses.map((c: any) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
+                {dbCourses.map((c: any) => (
+  <option key={c.id || c.name} value={c.name}>
+    {c.name}
+  </option>
+))}
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Source</label><select name="lead_source_id" defaultValue={editingLead.lead_source_id} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none"><option value="">Select</option>{sourceOptions.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-              <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Urgency</label><select name="urgency" defaultValue={editingLead.urgency || 'Normal'} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none"><option value="Normal">Normal</option><option value="Immediate">Immediate</option><option value="High">High</option></select></div>
-              <div className="space-y-0.5 col-span-2 md:col-span-1"><label className="text-[10px] font-black uppercase tracking-widest text-blue-600">Quality KPI</label><select name="lead_quality" defaultValue={editingLead.lead_quality || 'Unverified'} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 font-bold outline-none"><option value="Unverified">🔍 UNV</option><option value="Hot">🔥 HOT</option><option value="Cold">❄️ CLD</option></select></div>
-            </div>
-
+              <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Urgency</label>
+              <select name="urgency" defaultValue={editingLead.urgency || 'Normal'} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none">
+     
+  <option value="Immediate (pain)">Immediate </option>
+  <option value="Within 1 week">Within 1 week</option>
+  <option value="Within 1 month">Within 1 month</option>
+  <option value="Just inquiring">Just inquiring</option>
+</select>
+              </div>
+            
+           <div className="space-y-0.5 col-span-2 md:col-span-1">
+  <label className="text-[10px] font-black uppercase tracking-widest text-blue-600">
+    Quality KPI
+  </label>
+  <select 
+  name="lead_quality" 
+  // Change the fallback to match uppercase "Unverified"
+  defaultValue={editingLead.lead_quality || "Unverified"} 
+  className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 font-bold outline-none"
+>
+  {/* ✅ values must match the database ENUM exactly */}
+  <option value="Unverified">🔍 Unverified</option>
+  <option value="Hot">🔥 Hot</option>
+  <option value="Warm">🌡️ Warm</option>
+  <option value="Cold">❄️ Cold</option>
+  <option value="Low">📉 Low Priority</option>
+</select>
+</div>
+  </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t pt-2.5 border-gray-100 dark:border-gray-800">
               <div className="space-y-0.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-blue-600">Current Status</label>

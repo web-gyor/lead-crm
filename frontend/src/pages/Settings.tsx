@@ -1,12 +1,13 @@
 // src/pages/Settings.tsx
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, } from "react";
 import { apiGet, apiPut } from "../utils/api";
 import {
   Save, Upload, Building2, User, X, Image as ImageIcon,
-  Settings as SettingsIcon, Eye, EyeOff,
+  Settings as SettingsIcon, Eye, EyeOff, Copy, CheckCircle2, ShieldCheck, HelpCircle
 } from "lucide-react";
 import { toast, Toaster } from "react-hot-toast";
-
+import { Link2, Globe, MessageSquare, Facebook, Share2 } from "lucide-react";
+import ConfigModal from "../components/ConfigModal";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const INPUT_CLS =
@@ -15,8 +16,24 @@ const INPUT_CLS =
 const TABS = [
   { id: "company", label: "Company", icon: <Building2 size={14} /> },
   { id: "account", label: "Account", icon: <User size={14} /> },
+  { id: "integrations", label: "Integrations", icon: <Link2 size={14} /> }, // Added
 ] as const;
 
+interface IntegrationSource {
+  id: string;
+  name: string;
+  icon: React.ReactNode;
+  description: string;
+  color: string;
+}
+
+const SOURCES: IntegrationSource[] = [
+  { id: "meta", name: "Meta Lead Ads", icon: <Facebook size={20} />, description: "Capture leads from FB & Instagram", color: "bg-blue-600" },
+  { id: "whatsapp", name: "WhatsApp Business", icon: <MessageSquare size={20} />, description: "Direct chat lead generation", color: "bg-emerald-500" },
+  { id: "google", name: "Google Ads Form", icon: <Globe size={20} />, description: "Search and Display lead forms", color: "bg-red-500" },
+  { id: "website", name: "Website Form", icon: <Globe size={20} />, description: "Elementor & Custom Webhooks", color: "bg-indigo-500" },
+  { id: "linkedin", name: "LinkedIn Ads", icon: <Share2 size={20} />, description: "B2B Professional Lead Gen", color: "bg-blue-700" },
+];
 type TabId = (typeof TABS)[number]["id"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -91,6 +108,47 @@ function PasswordInput({ value, onChange, placeholder = "•••••••�
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+
+function IntegrationCard({ source, isActive, onToggle }: { 
+  source: IntegrationSource; 
+  isActive: boolean; 
+  onToggle: () => void 
+}) {
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 shadow-sm flex items-center justify-between group">
+      <div className="flex items-center gap-4">
+        <div className={`w-12 h-12 ${source.color} rounded-xl flex items-center justify-center text-white shadow-lg shadow-gray-200 dark:shadow-none`}>
+          {source.icon}
+        </div>
+        <div>
+          <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-tight">{source.name}</h3>
+          <p className="text-[10px] text-gray-400 font-bold uppercase">{source.description}</p>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-3">
+        {isActive && (
+          <button className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+            <SettingsIcon size={16} />
+          </button>
+        )}
+        <button
+          onClick={onToggle}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+            isActive ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700"
+          }`}
+        >
+          <span
+            className={`${
+              isActive ? "translate-x-6" : "translate-x-1"
+            } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+          />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<TabId>("company");
   const [loading, setLoading] = useState(true);
@@ -110,8 +168,12 @@ export default function Settings() {
   });
 
   const logoInputRef = useRef<HTMLInputElement>(null);
-
+const [activeSources, setActiveSources] = useState<string[]>([]);
+const [selectedSource, setSelectedSource] = useState<any>(null);
   // ── Data fetching ──────────────────────────────────────────────────────────
+
+
+
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -143,6 +205,51 @@ export default function Settings() {
   }, []);
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+
+  // 1. Fetch existing integrations on load
+useEffect(() => {
+  const loadIntegrations = async () => {
+    const res = await apiGet("/api/integrations");
+    if (res?.data) {
+      // Set the active sources (e.g., ['meta', 'website'])
+      setActiveSources(res.data.filter(i => i.is_active).map(i => i.source_key));
+    }
+  };
+  loadIntegrations();
+}, []);
+
+// 2. Updated onSave for the Modal
+const handleIntegrationSave = async (sourceId, config) => {
+  try {
+    await apiPost("/api/integrations/update", {
+      source_key: sourceId,
+      is_active: true,
+      config_data: config
+    });
+    
+    setActiveSources(prev => [...prev, sourceId]);
+    setSelectedSource(null);
+    toast.success("Integration Active!");
+  } catch (err) {
+    toast.error("Failed to save integration");
+  }
+};
+
+// 3. Updated onToggle (for turning OFF)
+const handleToggleOff = async (sourceId) => {
+  try {
+    await apiPost("/api/integrations/update", {
+      source_key: sourceId,
+      is_active: false,
+      config_data: null // Or keep existing config
+    });
+    setActiveSources(prev => prev.filter(id => id !== sourceId));
+    toast.success("Integration Disabled");
+  } catch (err) {
+    toast.error("Error updating status");
+  }
+};
 
   // ── Logo handlers ──────────────────────────────────────────────────────────
 
@@ -281,7 +388,7 @@ export default function Settings() {
                   <div className={[
                     "w-20 h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all",
                     displayLogo
-                      ? "border-blue-200 bg-[#02302d] dark:bg-gray-800 shadow-md"
+                      ? "border-blue-200 bg-white dark:bg-gray-800 shadow-md"
                       : "border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
                   ].join(" ")}>
                     {displayLogo ? (
@@ -453,27 +560,105 @@ export default function Settings() {
           </div>
         )}
 
-        {/* ── Save button ── */}
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || passwordMismatch}
-          className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-all active:scale-95"
-        >
-          {saving ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Saving…
-            </>
-          ) : (
-            <>
-              <Save size={14} />
-              Save Settings
-            </>
-          )}
-        </button>
+{/* ══════════════════════════════
+            INTEGRATIONS TAB
+        ══════════════════════════════ */}
+        {activeTab === "integrations" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-4">
+              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Lead Capture Status</p>
+              <p className="text-xs text-blue-700/70 dark:text-blue-400/70 font-medium">
+                Toggle your lead sources on. Once active, your CRM will listen for incoming data from these platforms in real-time.
+              </p>
+            </div>
 
-      </div>
+            <div className="grid grid-cols-1 gap-3">
+              {SOURCES.map((source) => (
+                <IntegrationCard
+                  key={source.id}
+                  source={source}
+                  isActive={activeSources.includes(source.id)}
+                  onToggle={() => {
+                    // Logic: If not active, open modal to configure. If active, turn off.
+                    if (!activeSources.includes(source.id)) {
+                      setSelectedSource(source);
+                    } else {
+                      setActiveSources(prev => prev.filter(id => id !== source.id));
+                      toast.success(`${source.name} Deactivated`);
+                    }
+                  }}
+                />
+              ))}
+            </div>
+            
+            <SectionCard title="Advanced Webhook Info">
+              <div className="space-y-3">
+                <Field label="Your Universal Webhook URL">
+                  <div className="flex gap-2">
+                    <input 
+                      readOnly 
+                      value="https://api.webgyor.com/v1/webhook/leads" 
+                      className={`${INPUT_CLS} bg-gray-100 dark:bg-gray-800/50 font-mono text-[11px] text-gray-500`} 
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText("https://api.webgyor.com/v1/webhook/leads");
+                        toast.success("URL Copied");
+                      }}
+                      className="px-4 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-xl text-[10px] font-black uppercase transition-colors"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </Field>
+              </div>
+            </SectionCard>
+          </div>
+        )}
+
+        {/* ── Global Save Button (Only for Company/Account) ── */}
+        {(activeTab === "company" || activeTab === "account") && (
+          <div className="pt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || passwordMismatch}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-all active:scale-95"
+            >
+              {saving ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  Save Settings
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div> {/* End of max-w-2xl */}
+
+      {/* ── Configuration Modal ── */}
+      {selectedSource && (
+        <ConfigModal 
+          source={selectedSource}
+          isOpen={!!selectedSource}
+          onClose={() => setSelectedSource(null)}
+          onSave={(newConfig) => {
+            // This is where you will eventually call apiPut to save the config to DB
+            setActiveSources(prev => [...prev, selectedSource.id]);
+            setSelectedSource(null);
+            toast.success(`${selectedSource.name} Activated Successfully!`, {
+              icon: '🚀',
+              style: { borderRadius: '15px', background: '#333', color: '#fff', fontSize: '12px', fontWeight: 'bold' }
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

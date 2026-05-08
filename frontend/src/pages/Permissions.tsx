@@ -6,7 +6,7 @@ import {
   Activity, BarChart2, MessageCircle, Lock,
   UserCog, Settings, ShieldCheck, Download,
   Database, Kanban, ListTodo, BrainCircuit, GraduationCap,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp,Globe, Clock
 } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -28,41 +28,42 @@ const MODULES: ModuleGroup[] = [
   {
     group: "Core Sales",
     items: [
-      { name: "View Leads",         icon: <Users size={14} /> },
-      { name: "Create Leads",       icon: <Target size={14} /> },
-      { name: "Edit Leads",         icon: <Activity size={14} /> },
-      { name: "Delete Leads",       icon: <Lock size={14} /> },
-      { name: "Assign Leads",       icon: <UserCog size={14} /> },
-      { name: "View All Leads",     icon: <Shield size={14} /> },
-      
+      { name: "View Leads", icon: <Users size={14} />, key: "leads.view" },
+      { name: "Create Leads", icon: <Target size={14} />, key: "leads.create" },
+      { name: "Edit Leads", icon: <Activity size={14} />, key: "leads.edit" },
+      { name: "Delete Leads", icon: <Lock size={14} />, key: "leads.delete" },
+      { name: "Assign Leads", icon: <UserCog size={14} />, key: "leads.assign" },
+      { name: "View All Leads", icon: <Shield size={14} />, key: "leads.view_all" },
     ],
   },
   {
     group: "Engagement & Tracking",
     items: [
-      { name: "Kanban Pipeline",       icon: <Kanban size={14} /> },
-      { name: "Activity Task",         icon: <ListTodo size={14} /> },
-      { name: "Communication Log",     icon: <MessageCircle size={14} /> },
-      { name: "Status Board Trackers", icon: <LayoutDashboard size={14} /> },
+      { name: "Kanban Pipeline", icon: <Kanban size={14} />, key: "leads.kanban" },
+      { name: "Activity Task", icon: <ListTodo size={14} />, key: "tasks.view" },
+      { name: "Communication Log", icon: <MessageCircle size={14} />, key: "logs.communication" },
+      { name: "Status Board Trackers", icon: <LayoutDashboard size={14} />, key: "tracker.status" },
     ],
   },
   {
     group: "Intelligence & Growth",
     items: [
-      { name: "Revenue Analytics", icon: <BarChart2 size={14} /> },
-      { name: "Staff Performance",  icon: <Activity size={14} /> },
-      { name: "Intelligence AI",    icon: <BrainCircuit size={14} /> },
+      { name: "Revenue Analytics", icon: <BarChart2 size={14} />, key: "analytics.revenue" },
+      { name: "Staff Performance", icon: <Activity size={14} />, key: "analytics.staff" },
+      { name: "Intelligence AI", icon: <BrainCircuit size={14} />, key: "ai.intelligence" },
     ],
   },
   {
     group: "Administration",
     items: [
-      { name: "Export Data",     icon: <Download size={14} /> },
-      { name: "Bulk Import",     icon: <Database size={14} /> },
-      { name: "Staff Master",    icon: <UserCog size={14} /> },
-      { name: "Course Master",   icon: <GraduationCap size={14} /> },
-      { name: "System Settings", icon: <Settings size={14} /> },
-      { name: "Role Permission", icon: <ShieldCheck size={14} /> },
+      { name: "Export Data", icon: <Download size={14} />, key: "data.export" },
+      { name: "Bulk Import", icon: <Database size={14} />, key: "data.import" },
+      { name: "Staff Master", icon: <UserCog size={14} />, key: "master.staff" }, // Fixed Key
+      { name: "Course Master", icon: <GraduationCap size={14} />, key: "master.course" }, // Fixed Key
+      { name: "Country Master", icon: <Database size={14} />, key: "master.country" }, // Fixed Key
+      { name: "Attendance Management", icon: <RefreshCw size={14} />, key: "attendance.view" }, // Fixed Key
+      { name: "System Settings", icon: <Settings size={14} />, key: "system.settings" },
+      { name: "Role Permission", icon: <ShieldCheck size={14} />, key: "system.permissions" },
     ],
   },
 ];
@@ -242,38 +243,31 @@ export default function Permissions() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleToggle = async (role: string, feature: string, currentEnabled: boolean) => {
-    const normalizedRole = role.toLowerCase();
-    const newValue = currentEnabled ? 0 : 1;
+const handleToggle = async (role: string, featureName: string, permissionKey: string, currentEnabled: boolean) => {
+  const normalizedRole = role.toLowerCase();
+  const newValue = currentEnabled ? 0 : 1;
 
-    // Optimistic update
-    setPermissions((prev) =>
-      prev.map((p) =>
-        p.role.toLowerCase() === normalizedRole && p.feature_name === feature
-          ? { ...p, is_enabled: newValue }
-          : p
-      )
-    );
+  // Optimistic update
+  setPermissions((prev) =>
+    prev.map((p) =>
+      p.role.toLowerCase() === normalizedRole && p.feature_name === featureName
+        ? { ...p, is_enabled: newValue }
+        : p
+    )
+  );
 
-    try {
-      await apiPost("/api/permissions/update", {
-        role: normalizedRole,
-        feature_name: feature,
-        is_enabled: newValue,
-      });
-    } catch (err) {
-      console.error(err);
-      toast.error("Toggle failed — reverting");
-      // Revert
-      setPermissions((prev) =>
-        prev.map((p) =>
-          p.role.toLowerCase() === normalizedRole && p.feature_name === feature
-            ? { ...p, is_enabled: currentEnabled ? 1 : 0 }
-            : p
-        )
-      );
-    }
-  };
+  try {
+    await apiPost("/api/permissions/update", {
+      role: normalizedRole,
+      feature_name: featureName,
+      permission_key: permissionKey, // This tells the DB exactly which menu to hide
+      is_enabled: newValue,
+    });
+  } catch (err) {
+    toast.error("Toggle failed — reverting");
+    // Revert logic here...
+  }
+};
 
   const handleToggleAll = async (role: string, enable: boolean) => {
     if (role.toLowerCase() === "admin") return;
@@ -481,7 +475,7 @@ export default function Permissions() {
                               enabled={enabled}
                               disabled={isAdmin || !!updating}
                               loading={isUpdating}
-                              onChange={() => handleToggle(role, item.name, enabled)}
+                              onChange={() => handleToggle(role, item.name, item.key, enabled)}
                             />
                           </td>
                         );

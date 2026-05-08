@@ -5,7 +5,7 @@ import {
   Edit3, X, Calendar, Clock, Globe, Zap, Target, UserCheck,
 } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "../../utils/api";
-import toast from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
 import PaginationFooter from "../../components/leads/PaginationFooter";
 import LeadEditModal from "../../components/leads/LeadEditModal";
 import DeleteModal from "../../components/DeleteModal";
@@ -206,36 +206,45 @@ export default function InterestedLeads() {
 
   // ── Load leads ────────────────────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = {
-        page:   String(currentPage),
-        limit:  String(rowsPerPage),
-        search: filters.search,
-        status: LEAD_STATUS,
-      };
-      if (filters.sourceId)    params.source_id        = filters.sourceId;
-      if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+  const loadData = useCallback(async (silent = false) => {
+  if (!silent) setLoading(true);
 
-      const dates = filters.range === "custom"
-        ? { startDate: filters.startDate, endDate: filters.endDate }
-        : getRangeDates(filters.range);
-      if (dates?.startDate) params.startDate = dates.startDate;
-      if (dates?.endDate)   params.endDate   = dates.endDate;
+  try {
+    const params: Record<string, string> = {
+      page:   String(currentPage),
+      limit:  String(rowsPerPage),
+      search: filters.search,
+      status: LEAD_STATUS,
+    };
 
-      const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
-      if (res) {
-        setLeads(Array.isArray(res.data) ? res.data : []);
-        setTotalPages(res.pagination?.totalPages ?? 1);
-        setTotalCount(res.pagination?.totalItems  ?? 0);
-      }
-    } catch {
-      toast.error("Failed to sync leads queue");
-    } finally {
-      setLoading(false);
+    if (filters.sourceId)    params.source_id        = filters.sourceId;
+    if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+
+    const dates = filters.range === "custom"
+      ? { startDate: filters.startDate, endDate: filters.endDate }
+      : getRangeDates(filters.range);
+
+    if (dates?.startDate) params.startDate = dates.startDate;
+    if (dates?.endDate)   params.endDate   = dates.endDate;
+
+    const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
+
+    if (res?.data) {
+      const newData = Array.isArray(res.data) ? res.data : [];
+
+      // ✅ NO TABLE WIPE
+      setLeads(newData);
+
+      setTotalPages(res.pagination?.totalPages ?? 1);
+      setTotalCount(res.pagination?.totalItems ?? 0);
     }
-  }, [currentPage, rowsPerPage, filters]);
+
+  } catch {
+    toast.error("Failed to sync leads queue");
+  } finally {
+    if (!silent) setLoading(false);
+  }
+}, [currentPage, rowsPerPage, filters]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -267,7 +276,7 @@ export default function InterestedLeads() {
       toast.success(`${selectedLeads.length} lead(s) assigned`);
       setSelectedLeads([]);
       setTargetCounselorId("");
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Bulk assignment failed");
     } finally {
@@ -290,7 +299,7 @@ export default function InterestedLeads() {
       setSelectedLeads([]);
       setBulkSourceId("");
       setBulkStatus("");
-      loadData();
+      loadData(true);
     } catch (err: any) {
       toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
     }
@@ -306,7 +315,7 @@ export default function InterestedLeads() {
       await apiDelete(`/api/leads/${deleteId}`);
       toast.success("Lead removed", { id: toastId });
       setDeleteId(null);
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Delete failed", { id: toastId });
     } finally {
@@ -326,7 +335,7 @@ export default function InterestedLeads() {
         toast.success(`${selectedLeads.length} leads deleted`, { id: toastId });
         setSelectedLeads([]);
         setShowBulkDeleteModal(false);
-        loadData();
+        loadData(true);
       } else {
         toast.error(res?.message ?? "Bulk delete failed", { id: toastId });
       }
@@ -358,7 +367,7 @@ export default function InterestedLeads() {
       toast.success("Lead updated");
       setShowEditForm(false);
       setEditingLead(null);
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Update failed");
     }
@@ -390,7 +399,7 @@ export default function InterestedLeads() {
 
   return (
     <div className="space-y-4 pb-8">
-
+<Toaster position="top-right" reverseOrder={false} />
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>

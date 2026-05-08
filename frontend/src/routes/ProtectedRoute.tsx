@@ -34,33 +34,34 @@ const ProtectedRoute = ({ permissionKey }: ProtectedRouteProps) => {
   if (permissionKey) {
     const key = permissionKey.toLowerCase();
 
-    // Find permission entry
+    // 🔍 Find permission entry using the technical KEY column
     const permissionEntry = (permissions || []).find(
-      (p: any) => p.feature_name?.trim().toLowerCase() === key
+      (p: any) => p.permission_key === key
     );
 
-    // 🚫 Explicitly disabled
+    // 🚫 Explicitly disabled (check for number 0 or boolean false)
     if (
       permissionEntry &&
       (permissionEntry.is_enabled === 0 || permissionEntry.is_enabled === false)
     ) {
+      console.warn(`Access blocked: ${key} is disabled for this role.`);
       return <Navigate to="/dashboard" replace />;
     }
 
-    // ✅ Explicitly enabled
+    // ✅ Explicitly enabled (check for number 1 or boolean true)
     if (
       permissionEntry &&
-      (permissionEntry.is_enabled == 1 || permissionEntry.is_enabled === true)
+      (permissionEntry.is_enabled === 1 || permissionEntry.is_enabled === true)
     ) {
       return <Outlet />;
     }
 
-    // 🔄 Default core access
+    // 🔄 Default core access (Using technical keys)
     const isCorePage = [
-      "dashboard",
-      "view leads",
-      "kanban pipeline",
-      "status board trackers",
+      "dashboard.view",
+      "leads.view",
+      "leads.kanban",
+      "tracker.status",
     ].includes(key);
 
     const isStaff = ["manager", "counselor"].includes(role);
@@ -69,11 +70,12 @@ const ProtectedRoute = ({ permissionKey }: ProtectedRouteProps) => {
       return <Outlet />;
     }
 
-    // 🛑 Access denied fallback
+    // 🛑 Access denied fallback (If no entry found and not a core page)
+    console.warn(`Access denied: No valid permission entry found for key: ${key}`);
     return <Navigate to="/dashboard" replace />;
   }
 
-  // ✅ 5. DEFAULT AUTHORIZED
+  // ✅ 5. DEFAULT AUTHORIZED (For routes without a specific permissionKey)
   return <Outlet />;
 };
 

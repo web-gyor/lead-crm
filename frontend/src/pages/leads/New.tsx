@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Globe, Zap, Inbox, X, UserCheck,
 } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "../../utils/api";
-import toast from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
 import PaginationFooter from "../../components/leads/PaginationFooter";
 import LeadEditModal from "../../components/leads/LeadEditModal";
 import DeleteModal from "../../components/DeleteModal";
@@ -179,36 +179,46 @@ export default function NewLeads() {
 
   // ── Load leads ────────────────────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = {
-        page:   String(currentPage),
-        limit:  String(rowsPerPage),
-        search: filters.search,
-        status: LEAD_STATUS,
-      };
-      if (filters.sourceId)    params.source_id        = filters.sourceId;
-      if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+  const loadData = useCallback(async (silent = false) => {
+  if (!silent) setLoading(true);
 
-      const dates = filters.range === "custom"
-        ? { startDate: filters.startDate, endDate: filters.endDate }
-        : getRangeDates(filters.range);
-      if (dates?.startDate) params.startDate = dates.startDate;
-      if (dates?.endDate)   params.endDate   = dates.endDate;
+  try {
+    const params: Record<string, string> = {
+      page:   String(currentPage),
+      limit:  String(rowsPerPage),
+      search: filters.search,
+      status: LEAD_STATUS,
+    };
 
-      const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
-      if (res?.data) {
-        setLeads(Array.isArray(res.data) ? res.data : []);
-        setTotalPages(res.pagination?.totalPages ?? 1);
-        setTotalCount(res.pagination?.totalItems  ?? 0);
-      }
-    } catch {
-      toast.error("Failed to load leads");
-    } finally {
-      setLoading(false);
+    if (filters.sourceId)    params.source_id        = filters.sourceId;
+    if (filters.counselorId) params.assigned_user_id = filters.counselorId;
+
+    const dates = filters.range === "custom"
+      ? { startDate: filters.startDate, endDate: filters.endDate }
+      : getRangeDates(filters.range);
+
+    if (dates?.startDate) params.startDate = dates.startDate;
+    if (dates?.endDate)   params.endDate   = dates.endDate;
+
+    const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
+
+    if (res?.data) {
+      // ✅ DO NOT CLEAR BEFORE SETTING
+      setLeads(prev => {
+        const newData = Array.isArray(res.data) ? res.data : [];
+        return silent ? newData : newData;
+      });
+
+      setTotalPages(res.pagination?.totalPages ?? 1);
+      setTotalCount(res.pagination?.totalItems  ?? 0);
     }
-  }, [currentPage, rowsPerPage, filters]);
+
+  } catch {
+    toast.error("Failed to load leads");
+  } finally {
+    if (!silent) setLoading(false);
+  }
+}, [currentPage, rowsPerPage, filters]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -229,7 +239,7 @@ export default function NewLeads() {
     try {
       await apiPut(`/api/leads/${leadId}`, { assigned_user_id: userId, lead_status: LEAD_STATUS });
       toast.success("Lead assigned");
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Assignment failed");
     }
@@ -250,7 +260,7 @@ export default function NewLeads() {
       toast.success(`${selectedLeads.length} lead(s) assigned`);
       setSelectedLeads([]);
       setTargetCounselorId("");
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Bulk assignment failed");
     } finally {
@@ -278,7 +288,7 @@ const handleBulkUpdate = async () => {
     setSelectedLeads([]);
     setBulkSourceId("");
     setBulkStatus("");
-    loadData(); // Refresh the list
+    loadData(true); // Refresh the list
   } catch (err: any) {
     toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
   }
@@ -293,7 +303,7 @@ const handleBulkUpdate = async () => {
       await apiDelete(`/api/leads/${deleteId}`);
       toast.success("Lead removed");
       setDeleteId(null);
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Failed to delete");
     } finally {
@@ -313,7 +323,7 @@ const handleBulkUpdate = async () => {
         toast.success(`${selectedLeads.length} leads deleted`, { id: toastId });
         setSelectedLeads([]);
         setShowBulkDeleteModal(false);
-        loadData();
+        loadData(true);
       } else {
         toast.error(res?.message ?? "Bulk delete failed", { id: toastId });
       }
@@ -351,7 +361,7 @@ const handleBulkUpdate = async () => {
       toast.success("Lead updated");
       setShowEditForm(false);
       setEditingLead(null);
-      loadData();
+      loadData(true);
     } catch {
       toast.error("Update failed");
     }
@@ -381,7 +391,7 @@ const handleBulkUpdate = async () => {
 
   return (
     <div className="space-y-4 pb-8">
-
+<Toaster position="top-right" reverseOrder={false} />
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>

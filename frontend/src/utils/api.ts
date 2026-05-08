@@ -41,19 +41,20 @@ const handleResponse = async (response: Response) => {
 const getHeaders = (endpoint: string, isJson = false) => {
   const headers: any = {};
 
-  const publicRoutes = [
-    '/auth/login',
+  // Normalize endpoint to ensure it starts with /
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // STRICT list of endpoints that do NOT need a token
+  const publicApiEndpoints = [
+    '/api/auth/login', // Adjust if your login path is different
     '/api/users/forgot-password',
     '/api/users/reset-password'
   ];
 
-  const isPublicRoute = publicRoutes.some(route => 
-    endpoint.includes(route) || 
-    window.location.pathname.includes('login') ||
-    window.location.pathname.includes('reset-password')
-  );
+  const isPublicApi = publicApiEndpoints.some(route => normalizedEndpoint.includes(route));
 
-  if (!isPublicRoute) {
+  // If it's NOT a public API, try to attach the token
+  if (!isPublicApi) {
     const token = localStorage.getItem('token');
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -66,7 +67,6 @@ const getHeaders = (endpoint: string, isJson = false) => {
 
   return headers;
 };
-
 // --- API Methods ---
 
 export const apiGet = async (endpoint: string) => {

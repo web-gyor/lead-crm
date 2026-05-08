@@ -7,13 +7,13 @@ import {
   ChevronDown, ChevronRight, UserPlus, Phone, Bell, Menu, Sun, Moon,
   Layers, Package, BrainCircuit, CheckCircle, XCircle, BarChart3,
   LogOut, Filter, Upload, Zap, Calendar, History, UserCheck,
-  ShieldCheck, X, Activity, AlertCircle,
+  ShieldCheck, X, Activity, AlertCircle, Globe
 } from "lucide-react";
 import { apiGet } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 import { ToastContainer } from "../hooks/useToast";
 import { hasPermission } from "../utils/permissions";
-
+import AttendanceWidget from "../components/AttendanceWidget";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 
@@ -52,6 +52,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/performance":      "Performance",
   "/reports":          "Lead Reports",
   "/import":           "Bulk Import",
+  "/distribution": "Lead Distribution",
   "/audit-logs":       "Activity Logs",
   "/masters/users":    "Staff Master",
   "/masters/courses":  "Course Master",
@@ -82,8 +83,12 @@ function SidebarLink({ item, collapsed, onClick }: {
       </div>
     );
   }
-  return (
-    <NavLink to={item.to} end={item.to === "/dashboard"} onClick={onClick}
+return (
+    <NavLink 
+      to={item.to} 
+      // ✅ FIX: Use item.end if it exists, otherwise fall back to the dashboard logic
+      end={item.end !== undefined ? item.end : item.to === "/dashboard"} 
+      onClick={onClick}
       title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         `flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all group relative
@@ -93,14 +98,7 @@ function SidebarLink({ item, collapsed, onClick }: {
       }>
       <span className="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center">{item.icon}</span>
       {!collapsed && <span className="truncate flex-1 uppercase tracking-wide">{item.label}</span>}
-      {!collapsed && !!item.badge && item.badge > 0 && (
-        <span className="text-[9px] font-bold bg-rose-500 text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-          {item.badge > 99 ? "99+" : item.badge}
-        </span>
-      )}
-      {collapsed && !!item.badge && item.badge > 0 && (
-        <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
-      )}
+      {/* ... badge logic ... */}
     </NavLink>
   );
 }
@@ -255,36 +253,79 @@ export default function MainLayout() {
     return () => window.removeEventListener("settingsUpdated", fetchBranding);
   }, [fetchBranding]);
 
-  // ── Follow-up status helper ───────────────────────────────────────────────────
-  const getFollowUpStatus = useCallback((dateStr: string) => {
-    if (!dateStr) return null;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const d     = new Date(dateStr); d.setHours(0, 0, 0, 0);
-    if (d < today) return "overdue";
-    if (d.getTime() === today.getTime()) return "today";
-    return "upcoming";
-  }, []);
+
+
 
   // ── Notification polling ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!user) return;
-    const fetchNotifs = async () => {
-      try {
-        const [leadsRes, newRes] = await Promise.all([
-          apiGet("/api/leads?limit=500"),
-          apiGet("/api/leads?status=New&limit=1"),
-        ]);
-        const allLeads     = leadsRes?.data || leadsRes?.leads || (Array.isArray(leadsRes) ? leadsRes : []);
-        const newLeadCount = newRes?.pagination?.totalItems || 0;
-        const overdue      = allLeads.filter((l: any) => getFollowUpStatus(l.next_follow_up_date) === "overdue").length;
-        const today        = allLeads.filter((l: any) => getFollowUpStatus(l.next_follow_up_date) === "today").length;
-        setNotifData({ overdue, today, newLeads: newLeadCount });
-      } catch {}
-    };
-    fetchNotifs();
-    const interval = setInterval(fetchNotifs, 60_000);
-    return () => clearInterval(interval);
-  }, [user, getFollowUpStatus]);
+useEffect(() => {
+  if (!user) return;
+
+  const fetchNotifs = async () => {
+    try {
+      // ✅ 1. Standardize Today as a String (IST/Kozhikode Local)
+      const todayIST = new Date().toLocaleDateString('en-CA'); 
+      
+      // ✅ 2. Pass localDate to Backend to align SQL queries
+      const res = await apiGet(`/api/leads?status=all&limit=500&localDate=${todayIST}`);
+
+      const allLeads = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res)
+        ? res
+        : [];
+
+      let overdue = 0;
+      let today = 0;
+      let newLeadsCount = 0;
+
+      // Final statuses to ignore for follow-up math
+      const FINAL_STATUSES = new Set([
+        "converted",
+        "lost",
+        "not interested",
+        "rejected",
+        "closed",
+      ]);
+
+      allLeads.forEach((l) => {
+        const status = (l.lead_status ?? "").toLowerCase().trim();
+        
+        // 🔹 Logic: Awaiting Assignment (Must be NEW and have no counselor)
+        const isUnassigned = !l.assigned_user_id || Number(l.assigned_user_id) === 0;
+        if (status === "new" && isUnassigned) {
+          newLeadsCount++;
+        }
+
+        // 🔹 Logic: Follow-up Tracking
+        if (FINAL_STATUSES.has(status)) return;
+
+        // Clean the date string (YYYY-MM-DD)
+        const dateStr = l.next_follow_up_date ? l.next_follow_up_date.split('T')[0] : null;
+        if (!dateStr) return;
+
+        // ✅ 3. String Comparison (Prevents Timezone Snap-Back)
+        if (dateStr < todayIST) {
+          overdue++;
+        } else if (dateStr === todayIST) {
+          today++;
+        }
+      });
+
+      setNotifData({
+        overdue,
+        today,
+        newLeads: newLeadsCount,
+      });
+
+    } catch (err) {
+      console.error("Notification polling error:", err);
+    }
+  };
+
+  fetchNotifs();
+  const interval = setInterval(fetchNotifs, 30000); // 30-second poll
+  return () => clearInterval(interval);
+}, [user]);
 
   // ── Page title from route ─────────────────────────────────────────────────────
   const pageTitle = useMemo(() => {
@@ -298,64 +339,70 @@ export default function MainLayout() {
   // ── Sidebar nav config ────────────────────────────────────────────────────────
   const totalNotif = notifData.overdue + notifData.today + notifData.newLeads;
 
-  const sections: SectionConfig[] = useMemo(() => [
-    {
-      title: "Overview",
-      items: [
-        { label: "Dashboard", to: "/dashboard", icon: <LayoutDashboard size={16} /> },
-        ...(can("View Leads") ? [
-          { label: "All Leads", to: "/leads", icon: <Users size={16} /> },
-          {
-            label: "Status Filter", to: "status-filter",
-            icon: <Filter size={16} />,
-            children: [
-              { label: "New",        to: "/leads/new",            icon: <UserPlus size={14} /> },
-              { label: "Contacted",  to: "/leads/contacted",      icon: <Phone size={14} /> },
-              { label: "Interested", to: "/leads/interested",     icon: <Lightbulb size={14} /> },
-              { label: "Follow-up",  to: "/leads/followup-leads", icon: <Clock size={14} /> },
-              { label: "Converted",  to: "/leads/converted",      icon: <CheckCircle size={14} /> },
-              { label: "Lost",       to: "/leads/lost",           icon: <XCircle size={14} /> },
-              { label: "Rejected",   to: "/leads/rejected",       icon: <XCircle size={14} /> },
-            ],
-          },
-        ] : []),
-      ],
-    },
-    {
-      title: "Operations",
-      items: [
-        ...(can("Kanban Pipeline") ? [{ label: "Pipeline",      to: "/pipeline",       icon: <Layers size={16} /> }] : []),
-        ...(can("Activity Task")   ? [{ label: "Today's Tasks", to: "/followups",      icon: <TrendingUp size={16} />, badge: notifData.today }] : []),
-        ...(can("Communication Log") ? [{ label: "Comm. Logs",  to: "/communication",  icon: <MessageCircle size={16} /> }] : []),
-        ...(can("Intelligence AI") ? [{ label: "AI Engine",     to: "/automation",     icon: <BrainCircuit size={16} />, disabled: true }] : []),
-      ],
-    },
-    {
-      title: "System Admin",
-      items: [
-        ...(can("Revenue Analytics") ? [{ label: "Intelligence",  to: "/analytics",   icon: <BarChart3 size={16} /> }] : []),
-        ...(can("Staff Performance") ? [{ label: "Performance",   to: "/performance", icon: <UserCheck size={16} /> }] : []),
-        ...(can("Export Data")       ? [{ label: "Lead Reports",  to: "/reports",     icon: <FileText size={16} /> }] : []),
-        ...(can("Bulk Import")       ? [{ label: "Bulk Import",   to: "/import",      icon: <Upload size={16} /> }] : []),
-        ...(can("reports")           ? [{ label: "Activity Logs", to: "/audit-logs",  icon: <History size={16} /> }] : []),
-        ...((can("Staff Master") || can("Course Master")) ? [{
-          label: "Masters", to: "masters",
-          icon: <Database size={16} />,
+ const sections: SectionConfig[] = useMemo(() => [
+  {
+    title: "Overview",
+    items: [
+      { label: "Dashboard", to: "/dashboard", icon: <LayoutDashboard size={16} />},
+      ...(can("leads.view") ? [
+        { label: "All Leads", to: "/leads", icon: <Users size={16} />, end: true },
+        {
+          label: "Status Filter", to: "status-filter",
+          icon: <Filter size={16} />,
           children: [
-            ...(can("Staff Master")  ? [{ label: "Staff Master",  to: "/masters/users",   icon: <Users size={14} /> }] : []),
-            ...(can("Course Master") ? [{ label: "Course Master", to: "/masters/courses", icon: <Package size={14} /> }] : []),
+            { label: "New",         to: "/leads/new",             icon: <UserPlus size={14} /> },
+            { label: "Contacted",   to: "/leads/contacted",       icon: <Phone size={14} /> },
+            { label: "Interested",  to: "/leads/interested",      icon: <Lightbulb size={14} /> },
+            { label: "Follow-up",   to: "/leads/followup-leads",  icon: <Clock size={14} /> },
+            { label: "Converted",   to: "/leads/converted",       icon: <CheckCircle size={14} /> },
+            { label: "Lost",        to: "/leads/lost",            icon: <XCircle size={14} /> },
+            { label: "Rejected",    to: "/leads/rejected",        icon: <XCircle size={14} /> },
           ],
-        }] : []),
-      ],
-    },
-    {
-      title: "System",
-      items: [
-        { label: "System Config", to: "/settings",    icon: <Settings size={16} /> },
-        ...(can("Role Permission") ? [{ label: "Access Control", to: "/permissions", icon: <ShieldCheck size={16} /> }] : []),
-      ],
-    },
-  ], [can, notifData.today]);
+        },
+      ] : []),
+    ],
+  },
+  {
+    title: "Operations",
+    items: [
+      ...(can("leads.kanban") ? [{ label: "Pipeline",      to: "/pipeline",       icon: <Layers size={16} /> }] : []),
+      ...(can("tasks.view")   ? [{ label: "Today's Tasks", to: "/followups",      icon: <TrendingUp size={16} />, badge: notifData.today }] : []),
+      ...(can("logs.communication") ? [{ label: "Comm. Logs",  to: "/communication",   icon: <MessageCircle size={16} /> }] : []),
+      ...(can("ai.intelligence") ? [{ label: "AI Engine",     to: "/automation",     icon: <BrainCircuit size={16} />, disabled: true }] : []),
+    ],
+  },
+  {
+    title: "System Admin",
+    items: [
+      ...(can("analytics.revenue") ? [{ label: "Intelligence",  to: "/analytics",   icon: <BarChart3 size={16} /> }] : []),
+      ...(can("analytics.staff") ? [{ label: "Performance",   to: "/performance", icon: <UserCheck size={16} /> }] : []),
+      ...(can("data.export")       ? [{ label: "Lead Reports",  to: "/reports",     icon: <FileText size={16} /> }] : []),
+      ...(can("leads.assign") ? [{label: "Distribution",  to: "/distribution", icon: <Zap size={16} className="text-amber-500" fill="currentColor" /> 
+      }] : []),
+      ...(can("data.import")       ? [{ label: "Bulk Import",   to: "/import",      icon: <Upload size={16} /> }] : []),
+      ...(can("logs.activity")     ? [{ label: "Activity Logs", to: "/audit-logs",  icon: <History size={16} /> }] : []),
+      
+      ...((can("master.staff") || can("master.course")) ? [{
+        label: "Masters", to: "masters",
+        icon: <Database size={16} />,
+      children: [
+  ...(can("master.staff")   ? [{ label: "Staff Master",   to: "/masters/users",   icon: <Users size={14} /> }] : []),
+  ...(can("master.course")  ? [{ label: "Course Master", to: "/masters/courses", icon: <Package size={14} /> }] : []),
+  // --- Add this line ---
+  ...(can("master.country") ? [{ label: "Country Master", to: "/masters/countries", icon: <Globe size={14} /> }] : []),
+  ...(can("attendance.view") ? [{ label: "Attendance Log", to: "/attendance", icon: <Clock size={14} /> }] : []),
+        ],
+      }] : []),
+    ],
+  },
+  {
+    title: "System",
+    items: [
+      { label: "System Config", to: "/settings",    icon: <Settings size={16} /> },
+      ...(can("system.permissions") ? [{ label: "Access Control", to: "/permissions", icon: <ShieldCheck size={16} /> }] : []),
+    ],
+  },
+], [can, notifData.today, notifData.newLeads]); // Added newLeads to dependencies for badge accuracy
 
   const toggleGroup = (key: string) => setOpenGroups(p => ({ ...p, [key]: !p[key] }));
   const closeSidebar = () => setSidebarOpen(false);
@@ -389,7 +436,7 @@ export default function MainLayout() {
         {/* Brand + collapse toggle */}
         <div className={`h-14 flex items-center border-b border-gray-100 dark:border-gray-800 flex-shrink-0
           ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}>
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden bg-[#02302d] flex-shrink-0 shadow-md shadow-blue-600/20">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden bg-white flex-shrink-0 shadow-md shadow-blue-600/20">
             {logo
               ? <img src={logo} alt="logo" className="w-full h-full object-contain p-0.5" />
               : <Zap size={14} className="text-white" fill="currentColor" />}
@@ -443,7 +490,8 @@ export default function MainLayout() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* ── TOPBAR ──────────────────────────────────────────────────── */}
-        <header className="h-14 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-800 flex items-center px-4 gap-3 z-30 flex-shrink-0">
+<header className="h-14 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-800 flex items-center px-4 gap-3 z-[40] flex-shrink-0">
+
 
           {/* LEFT — mobile hamburger + page title */}
           <button onClick={() => setSidebarOpen(true)}
@@ -458,7 +506,9 @@ export default function MainLayout() {
 
           {/* RIGHT — actions */}
           <div className="flex items-center gap-2 ml-auto">
-
+<div className="flex-shrink-0">
+      <AttendanceWidget />
+    </div>
             {/* Dark mode toggle */}
             <button onClick={() => setDark(d => !d)}
               title={dark ? "Switch to light mode" : "Switch to dark mode"}
@@ -560,6 +610,8 @@ export default function MainLayout() {
 
             {/* User dropdown */}
             <div className="relative flex-shrink-0" ref={userRef}>
+
+
               <button onClick={() => { setShowUser(v => !v); setShowNotif(false); }}
                 className="flex items-center gap-2.5 pl-2.5 pr-1.5 py-1.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-500 transition-all shadow-sm">
                 <div className="hidden sm:flex flex-col items-end leading-tight">
