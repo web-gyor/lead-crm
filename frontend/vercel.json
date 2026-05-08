@@ -1,21 +1,11 @@
 {
+  "version": 2,
   "buildCommand": "npm install --legacy-peer-deps && npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "headers": [
-    {
-      "source": "/(.*).(webmanifest|js|png|ico|svg)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        }
-      ]
-    }
-  ],
   "rewrites": [
     {
-      "source": "/(icon-.*\\.png|manifest\\.webmanifest|sw\\.js|workbox-.*\\.js|assets/.*)",
+      "source": "/(manifest.webmanifest|sw.js|favicon.ico|icon-.*\\.png|assets/.*)",
       "destination": "/$1"
     },
     {
