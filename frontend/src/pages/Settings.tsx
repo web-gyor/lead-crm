@@ -1,4 +1,3 @@
-// src/pages/Settings.tsx
 import { useState, useEffect, useCallback, useRef, } from "react";
 import { apiGet, apiPut } from "../utils/api";
 import {
@@ -8,6 +7,7 @@ import {
 import { toast, Toaster } from "react-hot-toast";
 import { Link2, Globe, MessageSquare, Facebook, Share2 } from "lucide-react";
 import ConfigModal from "../components/ConfigModal";
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const INPUT_CLS =
@@ -16,7 +16,7 @@ const INPUT_CLS =
 const TABS = [
   { id: "company", label: "Company", icon: <Building2 size={14} /> },
   { id: "account", label: "Account", icon: <User size={14} /> },
-  { id: "integrations", label: "Integrations", icon: <Link2 size={14} /> }, // Added
+  { id: "integrations", label: "Integrations", icon: <Link2 size={14} /> },
 ] as const;
 
 interface IntegrationSource {
@@ -58,7 +58,7 @@ interface AccountForm {
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-5 shadow-sm space-y-4">
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
       <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{title}</p>
       {children}
     </div>
@@ -106,9 +106,6 @@ function PasswordInput({ value, onChange, placeholder = "•••••••�
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-
 function IntegrationCard({ source, isActive, onToggle }: { 
   source: IntegrationSource; 
   isActive: boolean; 
@@ -116,17 +113,17 @@ function IntegrationCard({ source, isActive, onToggle }: {
 }) {
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 shadow-sm flex items-center justify-between group">
-      <div className="flex items-center gap-4">
-        <div className={`w-12 h-12 ${source.color} rounded-xl flex items-center justify-center text-white shadow-lg shadow-gray-200 dark:shadow-none`}>
+      <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
+        <div className={`w-10 h-10 sm:w-12 sm:h-12 shrink-0 ${source.color} rounded-xl flex items-center justify-center text-white shadow-lg shadow-gray-200 dark:shadow-none`}>
           {source.icon}
         </div>
-        <div>
-          <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-tight">{source.name}</h3>
-          <p className="text-[10px] text-gray-400 font-bold uppercase">{source.description}</p>
+        <div className="min-w-0">
+          <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-tight truncate">{source.name}</h3>
+          <p className="text-[10px] text-gray-400 font-bold uppercase truncate">{source.description}</p>
         </div>
       </div>
       
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-2">
         {isActive && (
           <button className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
             <SettingsIcon size={16} />
@@ -168,12 +165,8 @@ export default function Settings() {
   });
 
   const logoInputRef = useRef<HTMLInputElement>(null);
-const [activeSources, setActiveSources] = useState<string[]>([]);
-const [selectedSource, setSelectedSource] = useState<any>(null);
-  // ── Data fetching ──────────────────────────────────────────────────────────
-
-
-
+  const [activeSources, setActiveSources] = useState<string[]>([]);
+  const [selectedSource, setSelectedSource] = useState<any>(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -206,54 +199,15 @@ const [selectedSource, setSelectedSource] = useState<any>(null);
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
-
-  // 1. Fetch existing integrations on load
-useEffect(() => {
-  const loadIntegrations = async () => {
-    const res = await apiGet("/api/integrations");
-    if (res?.data) {
-      // Set the active sources (e.g., ['meta', 'website'])
-      setActiveSources(res.data.filter(i => i.is_active).map(i => i.source_key));
-    }
-  };
-  loadIntegrations();
-}, []);
-
-// 2. Updated onSave for the Modal
-const handleIntegrationSave = async (sourceId, config) => {
-  try {
-    await apiPost("/api/integrations/update", {
-      source_key: sourceId,
-      is_active: true,
-      config_data: config
-    });
-    
-    setActiveSources(prev => [...prev, sourceId]);
-    setSelectedSource(null);
-    toast.success("Integration Active!");
-  } catch (err) {
-    toast.error("Failed to save integration");
-  }
-};
-
-// 3. Updated onToggle (for turning OFF)
-const handleToggleOff = async (sourceId) => {
-  try {
-    await apiPost("/api/integrations/update", {
-      source_key: sourceId,
-      is_active: false,
-      config_data: null // Or keep existing config
-    });
-    setActiveSources(prev => prev.filter(id => id !== sourceId));
-    toast.success("Integration Disabled");
-  } catch (err) {
-    toast.error("Error updating status");
-  }
-};
-
-  // ── Logo handlers ──────────────────────────────────────────────────────────
-
-  const displayLogo = newLogoPreview || savedLogoUrl;
+  useEffect(() => {
+    const loadIntegrations = async () => {
+      const res = await apiGet("/api/integrations");
+      if (res?.data) {
+        setActiveSources(res.data.filter(i => i.is_active).map(i => i.source_key));
+      }
+    };
+    loadIntegrations();
+  }, []);
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -274,8 +228,6 @@ const handleToggleOff = async (sourceId) => {
     setSavedLogoUrl("");
     if (logoInputRef.current) logoInputRef.current.value = "";
   };
-
-  // ── Save ───────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     if (account.newPassword && account.newPassword !== account.confirmPassword) {
@@ -310,36 +262,30 @@ const handleToggleOff = async (sourceId) => {
         await fetchSettings();
       }
     } catch (err: any) {
-      console.error("Save error:", err);
       toast.error(err?.message ?? "Failed to save settings");
     } finally {
       setSaving(false);
     }
   };
 
-  const passwordMismatch =
-    !!account.confirmPassword && account.newPassword !== account.confirmPassword;
-
-  // ── Loading ────────────────────────────────────────────────────────────────
+  const passwordMismatch = !!account.confirmPassword && account.newPassword !== account.confirmPassword;
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
         <div className="w-9 h-9 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-          Loading Settings…
-        </p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Loading Settings…</p>
       </div>
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const displayLogo = newLogoPreview || savedLogoUrl;
 
   return (
-    <div className="px-3 py-5 sm:px-6 sm:py-8">
+    <div className="px-4 py-5 sm:px-6 sm:py-8">
       <Toaster position="top-right" />
 
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl mx-auto space-y-6">
 
         {/* ── Header ── */}
         <div>
@@ -349,275 +295,141 @@ const handleToggleOff = async (sourceId) => {
             </span>
             Settings
           </h1>
-          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">
-            Agency Profile & Security
-          </p>
+          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Agency Profile & Security</p>
         </div>
 
-        {/* ── Tabs ── */}
-        <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 p-1 rounded-2xl w-fit">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={[
-                "flex items-center gap-2 px-5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl",
-                activeTab === tab.id
-                  ? "bg-white dark:bg-gray-700 text-blue-600 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300",
-              ].join(" ")}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
+        {/* ── Responsive Tabs ── */}
+        <div className="w-full overflow-x-auto no-scrollbar pb-1">
+          <div className="flex gap-1.5 bg-gray-100 dark:bg-gray-800 p-1 rounded-2xl w-max sm:w-fit min-w-full sm:min-w-0">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={[
+                  "flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl whitespace-nowrap flex-1 sm:flex-none",
+                  activeTab === tab.id
+                    ? "bg-white dark:bg-gray-700 text-blue-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300",
+                ].join(" ")}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* ══════════════════════════════
-            COMPANY TAB
-        ══════════════════════════════ */}
-        {activeTab === "company" && (
-          <div className="space-y-4">
-
-            {/* Logo */}
-            <SectionCard title="Company Logo">
-              <div className="flex items-center gap-4 sm:gap-5">
-                {/* Preview */}
-                <div className="relative shrink-0">
-                  <div className={[
-                    "w-20 h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all",
-                    displayLogo
-                      ? "border-blue-200 bg-white dark:bg-gray-800 shadow-md"
-                      : "border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
-                  ].join(" ")}>
-                    {displayLogo ? (
-                      <img
-                        src={displayLogo}
-                        alt="Company logo"
-                        className="w-full h-full object-contain p-2"
-                        onError={() => setSavedLogoUrl("")}
-                      />
-                    ) : (
-                      <ImageIcon size={24} className="text-gray-300" />
+        {/* ── Content ── */}
+        <div className="space-y-5">
+          {activeTab === "company" && (
+            <div className="space-y-4">
+              <SectionCard title="Company Logo">
+                <div className="flex items-center gap-4">
+                  <div className="relative shrink-0">
+                    <div className={[
+                      "w-16 h-16 sm:w-20 sm:h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden",
+                      displayLogo ? "border-blue-200 bg-white dark:bg-gray-800 shadow-md" : "border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800",
+                    ].join(" ")}>
+                      {displayLogo ? <img src={displayLogo} alt="Logo" className="w-full h-full object-contain p-2" /> : <ImageIcon size={24} className="text-gray-300" />}
+                    </div>
+                    {displayLogo && (
+                      <button onClick={handleRemoveLogo} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md"><X size={10} /></button>
                     )}
                   </div>
-                  {displayLogo && (
-                    <button
-                      type="button"
-                      onClick={handleRemoveLogo}
-                      aria-label="Remove logo"
-                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-md"
-                    >
-                      <X size={10} />
-                    </button>
-                  )}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <input ref={logoInputRef} id="logo-upload" type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+                    <label htmlFor="logo-upload" className="inline-flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl cursor-pointer text-[10px] font-black uppercase tracking-widest">
+                      <Upload size={13} /> {displayLogo ? "Change" : "Upload"}
+                    </label>
+                    <p className="text-[9px] text-gray-400 font-medium">PNG, JPG, SVG or WebP · Max 2MB</p>
+                  </div>
                 </div>
+              </SectionCard>
 
-                {/* Upload controls */}
-                <div className="flex-1 space-y-2 min-w-0">
-                  <input
-                    ref={logoInputRef}
-                    id="logo-upload"
-                    type="file"
-                    accept="image/png, image/jpeg, image/svg+xml, image/webp"
-                    onChange={handleLogoChange}
-                    className="hidden"
-                  />
-                  <label
-                    htmlFor="logo-upload"
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <Upload size={13} />
-                    {displayLogo ? "Change Logo" : "Upload Logo"}
-                  </label>
-                  <p className="text-[9px] text-gray-400 font-medium">
-                    PNG, JPG, SVG or WebP · Max 2MB
-                  </p>
-                  {newLogoFile && (
-                    <p className="text-[9px] text-emerald-600 font-black uppercase truncate">
-                      ✓ {newLogoFile.name}
-                    </p>
-                  )}
+              <SectionCard title="Company Information">
+                <Field label="Agency Name">
+                  <input value={company.name} onChange={(e) => setCompany(p => ({ ...p, name: e.target.value }))} className={INPUT_CLS} placeholder="e.g. WebGyor Media" />
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Phone">
+                    <input value={company.phone} onChange={(e) => setCompany(p => ({ ...p, phone: e.target.value }))} className={INPUT_CLS} placeholder="+91..." inputMode="tel" />
+                  </Field>
+                  <Field label="Email">
+                    <input type="email" value={company.email} onChange={(e) => setCompany(p => ({ ...p, email: e.target.value }))} className={INPUT_CLS} placeholder="hello@company.com" />
+                  </Field>
                 </div>
-              </div>
-            </SectionCard>
+                <Field label="Website">
+                  <input value={company.website} onChange={(e) => setCompany(p => ({ ...p, website: e.target.value }))} className={INPUT_CLS} placeholder="https://..." />
+                </Field>
+                <Field label="Address">
+                  <textarea value={company.address} onChange={(e) => setCompany(p => ({ ...p, address: e.target.value }))} rows={2} className={`${INPUT_CLS} resize-none`} placeholder="Office address" />
+                </Field>
+              </SectionCard>
+            </div>
+          )}
 
-            {/* Company fields */}
-            <SectionCard title="Company Information">
-              <Field label="Agency Name">
-                <input
-                  value={company.name}
-                  onChange={(e) => setCompany((p) => ({ ...p, name: e.target.value }))}
-                  className={INPUT_CLS}
-                  placeholder="e.g. WebGyor Media"
-                />
-              </Field>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Phone">
-                  <input
-                    value={company.phone}
-                    onChange={(e) => setCompany((p) => ({ ...p, phone: e.target.value }))}
-                    className={INPUT_CLS}
-                    placeholder="+91 00000 00000"
-                    inputMode="tel"
-                  />
+          {activeTab === "account" && (
+            <div className="space-y-4">
+              <SectionCard title="Profile">
+                <Field label="Full Name">
+                  <input value={account.fullName} onChange={(e) => setAccount(p => ({ ...p, fullName: e.target.value }))} className={INPUT_CLS} placeholder="Your name" />
                 </Field>
                 <Field label="Email">
-                  <input
-                    type="email"
-                    value={company.email}
-                    onChange={(e) => setCompany((p) => ({ ...p, email: e.target.value }))}
-                    className={INPUT_CLS}
-                    placeholder="hello@company.com"
-                    inputMode="email"
-                  />
+                  <input type="email" value={account.email} onChange={(e) => setAccount(p => ({ ...p, email: e.target.value }))} className={INPUT_CLS} placeholder="you@example.com" />
                 </Field>
-              </div>
-
-              <Field label="Website">
-                <input
-                  value={company.website}
-                  onChange={(e) => setCompany((p) => ({ ...p, website: e.target.value }))}
-                  className={INPUT_CLS}
-                  placeholder="https://yoursite.com"
-                  inputMode="url"
-                />
-              </Field>
-
-              <Field label="Address">
-                <textarea
-                  value={company.address}
-                  onChange={(e) => setCompany((p) => ({ ...p, address: e.target.value }))}
-                  rows={2}
-                  className={`${INPUT_CLS} resize-none`}
-                  placeholder="Full office address"
-                />
-              </Field>
-            </SectionCard>
-          </div>
-        )}
-
-        {/* ══════════════════════════════
-            ACCOUNT TAB
-        ══════════════════════════════ */}
-        {activeTab === "account" && (
-          <div className="space-y-4">
-            <SectionCard title="Profile">
-              <Field label="Full Name">
-                <input
-                  value={account.fullName}
-                  onChange={(e) => setAccount((p) => ({ ...p, fullName: e.target.value }))}
-                  className={INPUT_CLS}
-                  placeholder="Your full name"
-                  autoComplete="name"
-                />
-              </Field>
-              <Field label="Email">
-                <input
-                  type="email"
-                  value={account.email}
-                  onChange={(e) => setAccount((p) => ({ ...p, email: e.target.value }))}
-                  className={INPUT_CLS}
-                  placeholder="you@example.com"
-                  inputMode="email"
-                  autoComplete="email"
-                />
-              </Field>
-            </SectionCard>
-
-            <SectionCard title="Change Password">
-              <Field label="Current Password">
-                <PasswordInput
-                  value={account.currentPassword}
-                  onChange={(v) => setAccount((p) => ({ ...p, currentPassword: v }))}
-                />
-              </Field>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="New Password">
-                  <PasswordInput
-                    value={account.newPassword}
-                    onChange={(v) => setAccount((p) => ({ ...p, newPassword: v }))}
-                  />
+              </SectionCard>
+              <SectionCard title="Change Password">
+                <Field label="Current Password">
+                  <PasswordInput value={account.currentPassword} onChange={(v) => setAccount(p => ({ ...p, currentPassword: v }))} />
                 </Field>
-                <Field label="Confirm Password">
-                  <PasswordInput
-                    value={account.confirmPassword}
-                    onChange={(v) => setAccount((p) => ({ ...p, confirmPassword: v }))}
-                    error={passwordMismatch}
-                  />
-                </Field>
-              </div>
-
-              {passwordMismatch && (
-                <p className="text-[10px] text-red-500 font-black uppercase tracking-widest">
-                  Passwords do not match
-                </p>
-              )}
-            </SectionCard>
-          </div>
-        )}
-
-{/* ══════════════════════════════
-            INTEGRATIONS TAB
-        ══════════════════════════════ */}
-        {activeTab === "integrations" && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-4">
-              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Lead Capture Status</p>
-              <p className="text-xs text-blue-700/70 dark:text-blue-400/70 font-medium">
-                Toggle your lead sources on. Once active, your CRM will listen for incoming data from these platforms in real-time.
-              </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="New Password">
+                    <PasswordInput value={account.newPassword} onChange={(v) => setAccount(p => ({ ...p, newPassword: v }))} />
+                  </Field>
+                  <Field label="Confirm Password">
+                    <PasswordInput value={account.confirmPassword} onChange={(v) => setAccount(p => ({ ...p, confirmPassword: v }))} error={passwordMismatch} />
+                  </Field>
+                </div>
+                {passwordMismatch && <p className="text-[10px] text-red-500 font-black uppercase tracking-widest">Passwords do not match</p>}
+              </SectionCard>
             </div>
+          )}
 
-            <div className="grid grid-cols-1 gap-3">
-              {SOURCES.map((source) => (
-                <IntegrationCard
-                  key={source.id}
-                  source={source}
-                  isActive={activeSources.includes(source.id)}
-                  onToggle={() => {
-                    // Logic: If not active, open modal to configure. If active, turn off.
-                    if (!activeSources.includes(source.id)) {
-                      setSelectedSource(source);
-                    } else {
-                      setActiveSources(prev => prev.filter(id => id !== source.id));
-                      toast.success(`${source.name} Deactivated`);
-                    }
-                  }}
-                />
-              ))}
-            </div>
-            
-            <SectionCard title="Advanced Webhook Info">
-              <div className="space-y-3">
-                <Field label="Your Universal Webhook URL">
-                  <div className="flex gap-2">
-                    <input 
-                      readOnly 
-                      value="https://api.webgyor.com/v1/webhook/leads" 
-                      className={`${INPUT_CLS} bg-gray-100 dark:bg-gray-800/50 font-mono text-[11px] text-gray-500`} 
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText("https://api.webgyor.com/v1/webhook/leads");
-                        toast.success("URL Copied");
-                      }}
-                      className="px-4 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-xl text-[10px] font-black uppercase transition-colors"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </Field>
+          {activeTab === "integrations" && (
+            <div className="space-y-6">
+              <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-4">
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Lead Capture Status</p>
+                <p className="text-xs text-blue-700/70 dark:text-blue-400/70 font-medium">Toggle your lead sources on to sync in real-time.</p>
               </div>
-            </SectionCard>
-          </div>
-        )}
+              <div className="grid grid-cols-1 gap-3">
+                {SOURCES.map((source) => (
+                  <IntegrationCard
+                    key={source.id}
+                    source={source}
+                    isActive={activeSources.includes(source.id)}
+                    onToggle={() => {
+                      if (!activeSources.includes(source.id)) setSelectedSource(source);
+                      else {
+                        setActiveSources(prev => prev.filter(id => id !== source.id));
+                        toast.success(`${source.name} Deactivated`);
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+              <SectionCard title="Universal Webhook">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input readOnly value="https://api.webgyor.com/v1/webhook/leads" className={`${INPUT_CLS} bg-gray-100 dark:bg-gray-800/50 font-mono text-[10px] sm:text-[11px]`} />
+                  <button type="button" onClick={() => { navigator.clipboard.writeText("..."); toast.success("Copied"); }} className="px-6 py-3 bg-gray-200 dark:bg-gray-700 rounded-xl text-[10px] font-black uppercase">Copy</button>
+                </div>
+              </SectionCard>
+            </div>
+          )}
+        </div>
 
-        {/* ── Global Save Button (Only for Company/Account) ── */}
+        {/* ── Floating/Fixed Save Button on Mobile ── */}
+ 
         {(activeTab === "company" || activeTab === "account") && (
           <div className="pt-4 flex justify-end">
             <button
@@ -640,22 +452,17 @@ const handleToggleOff = async (sourceId) => {
             </button>
           </div>
         )}
-      </div> {/* End of max-w-2xl */}
+      </div>
 
-      {/* ── Configuration Modal ── */}
       {selectedSource && (
         <ConfigModal 
           source={selectedSource}
           isOpen={!!selectedSource}
           onClose={() => setSelectedSource(null)}
-          onSave={(newConfig) => {
-            // This is where you will eventually call apiPut to save the config to DB
+          onSave={() => {
             setActiveSources(prev => [...prev, selectedSource.id]);
             setSelectedSource(null);
-            toast.success(`${selectedSource.name} Activated Successfully!`, {
-              icon: '🚀',
-              style: { borderRadius: '15px', background: '#333', color: '#fff', fontSize: '12px', fontWeight: 'bold' }
-            });
+            toast.success(`${selectedSource.name} Activated!`);
           }}
         />
       )}

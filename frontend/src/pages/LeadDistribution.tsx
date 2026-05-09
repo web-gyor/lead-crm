@@ -47,13 +47,11 @@ export default function LeadDistribution() {
   const [pendingCount, setPendingCount] = useState(0);
   const [modalConfig, setModalConfig] = useState<any>({ show: false, title: "", userId: null, field: "", current: [] });
 
-  // ─── DYNAMIC MASTERS STATE ───
   const [masterOptions, setMasterOptions] = useState<{ courses: string[], countries: string[] }>({
     courses: [],
     countries: []
   });
 
-  // ─── SYNC LOGIC (Unified Fetch) ───
   const fetchAllData = useCallback(async () => {
   try {
     setLoading(true);
@@ -64,8 +62,6 @@ export default function LeadDistribution() {
       apiGet("/api/countries")
     ]);
 
-    // --- FILTER LOGIC ---
-    // This removes 'Shaji' and any other user whose role is 'Manager'
     const counselorOnlyRules = Array.isArray(rulesData) 
       ? rulesData.filter((r: any) => r.role !== "Manager") 
       : [];
@@ -81,9 +77,11 @@ export default function LeadDistribution() {
   } catch (err) {
     toast.error("Critical Sync Failure");
   } finally {
+    // Delay slightly for smoother transition if desired, or keep immediate
     setLoading(false);
   }
 }, []);
+
   useEffect(() => { fetchAllData(); }, [fetchAllData]);
 
   const handleUpdate = async (userId: number, field: string, value: any) => {
@@ -109,14 +107,24 @@ export default function LeadDistribution() {
     }
   };
 
-  if (loading) return <div className="p-20 text-center font-black text-gray-400 animate-pulse uppercase tracking-widest">Syncing Distribution Matrix...</div>;
-
+  // ─── LOADING SCREEN ───
+  if (loading) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950 z-50">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 size={40} className="text-blue-600 animate-spin" />
+          <p className="text-[12px] font-black text-gray-400 uppercase tracking-[0.3em] animate-pulse">
+            Syncing Distribution Matrix...
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="max-w-[1600px] mx-auto space-y-6 pb-20">
+    <div className="max-w-[1600px] mx-auto space-y-6 pb-20 animate-in fade-in duration-700">
       {modalConfig.show && (
         <SpecializationModal 
           title={modalConfig.title}
-          // --- Now using Dynamic Options ---
           items={modalConfig.title === "Courses" ? masterOptions.courses : masterOptions.countries}
           selectedItems={modalConfig.current}
           onClose={() => setModalConfig({ ...modalConfig, show: false })}
