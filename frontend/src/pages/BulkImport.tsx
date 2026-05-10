@@ -26,6 +26,20 @@ const TEMPLATE_SAMPLE =
   "Anil Kumar,9847000101,anil@test.com,Calicut,MERN Stack,UK,WhatsApp";
   const REQUIRED_COLS = ["full_name", "phone", "country", "interested_course"];
 
+  const HEADER_MAP: Record<string, string> = {
+  "full name": "full_name",
+  "name": "full_name",
+  "phone number": "phone",
+  "phone": "phone",
+  "phone nu": "phone",
+  "email": "email",
+  "city": "city",
+  "course": "interested_course",
+  "interested course": "interested_course",
+  "country": "country",
+  "source": "source"
+};
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ProcessedRow {
   full_name: string;
@@ -156,14 +170,33 @@ const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
   const ext = file.name.split(".").pop()?.toLowerCase();
   const toastId = toast.loading(`Analyzing ${file.name}...`);
 
-  // Helper to validate columns and prevent system crash
-  const validateAndProcess = (data: Record<string, any>[]) => {
-    if (data.length === 0) {
+  const validateAndProcess = (rawData: any[]) => {
+    if (rawData.length === 0) {
       toast.error("The selected file is empty", { id: toastId });
       return;
     }
 
-    const headers = Object.keys(data[0]);
+    // ─── THE PERMANENT FIX: NORMALIZE HEADERS ───
+   const processedData = rawData.map(row => {
+      const normalizedRow: Record<string, any> = {};
+      Object.keys(row).forEach(key => {
+        const cleanKey = key.trim().toLowerCase();
+        const mappedKey = HEADER_MAP[cleanKey];
+        
+        if (mappedKey) {
+          // Map to technical key (e.g., "Full Name" -> "full_name")
+          normalizedRow[mappedKey] = row[key];
+        } else {
+          // KEEP the original data for any other columns (e.g., "status")
+          // This prevents data from disappearing during the import
+          normalizedRow[cleanKey.replace(/\s+/g, '_')] = row[key];
+        }
+      });
+      return normalizedRow;
+    });
+
+    // Now validate against the normalized keys
+    const headers = Object.keys(processedData[0]);
     const missing = REQUIRED_COLS.filter(col => !headers.includes(col));
 
     if (missing.length > 0) {
@@ -175,7 +208,7 @@ const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       return;
     }
 
-    processRawData(data); // Only proceed if headers are perfect
+    processRawData(processedData); // Proceed with correctly keyed data
     toast.success("File verified. Ready to import.", { id: toastId });
   };
 
@@ -184,30 +217,24 @@ const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
-        validateAndProcess(results.data as Record<string, any>[]);
+        validateAndProcess(results.data);
       }
     });
   } else if (ext === "xlsx" || ext === "xls") {
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const wb = XLSX.read(evt.target?.result, { type: "binary" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1 });
+      const data = evt.target?.result;
+      const workbook = XLSX.read(data, { type: "binary" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
       
-      const headers = (raw[0] as string[]).map(h => String(h).trim());
-      const rows = (raw.slice(1) as any[][]).map((rowArr) => {
-        const row: Record<string, string> = {};
-        headers.forEach((h, i) => { row[h] = String(rowArr[i] ?? "").trim(); });
-        return row;
-      });
-
+      // Convert to JSON objects directly
+      const rows = XLSX.utils.sheet_to_json(sheet);
       validateAndProcess(rows);
     };
     reader.readAsBinaryString(file);
-  } else {
-    toast.error("Unsupported format", { id: toastId });
   }
-
+  
   if (fileInputRef.current) fileInputRef.current.value = "";
 };
 
@@ -219,9 +246,16 @@ const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
   const toastId = toast.loading(autoDistribute ? "Engine firing... Assigning leads" : "Injecting leads to database...");
 
   try {
-    const payload = validLeads.map(({ full_name, phone, email, city, interested_course, country, lead_source, lead_status }) => ({
-      full_name, phone, email, city, interested_course, country, lead_source, lead_status,
-    }));
+   const payload = validLeads.map((l) => ({
+  full_name: l.full_name,
+  phone: l.phone,
+  email: l.email,
+  city: l.city,
+  interested_course: l.interested_course,
+  country: l.country,
+  lead_source: l.lead_source,
+  lead_status: l.lead_status,
+}));
 
     // Path must match your backend router registration
     const result = await apiPost("/api/leads/bulk", { 

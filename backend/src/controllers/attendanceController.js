@@ -50,29 +50,72 @@ exports.punchOut = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
-// Get all logs for a specific date (defaults to today)
-// In attendanceController.js -> getAllLogs
-// backend/src/controllers/attendanceController.js
-
-// backend/src/controllers/attendanceController.js
-
-// backend/src/controllers/attendanceController.js
 
 exports.getAllLogs = async (req, res) => {
+    // 1. Extract query parameters with defaults
+    const { date, start_date, end_date, staff_id, page = 1, limit = 10 } = req.query;
+    
+    // Calculate offset for pagination
+    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+    
+    let params = [];
+    let whereClauses = [];
+
+    // 2. Dynamic Filter Construction
+    if (staff_id) { 
+        whereClauses.push("a.user_id = ?"); 
+        params.push(staff_id); 
+    }
+    
+    if (date) { 
+        whereClauses.push("a.date = ?"); 
+        params.push(date); 
+    } else if (start_date && end_date) { 
+        // Range filtering for Weekly/Monthly overviews
+        whereClauses.push("a.date BETWEEN ? AND ?"); 
+        params.push(start_date, end_date); 
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
     try {
-        const [rows] = await pool.query(`
+        // 3. Main Data Query
+        // Uses IFNULL(a.check_out, NOW()) to show "Live" duration for active shifts
+        const query = `
             SELECT 
                 a.*, 
                 u.name as user_name, 
                 u.role as user_role,
-                -- Get total duration in seconds
-                TIMESTAMPDIFF(SECOND, a.check_in, a.check_out) as duration_seconds
+                TIMESTAMPDIFF(SECOND, a.check_in, IFNULL(a.check_out, NOW())) as duration_seconds
             FROM attendance a 
             JOIN users u ON a.user_id = u.id
+            ${whereSql}
             ORDER BY a.date DESC, a.check_in DESC
-        `);
-        res.json({ success: true, data: rows });
+            LIMIT ? OFFSET ?`;
+
+        const [rows] = await pool.query(query, [...params, parseInt(limit), offset]);
+
+        // 4. Count Query for Pagination UI
+        const countQuery = `SELECT COUNT(*) as total FROM attendance a ${whereSql}`;
+        const [countResult] = await pool.query(countQuery, params);
+        const total = countResult[0].total;
+
+        // 5. Send Professional JSON Response
+        return res.status(200).json({ 
+            success: true, 
+            data: rows, 
+            total, 
+            pages: Math.ceil(total / parseInt(limit)),
+            currentPage: parseInt(page)
+        });
+
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("Attendance Master Error:", error.message);
+        // Ensure we return here to stop execution and avoid "Headers already sent"
+        return res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            message: "Critical error in Attendance Master sync"
+        });
     }
 };

@@ -482,7 +482,6 @@ const bulkImportLeads = async (req, res) => {
   const { leads, autoDistribute = true } = req.body;
   const createdBy = req.user?.id || 1;
 
-  // Counters for the final response
   let inserted = 0;
   let assigned = 0;
   let duplicates = 0;
@@ -494,28 +493,63 @@ const bulkImportLeads = async (req, res) => {
   }
 
   try {
-    console.log(`[Import] Processing ${leads.length} leads...`);
-
-    // 1. Get Bulk Import Source ID
     const [sourceRows] = await pool.query(
       "SELECT id FROM lead_sources WHERE name = 'Bulk Import' LIMIT 1"
     );
-    const sourceId = sourceRows.length > 0 ? sourceRows[0].id : null;
+    const sourceId = sourceRows[0]?.id;
 
-    if (!sourceId) throw new Error("Bulk Import source missing in lead_sources table");
+    if (!sourceId) throw new Error("Bulk Import source missing");
 
-    for (const l of leads) {
+    // ─── 1. GLOBAL HEADER MAPPING (LOWERCASE) ───
+    const headerMap = {
+      "full name": "full_name",
+      "name": "full_name",
+      "phone number": "phone",
+      "phone": "phone",
+      "contact": "phone",
+      "email": "email",
+      "city": "city",
+      "course": "interested_course",
+      "interested course": "interested_course",
+      "country": "country",
+      "source": "source"
+    };
+
+    for (const rawRow of leads) {
       try {
-        // 2. Normalize and Clean Data
-        const fullName = String(l.full_name || "").trim();
-        const cleanPhone = String(l.phone || "").replace(/\D/g, "").slice(-10);
+        // ─── 2. PERMANENT NORMALIZATION LAYER ───
+        // This handles "Full Name", "full_name", "FULL NAME", etc.
+        const l = {};
+Object.keys(rawRow).forEach(key => {
+    const normalizedKey = key.trim().toLowerCase();
+    const mappedKey = headerMap[normalizedKey];
+    
+    if (mappedKey) {
+        l[mappedKey] = rawRow[key];
+    } else {
+        // PERMANENT FIX: Keep the original key if it's already technical
+        // This prevents data loss if the frontend sends 'full_name'
+        l[normalizedKey] = rawRow[key];
+    }
+});
 
+        // ─── 3. DATA CLEANING & VALIDATION ───
+        const fullName = String(l.full_name || "").trim();
+        
+        // Handle Excel's Scientific Notation (e.g., 9.85E+09)
+        let phoneStr = String(l.phone || "");
+        if (phoneStr.includes('E+') || phoneStr.includes('e+')) {
+           phoneStr = Number(phoneStr).toLocaleString('fullwide', {useGrouping:false});
+        }
+        const cleanPhone = phoneStr.replace(/\D/g, "").slice(-10);
+
+        // Skips rows that don't meet basic requirements
         if (!fullName || cleanPhone.length < 10) {
           invalid++;
-          continue;
+          continue; 
         }
 
-        // 3. Duplicate Check
+        // ─── 4. DUPLICATE CHECK ───
         const [existing] = await pool.query(
           "SELECT id FROM leads WHERE phone = ? LIMIT 1", 
           [cleanPhone]
@@ -525,17 +559,14 @@ const bulkImportLeads = async (req, res) => {
           continue;
         }
 
-        // 4. FIX: Professional UID Generation (L26-XXXX)
-        // This ensures correct alphabetical sorting in your DB
-        const year = "26"; 
-        const randomPart = Math.floor(1000 + Math.random() * 9000);
-        const leadUid = `L${year}-${randomPart}`;
+        // ─── 5. UID GENERATION (PROJECT SAKSHI 2026) ───
+        const leadUid = `L26-${Math.floor(1000 + Math.random() * 9000)}`;
 
-        // 5. Database Insert
+        // ─── 6. DATABASE INSERT ───
         const [insertOp] = await pool.query(
           `INSERT INTO leads 
-           (full_name, phone, email, city, country, interested_course, lead_source_id, lead_status, is_archived, lead_uid, created_by) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+            (full_name, phone, email, city, country, interested_course, lead_source_id, lead_status, is_archived, lead_uid, created_by) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             fullName, 
             cleanPhone, 
@@ -553,10 +584,9 @@ const bulkImportLeads = async (req, res) => {
         if (insertOp.insertId) {
           inserted++;
 
-          // 6. Distribution Engine
+          // ─── 7. AUTO-DISTRIBUTION ENGINE ───
           if (autoDistribute) {
             try {
-              // Pass normalized data to ensure the engine has enough context
               const distResult = await leadDistributor.distribute(
                 { 
                   id: insertOp.insertId, 
@@ -567,20 +597,17 @@ const bulkImportLeads = async (req, res) => {
                 }, 
                 createdBy
               );
-              
               if (distResult?.success) assigned++;
             } catch (distErr) {
-              console.error(`[Engine] Dist Error for ID ${insertOp.insertId}:`, distErr.message);
+              console.error(`Dist Error:`, distErr.message);
             }
           }
         }
       } catch (rowErr) {
         failed++;
-        console.error("Row Error:", rowErr.message);
       }
     }
 
-    // FINAL RESPONSE
     return res.status(200).json({
       success: true,
       inserted,
@@ -588,21 +615,13 @@ const bulkImportLeads = async (req, res) => {
       duplicates,
       invalid,
       failed,
-      message: `${inserted} leads processed. ${assigned} auto-assigned.`
+      message: `${inserted} leads processed successfully.`
     });
 
   } catch (masterErr) {
-    console.error("MASTER IMPORT ERROR:", masterErr.message);
-    return res.status(500).json({ 
-      success: false, 
-      error: masterErr.message, 
-      message: "Critical error during import process" 
-    });
+    return res.status(500).json({ success: false, message: masterErr.message });
   }
 };
-
-module.exports = { bulkImportLeads };
-
 /**
  * Delete Individual Lead (Admin Only)
  */
@@ -626,24 +645,48 @@ const deleteLead = async (req, res) => {
  */
 const exportLeads = async (req, res) => {
   try {
+    // 1. SQL Aliases match the headerMap in your bulkImportLeads
     const [leads] = await pool.query(`
-      SELECT lead_uid as ID, full_name as Name, phone as Phone, email as Email,
-             lead_status as Status, interested_course as Course, created_at as Date
-      FROM leads ORDER BY created_at DESC
+      SELECT 
+        full_name AS "Full Name", 
+        phone AS "Phone Number", 
+        email AS "Email", 
+        city AS "City", 
+        interested_course AS "Course", 
+        country AS "Country"
+      FROM leads 
+      WHERE is_archived = 0
+      ORDER BY created_at DESC
     `);
-    if (leads.length === 0) return res.status(404).json({ message: "No leads to export" });
+
+    if (leads.length === 0) {
+      return res.status(404).json({ success: false, message: "No leads to export" });
+    }
+
+    // 2. Generate CSV with industry-standard escaping
+    // This handles special characters and prevents column shifting
     const headers = Object.keys(leads[0]).join(",");
-    const rows    = leads.map(l => Object.values(l).map(v => `"${v || ''}"`).join(","));
-    const csv     = [headers, ...rows].join("\n");
+    const rows = leads.map(l => 
+      Object.values(l).map(v => {
+        let val = v === null ? '' : String(v);
+        // Replace " with "" (standard CSV escaping) and wrap in quotes
+        return `"${val.replace(/"/g, '""')}"`;
+      }).join(",")
+    );
+
+    const csv = [headers, ...rows].join("\n");
+
+    // 3. Set Response Headers for Download
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=leads_export.csv');
-    res.status(200).send(csv);
+    res.setHeader('Content-Disposition', 'attachment; filename=leads_template_2026.csv');
+    
+    return res.status(200).send(csv);
+
   } catch (error) {
     console.error("Export Error:", error.message);
-    res.status(500).json({ error: "Failed to generate export" });
+    return res.status(500).json({ success: false, message: "Failed to generate export template" });
   }
 };
-
 /**
  * Check for Duplicate Leads by Phone or Email
  */

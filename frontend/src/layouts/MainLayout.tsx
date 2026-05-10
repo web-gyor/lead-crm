@@ -377,8 +377,7 @@ useEffect(() => {
       ...(can("analytics.revenue") ? [{ label: "Intelligence",  to: "/analytics",   icon: <BarChart3 size={16} /> }] : []),
       ...(can("analytics.staff") ? [{ label: "Performance",   to: "/performance", icon: <UserCheck size={16} /> }] : []),
       ...(can("data.export")       ? [{ label: "Lead Reports",  to: "/reports",     icon: <FileText size={16} /> }] : []),
-      ...(can("leads.assign") ? [{label: "Distribution",  to: "/distribution", icon: <Zap size={16} className="text-amber-500" fill="currentColor" /> 
-      }] : []),
+      ...(can("leads.assign") ? [{label: "Distribution",  to: "/distribution", icon: <Zap size={16}  />       }] : []),
       ...(can("data.import")       ? [{ label: "Bulk Import",   to: "/import",      icon: <Upload size={16} /> }] : []),
       ...(can("logs.activity")     ? [{ label: "Activity Logs", to: "/audit-logs",  icon: <History size={16} /> }] : []),
       

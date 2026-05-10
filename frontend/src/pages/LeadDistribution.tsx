@@ -69,11 +69,16 @@ export default function LeadDistribution() {
     setRules(counselorOnlyRules);
     setPendingCount(pendingData?.count || 0);
 
-    const courses = Array.isArray(coursesRes) ? coursesRes.map((c: any) => c.name) : [];
-    const countries = Array.isArray(countriesRes?.data) ? countriesRes.data.map((c: any) => c.country_name) : [];
-    
-    setMasterOptions({ courses, countries });
+    const coursesArray = Array.isArray(coursesRes) ? coursesRes : (coursesRes?.data || []);
+const courses = coursesArray.map((c: any) => c.name || c);
 
+// 2. Safeguard Countries (Check both formats)
+const countriesArray = Array.isArray(countriesRes) 
+  ? countriesRes 
+  : (countriesRes?.data || []);
+const countries = countriesArray.map((c: any) => c.country_name || c.name || c);
+
+setMasterOptions({ courses, countries });
   } catch (err) {
     toast.error("Critical Sync Failure");
   } finally {

@@ -154,6 +154,27 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+getStaffList = async (req, res) => {
+    try {
+        // 1. Removed 'is_active' because it's not in your schema
+        // 2. Updated roles to match your ENUM: 'Manager' and 'Counselor'
+        const [rows] = await pool.query(
+            "SELECT id, name, role FROM users WHERE role IN ('Manager', 'Counselor') ORDER BY name ASC"
+        );
+        
+        return res.status(200).json({ 
+            success: true, 
+            data: rows 
+        });
+    } catch (error) {
+        console.error("Staff List Error:", error.message);
+        return res.status(500).json({ 
+            success: false, 
+            error: "Database error while fetching staff" 
+        });
+    }
+};
+
 const createUser = async (req, res) => {
   const { name, email, phone, role, password } = req.body;
   try {
@@ -218,5 +239,6 @@ module.exports = {
   deleteUser,
   checkUserRole,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  getStaffList
 };

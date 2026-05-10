@@ -186,4 +186,63 @@ async function fetchAndStoreMetaLead(leadId, clientId) {
     } catch (err) {
         console.error("❌ Meta Fetch Error:", err.response?.data || err.message);
     }
-}
+};
+// backend/src/controllers/webhookController.js
+
+exports.handleWhatsAppWebhook = async (req, res) => {
+  try {
+    const entry = req.body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+
+    if (value?.messages) {
+      const message = value.messages[0];
+      const contact = value.contacts[0];
+
+      const leadData = {
+        name: contact.profile.name,
+        phone: message.from,
+        source: 'whatsapp',
+        query: message.text?.body || "WhatsApp Inquiry",
+        raw_data: JSON.stringify(req.body)
+      };
+
+      // ─── INSERT INTO YOUR CRM DATABASE ───
+      const [result] = await pool.query(
+        "INSERT INTO leads (name, phone, source, message) VALUES (?, ?, ?, ?)",
+        [leadData.name, leadData.phone, leadData.source, leadData.query]
+      );
+
+      console.log(`✅ WhatsApp Lead Captured: ${leadData.name}`);
+    }
+
+    res.status(200).send("EVENT_RECEIVED");
+  } catch (error) {
+    console.error("WhatsApp Webhook Error:", error);
+    res.sendStatus(500);
+  }
+};
+exports.handleWhatsAppLead = async (req, res) => {
+  try {
+    const messageObj = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const contactObj = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
+
+    if (messageObj) {
+      const lead = {
+        name: contactObj?.profile?.name || "WhatsApp User",
+        phone: messageObj.from,
+        source: 'whatsapp',
+        message: messageObj.text?.body || "Inquiry from WhatsApp"
+      };
+
+      // Direct Database Insert
+      await pool.query(
+        "INSERT INTO leads (name, phone, source, message) VALUES (?, ?, ?, ?)",
+        [lead.name, lead.phone, lead.source, lead.message]
+      );
+    }
+    res.sendStatus(200); // Always tell Meta you received it
+  } catch (err) {
+    res.sendStatus(500);
+  }
+};

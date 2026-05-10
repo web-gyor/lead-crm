@@ -81,21 +81,33 @@ const BulkAssign = () => {
     }
   };
 
-  const handleExport = () => {
-    const csvContent = [
-      ['ID', 'Name', 'Phone', 'Email', 'City', 'Status', 'Created'],
-      ...leads.map(lead => [
-        lead.id, lead.full_name, lead.phone, lead.email, 
-        lead.city, lead.lead_status, lead.created_at
-      ])
-    ].map(row => row.join(',')).join('\n');
+const handleExport = () => {
+    // 1. Standardized Headers to match backend mapping and template
+    const headers = ['Full Name', 'Phone Number', 'Email', 'City', 'Course', 'Country'];
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    // 2. Map data to the correct columns
+    const rows = leads.map(lead => [
+      `"${(lead.full_name || '').replace(/"/g, '""')}"`,
+      `"${lead.phone || ''}"`,
+      `"${(lead.email || '').replace(/"/g, '""')}"`,
+      `"${(lead.city || '').replace(/"/g, '""')}"`,
+      `"${(lead.interested_course || 'Inquiry').replace(/"/g, '""')}"`,
+      `"${(lead.country || 'India').replace(/"/g, '""')}"`
+    ]);
+
+    // 3. Join with industry-standard CRLF and proper escaping
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    // 4. Standard Download Logic
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `unassigned-leads-${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `leads-template-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); // Required for Firefox
     a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   return (

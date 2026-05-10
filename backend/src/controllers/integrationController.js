@@ -20,18 +20,21 @@ exports.updateIntegration = async (req, res) => {
   const clientId = req.user.id;
 
   try {
-    // ON DUPLICATE KEY UPDATE makes this work for both new and existing integrations
+    // Ensure config_data is stored as a stringified JSON if it's an object
+    const configString = typeof config_data === 'object' ? JSON.stringify(config_data) : config_data;
+
     await pool.query(
       `INSERT INTO client_integrations (client_id, source_key, is_active, config_data) 
        VALUES (?, ?, ?, ?) 
        ON DUPLICATE KEY UPDATE 
        is_active = VALUES(is_active), 
        config_data = VALUES(config_data)`,
-      [clientId, source_key, is_active, JSON.stringify(config_data)]
+      [clientId, source_key, is_active ? 1 : 0, configString]
     );
 
     res.json({ success: true, message: `${source_key} updated successfully` });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Integration Error:", error.message);
+    res.status(500).json({ error: "Failed to update integration" });
   }
 };

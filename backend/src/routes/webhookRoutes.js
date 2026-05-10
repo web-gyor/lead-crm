@@ -19,5 +19,35 @@ if (typeof webhookController.receiveMetaWebhook === 'function') {
 } else {
     console.error('❌ Error: receiveMetaWebhook is not a function!');
 }
+// Meta Verification (Initial Setup)
+router.get('/whatsapp', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token === "YOUR_VERIFY_TOKEN") {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// Data Receipt
+router.post('/whatsapp', webhookController.handleWhatsAppWebhook);
+
+router.get('/whatsapp', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// Main data handler
+router.post('/whatsapp', webhookController.handleWhatsAppLead);
 
 module.exports = router;
