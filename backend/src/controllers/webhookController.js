@@ -1,248 +1,98 @@
-const axios = require('axios'); // You'll need this for the Graph API call
-const { pool } = require("../config/db");
+const axios = require('axios');
+const pool = require("../config/db");
 
-exports.handleLeadWebhook = async (req, res) => {
-  const { source, clientId } = req.params;
-  const leadData = req.body;
-
-  try {
-    // 1. Verify Integration (Matches our previous step)
-const [integration] = await pool.query(
-  "SELECT * FROM client_integrations WHERE client_id = ? AND source_key = ? AND is_active = 1",
-  [clientId, source]
-);
-
-    if (integration.length === 0) {
-      return res.status(403).json({ error: "Integration not active or invalid client" });
-    }
-
-    // 2. Normalize Data for YOUR specific table columns
-    const finalLead = {
-      full_name: leadData.name || leadData.full_name || "New Lead",
-      phone: leadData.phone || leadData.mobile || "",
-      email: leadData.email || "",
-      lead_source_id: source === 'website' ? 1 : 2, // Map 'website' to your ID (usually 1)
-      lead_source_detail: `Auto-captured from ${source}`,
-      assigned_user_id: clientId,
-      lead_status: "New",
-      notes: leadData.notes || ""
-    };
-
-    // 3. The Corrected INSERT Query
-    const query = `
-      INSERT INTO leads (
-        full_name, 
-        phone, 
-        email, 
-        lead_source_id, 
-        lead_source_detail, 
-        assigned_user_id, 
-        lead_status, 
-        notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const values = [
-      finalLead.full_name,
-      finalLead.phone,
-      finalLead.email,
-      finalLead.lead_source_id,
-      finalLead.lead_source_detail,
-      finalLead.assigned_user_id,
-      finalLead.lead_status,
-      finalLead.notes
-    ];
-
-    const [result] = await pool.query(query, values);
-
-    res.status(200).json({ 
-      success: true, 
-      message: "Lead captured successfully", 
-      leadId: result.insertId 
-    });
-
-  } catch (error) {
-    console.error("WEBHOOK ERROR:", error); // This helps you see the error in VS Code Terminal
-    res.status(500).json({ error: "Internal Server Error", details: error.message });
-  }
+// ─── HELPER: UID GENERATOR ──────────────────────────────────────────
+const generateLeadUid = () => {
+    const yearShort = new Date().getFullYear().toString().slice(-2);
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    return `L${yearShort}-${randomSuffix}`;
 };
-// 1. Verification Handler (GET)
-exports.verifyMetaWebhook = async (req, res) => {
-    // 1. ADD THIS HEADER: This tells ngrok to skip the warning page
-    res.setHeader('ngrok-skip-browser-warning', 'true');
 
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
+// ─── 1. VERIFICATION HANDLER (REQUIRED BY YOUR ROUTER) ──────────────
+// This fixes the crash for: router.get('/webhooks/whatsapp', ...)
+exports.verifyWebhook = async (req, res) => {
+    res.setHeader('ngrok-skip-browser-warning', 'true');
     const challenge = req.query['hub.challenge'];
-    const { clientId } = req.params;
-
-    try {
-        const [rows] = await pool.query(
-    "SELECT config_data FROM client_integrations WHERE client_id = ? AND source_key = 'meta'",
-    [clientId]
-);
-
-// If no row or config_data is empty
-if (!rows || rows.length === 0 || !rows[0].config_data) {
-    console.log("❌ Token not found in database for this client");
-    return res.status(404).send("Token not configured");
-}
-
-// Ensure we are parsing the JSON correctly
-const config = typeof rows[0].config_data === 'string' 
-    ? JSON.parse(rows[0].config_data) 
-    : rows[0].config_data;
-
-const savedToken = config.verifyToken;
-
-  if (mode === 'subscribe' && token === savedToken) {
-    console.log("✅ Meta Webhook Verified!");
-    res.setHeader('ngrok-skip-browser-warning', 'true');
-    res.setHeader('Content-Type', 'text/plain');
-    // Using .end() ensures NO JSON formatting or extra characters
-    return res.status(200).end(challenge);
-
-
-        } else {
-            return res.sendStatus(403);
-        }
-    } catch (error) {
-        console.error("Webhook Error:", error);
-        return res.sendStatus(500);
+    // For verification, Meta/WhatsApp just need the challenge sent back
+    if (challenge) {
+        return res.status(200).send(challenge);
     }
+    res.sendStatus(403);
 };
-// 2. Data Handler (POST) - This receives the actual leads
-exports.receiveMetaWebhook = async (req, res) => {
+
+// ─── 2. META LEAD HANDLER (POST) ────────────────────────────────────
+// This fixes the crash for: router.post('/webhooks/meta/:clientId', ...)
+exports.handleMetaLead = async (req, res) => {
     try {
         const { clientId } = req.params;
-        const data = req.body;
-
-        console.log(`📩 New Webhook Data received for Client ${clientId}:`, JSON.stringify(data, null, 2));
-
-        // Meta expects a 200 OK immediately to know you received the data
-        return res.status(200).send('EVENT_RECEIVED');
-        
-    } catch (error) {
-        console.error("Error receiving webhook data:", error);
-        return res.sendStatus(500);
-    }
-};
-// 2. Lead Handler (POST)
-exports.handleMetaLead = async (req, res) => {
-    const { clientId } = req.params;
-    const body = req.body;
-
-    // Meta sends an array of changes
-    if (body.object === 'page') {
-        for (const entry of body.entry) {
-            for (const change of entry.changes) {
-                if (change.field === 'leadgen') {
-                    const leadId = change.value.leadgen_id;
-                    const pageId = change.value.page_id;
-
-                    // Now we fetch the actual lead details using the Lead ID
-                    await fetchAndStoreMetaLead(leadId, clientId);
+        const body = req.body;
+        if (body.object === 'page') {
+            for (const entry of body.entry) {
+                for (const change of entry.changes) {
+                    if (change.field === 'leadgen') {
+                        await fetchAndStoreMetaLead(change.value.leadgen_id, clientId);
+                    }
                 }
             }
         }
+        res.status(200).send('EVENT_RECEIVED');
+    } catch (error) {
+        res.sendStatus(500);
     }
-    res.status(200).send('EVENT_RECEIVED');
 };
 
-// Helper function to call Meta Graph API
+// ─── 3. GOOGLE ADS HANDLER (POST) ───────────────────────────────────
+// This fixes the crash for: router.post('/webhooks/google', ...)
+exports.handleGoogleLead = async (req, res) => {
+    try {
+        const { user_column_data } = req.body;
+        const leadData = {};
+        user_column_data?.forEach(col => {
+            if (col.column_id === 'FULL_NAME') leadData.full_name = col.string_value;
+            if (col.column_id === 'PHONE_NUMBER') leadData.phone = col.string_value;
+            if (col.column_id === 'EMAIL') leadData.email = col.string_value;
+        });
+        const query = `INSERT INTO leads (full_name, phone, email, lead_source_id, source_project, lead_uid, lead_status) VALUES (?, ?, ?, 5, 'Google Ads', ?, 'New')`;
+        await pool.query(query, [leadData.full_name, leadData.phone, leadData.email, generateLeadUid()]);
+        res.status(200).json({ success: true });
+    } catch (error) {
+        res.sendStatus(500);
+    }
+};
+
+// ─── 4. UNIVERSAL WEBHOOK (REQUIRED BY OTHER PAGES) ────────────────
+exports.handleLeadWebhook = async (req, res) => {
+    const { source, clientId } = req.params;
+    try {
+        const leadUid = generateLeadUid();
+        // Dynamic source mapping
+        const sourceId = source === 'whatsapp' ? 1 : 4; 
+
+        await pool.query(
+            `INSERT INTO leads (full_name, phone, email, lead_source_id, source_project, lead_uid, lead_status) VALUES (?, ?, ?, ?, ?, ?, 'New')`,
+            [req.body.full_name || "Web Lead", req.body.phone, req.body.email, sourceId, source, leadUid]
+        );
+        res.status(200).json({ success: true, leadUid });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+// ─── 5. META HELPER ────────────────────────────────────────────────
 async function fetchAndStoreMetaLead(leadId, clientId) {
     try {
-        // 1. Get the Page Access Token from your DB
-        const [integration] = await pool.query(
-          "SELECT config_data FROM client_integrations WHERE client_id = ? AND source_key = 'meta'",
-          [clientId]
-        );
-        const accessToken = integration[0]?.config_data?.accessToken;
-
-        // 2. Fetch Lead Details from Meta
-        const response = await axios.get(`https://graph.facebook.com/v20.0/${leadId}?access_token=${accessToken}`);
-        const metaLead = response.data; 
-
-        // 3. Map Meta fields to YOUR table
-        // Meta field_data looks like: [{name: "full_name", values: ["Arjun"]}, ...]
-        const extractField = (name) => metaLead.field_data?.find(f => f.name === name)?.values[0] || "";
-
-        const finalLead = {
-            full_name: extractField('full_name') || extractField('name') || "Meta Lead",
-            phone: extractField('phone_number') || extractField('phone') || "",
-            email: extractField('email') || "",
-            lead_source_id: 2, // Assuming 2 is Meta in your system
-            assigned_user_id: clientId,
-            lead_status: "New"
-        };
-
-        // 4. Insert into DB
+        const [rows] = await pool.query("SELECT config_data FROM client_integrations WHERE client_id = ? AND source_key = 'meta'", [clientId]);
+        if (!rows.length) return;
+        const config = typeof rows[0].config_data === 'string' ? JSON.parse(rows[0].config_data) : rows[0].config_data;
+        const response = await axios.get(`https://graph.facebook.com/v20.0/${leadId}?access_token=${config.access_token}`);
+        const extract = (name) => response.data.field_data?.find(f => f.name === name)?.values[0] || "";
         await pool.query(
-            "INSERT INTO leads (full_name, phone, email, lead_source_id, assigned_user_id, lead_status) VALUES (?, ?, ?, ?, ?, ?)",
-            [finalLead.full_name, finalLead.phone, finalLead.email, finalLead.lead_source_id, finalLead.assigned_user_id, finalLead.lead_status]
+            `INSERT INTO leads (full_name, phone, email, lead_source_id, source_project, lead_uid, lead_status) VALUES (?, ?, ?, 2, 'Meta Ads', ?, 'New')`,
+            [extract('full_name') || "Meta Lead", extract('phone_number'), extract('email'), generateLeadUid()]
         );
+    } catch (err) { console.error("Meta API Error:", err.message); }
+}
 
-        console.log(`🚀 Meta Lead ${leadId} captured successfully!`);
-    } catch (err) {
-        console.error("❌ Meta Fetch Error:", err.response?.data || err.message);
-    }
-};
-// backend/src/controllers/webhookController.js
-
-exports.handleWhatsAppWebhook = async (req, res) => {
-  try {
-    const entry = req.body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-
-    if (value?.messages) {
-      const message = value.messages[0];
-      const contact = value.contacts[0];
-
-      const leadData = {
-        name: contact.profile.name,
-        phone: message.from,
-        source: 'whatsapp',
-        query: message.text?.body || "WhatsApp Inquiry",
-        raw_data: JSON.stringify(req.body)
-      };
-
-      // ─── INSERT INTO YOUR CRM DATABASE ───
-      const [result] = await pool.query(
-        "INSERT INTO leads (name, phone, source, message) VALUES (?, ?, ?, ?)",
-        [leadData.name, leadData.phone, leadData.source, leadData.query]
-      );
-
-      console.log(`✅ WhatsApp Lead Captured: ${leadData.name}`);
-    }
-
-    res.status(200).send("EVENT_RECEIVED");
-  } catch (error) {
-    console.error("WhatsApp Webhook Error:", error);
-    res.sendStatus(500);
-  }
-};
-exports.handleWhatsAppLead = async (req, res) => {
-  try {
-    const messageObj = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    const contactObj = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
-
-    if (messageObj) {
-      const lead = {
-        name: contactObj?.profile?.name || "WhatsApp User",
-        phone: messageObj.from,
-        source: 'whatsapp',
-        message: messageObj.text?.body || "Inquiry from WhatsApp"
-      };
-
-      // Direct Database Insert
-      await pool.query(
-        "INSERT INTO leads (name, phone, source, message) VALUES (?, ?, ?, ?)",
-        [lead.name, lead.phone, lead.source, lead.message]
-      );
-    }
-    res.sendStatus(200); // Always tell Meta you received it
-  } catch (err) {
-    res.sendStatus(500);
-  }
-};
+// Aliases to prevent crashes if old names are used
+exports.verifyMetaWebhook = exports.verifyWebhook;
+exports.receiveMetaWebhook = exports.handleMetaLead;
+exports.handleWhatsAppLead = exports.handleMetaLead;

@@ -2,52 +2,30 @@ const express = require('express');
 const router = express.Router();
 const webhookController = require('../controllers/webhookController');
 
-// Debugging: This will tell us if the functions are actually loading
-console.log('Verify Function:', typeof webhookController.verifyMetaWebhook);
-console.log('Receive Function:', typeof webhookController.receiveMetaWebhook);
+/**
+ * META (Facebook & Instagram) LEAD ADS
+ * Handlers: verifyMetaWebhook (GET), handleMetaLead (POST)
+ */
+router.get('/meta/:clientId', webhookController.verifyMetaWebhook);
+router.post('/meta/:clientId', webhookController.handleMetaLead);
 
-// Verification Route (The GET request Meta sends first)
-if (typeof webhookController.verifyMetaWebhook === 'function') {
-    router.get('/meta/:clientId', webhookController.verifyMetaWebhook);
-} else {
-    console.error('❌ Error: verifyMetaWebhook is not a function!');
-}
+/**
+ * WHATSAPP BUSINESS WEBHOOKS
+ * Handlers: verifyWebhook (GET), handleWhatsAppLead (POST)
+ */
+router.get('/whatsapp/:clientId', webhookController.verifyWebhook);
+router.post('/whatsapp/:clientId', webhookController.handleWhatsAppLead);
 
-// Data Route (The POST request for leads)
-if (typeof webhookController.receiveMetaWebhook === 'function') {
-    router.post('/meta/:clientId', webhookController.receiveMetaWebhook);
-} else {
-    console.error('❌ Error: receiveMetaWebhook is not a function!');
-}
-// Meta Verification (Initial Setup)
-router.get('/whatsapp', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+/**
+ * GOOGLE ADS LEAD FORMS
+ * Handler: handleGoogleLead (POST)
+ */
+router.post('/google/:clientId', webhookController.handleGoogleLead);
 
-  if (mode && token === "YOUR_VERIFY_TOKEN") {
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
-});
-
-// Data Receipt
-router.post('/whatsapp', webhookController.handleWhatsAppWebhook);
-
-router.get('/whatsapp', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
-});
-
-// Main data handler
-router.post('/whatsapp', webhookController.handleWhatsAppLead);
+/**
+ * UNIVERSAL WEBHOOK (Website Forms, Elementor, Custom)
+ * Handler: handleLeadWebhook (POST)
+ */
+router.post('/capture/:clientId/:source', webhookController.handleLeadWebhook);
 
 module.exports = router;

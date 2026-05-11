@@ -25,5 +25,26 @@ router.delete('/:id', authenticateToken, isAdmin, userController.deleteUser);
 
 // Alias for registration
 router.post('/register', authenticateToken, isAdmin, userController.createUser);
+// backend/src/controllers/userController.js (or similar)
+exports.getCounselors = async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            "SELECT id, name FROM users WHERE role IN ('Counselor', 'Manager', 'Admin') ORDER BY name ASC"
+        );
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+router.get('/staff-list', authenticateToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            "SELECT id, name FROM users WHERE role IN ('Counselor', 'Manager', 'Admin') ORDER BY name ASC"
+        );
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 module.exports = router;

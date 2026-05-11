@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../config/db');
+const pool = require('../config/db');
 const leadController = require('../controllers/leadController');
 const checkPermission = require('../middleware/checkPermission'); // Updated middleware
 const { authenticateToken } = require('../middleware/auth');
@@ -9,7 +9,7 @@ const followupController = require('../controllers/followupController');
 const pipelineController = require('../controllers/pipelineController');
 const communicationController = require('../controllers/communicationController');
 const dashboardController = require('../controllers/dashboardController');
-
+const webhookController = require('../controllers/webhookController');
 /**
  * Safe Wrapper: Ensures the controller function exists before routing.
  */
@@ -21,7 +21,20 @@ const safe = (fn, name) => {
 
 // --- Dashboard and Analytics ---
 
+router.post(
+  '/webhooks/meta/:clientId',
+  safe(webhookController.handleMetaLead, 'handleMetaLead')
+);
 
+router.get(
+  '/webhooks/whatsapp',
+  safe(webhookController.verifyWebhook, 'verifyWebhook')
+);
+
+router.post(
+  '/webhooks/google',
+  safe(webhookController.handleGoogleLead, 'handleGoogleLead')
+);
 // Updated to use permission_key 'data.export'
 router.get('/export', authenticateToken, checkPermission('data.export'), safe(leadController.exportLeads, 'exportLeads'));
 
@@ -82,7 +95,22 @@ router.post('/bulk-delete', authenticateToken, checkPermission('leads.delete'), 
 
 // --- Standard Lead CRUD ---
 
-router.get('/', authenticateToken, checkPermission('leads.view'), safe(leadController.getAllLeads, 'getAllLeads'));
+// You use the same controller function but "wrap" it with the source ID
+router.post('/capture/web', (req, res) => {
+    req.query.source_id = 4; // Website
+    leadController.captureLead(req, res);
+});
+
+router.post('/capture/whatsapp', (req, res) => {
+    req.query.source_id = 1; // WhatsApp
+    leadController.captureLead(req, res);
+});
+router.post('/capture', leadController.captureLead);
+router.get('/', 
+  authenticateToken, 
+  checkPermission('leads.view'), 
+  safe(leadController.getAllLeads, 'getAllLeads')
+);
 router.post('/', authenticateToken, checkPermission('leads.create'), safe(leadController.createLead, 'createLead'));
 
 // Lead ID-specific and Status routes

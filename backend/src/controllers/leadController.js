@@ -2,6 +2,7 @@ const { pool } = require('../config/db');
 const jwt = require('jsonwebtoken');
 const activityController = require("./activityController");
 const leadDistributor = require("../services/leadDistributor");
+const { v4: uuidv4 } = require("uuid");
 /**
  * Authentication Middleware
  */
@@ -832,6 +833,92 @@ const bulkUpdateLeads = async (req, res) => {
   }
 };
 
+
+// ── controller ────────────────────────────────────────────────────────────────
+
+const generateLeadUid = () => {
+    const yearShort = new Date().getFullYear().toString().slice(-2); // "26"
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000); // 4 random digits
+    return `L${yearShort}-${randomSuffix}`;
+};
+const sanitize = (val, maxLen = 255) =>
+    typeof val === "string" ? val.trim().slice(0, maxLen) : null;
+/**
+ * Capture Lead Controller
+ * Handles external POST requests from Web Forms, WhatsApp, etc.
+ */
+const captureLead = async (req, res) => {
+    try {
+        // 1. Extract and Sanitize Data
+        const project_id = sanitize(req.query.project_id, 100);
+        
+        // Dynamic Source ID: Default to 4 (Website) if not provided in URL
+        const lead_source_id = parseInt(req.query.source_id) || 4;
+
+        const full_name = sanitize(req.body.full_name, 255);
+        const phone = sanitize(req.body.phone, 20);
+        const email = sanitize(req.body.email, 255);
+
+        // 2. Validation
+        if (!phone) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Phone number is required." 
+            });
+        }
+
+        const leadUid = generateLeadUid();
+
+        // 3. Database Insert
+        // Using lead_source_id dynamically based on your lead_sources table
+        const [result] = await pool.query(
+            `INSERT INTO leads (
+                full_name,
+                phone,
+                email,
+                lead_status,
+                lead_uid,
+                source_project,
+                lead_source_id,
+                counselor_remarks
+            ) VALUES (?, ?, ?, 'New', ?, ?, ?, ?)`,
+            [
+                full_name || "Web Inquiry",
+                phone,
+                email || null,
+                leadUid,
+                project_id || "webgyor_portal",
+                lead_source_id,
+                `System Capture | Source ID: ${lead_source_id} | Project: ${project_id || 'Direct'}`
+            ]
+        );
+
+        console.log("✅ Lead Captured Successfully:", { 
+            id: result.insertId, 
+            uid: leadUid, 
+            source_id: lead_source_id 
+        });
+
+        // 4. Success Response
+        res.status(201).json({ 
+            success: true, 
+            leadId: result.insertId, 
+            leadUid 
+        });
+
+    } catch (error) {
+        console.error("❌ captureLead DB error:", error.sqlMessage || error.message);
+
+        const isDuplicate = error.code === "ER_DUP_ENTRY";
+        res.status(isDuplicate ? 409 : 500).json({
+            success: false,
+            message: isDuplicate
+                ? "A lead with this phone number already exists."
+                : `Failed to capture lead: ${error.sqlMessage || 'Check server logs'}`
+        });
+    }
+};
+
 module.exports = {
   authenticateToken,
 
@@ -842,7 +929,7 @@ module.exports = {
   bulkAssignLeads,
   bulkImportLeads,
   deleteLead,
-
+captureLead,
 
   checkDuplicate,
   exportLeads,
