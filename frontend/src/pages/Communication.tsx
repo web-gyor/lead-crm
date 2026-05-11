@@ -40,6 +40,7 @@ const AVATAR_COLORS = [
 ];
 const avatarColor = (name: string) => AVATAR_COLORS[(name?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
 
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(dateStr: string) {
@@ -89,6 +90,8 @@ function InteractionHub({ lead, leads, onSelectLead, onNewLog, onBack }: Interac
   const [logsLoading, setLogsLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+const [isRecordingEnabled, setIsRecordingEnabled] = useState(false);
+
 
   const fetchLogs = useCallback(async (silent = false) => {
     if (!lead?.id) return;
@@ -104,6 +107,43 @@ function InteractionHub({ lead, leads, onSelectLead, onNewLog, onBack }: Interac
   }, [lead?.id]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
+
+useEffect(() => {
+  const checkSettings = async () => {
+    try {
+      const data = await apiGet("/api/settings");
+      // Use logical OR to check both direct and nested data paths
+      const enabled = data?.is_call_recording_enabled || data?.data?.is_call_recording_enabled;
+      setIsRecordingEnabled(!!enabled);
+    } catch (err) {
+      console.error("Settings fetch failed", err);
+    }
+  };
+  checkSettings();
+}, [lead?.id]);
+
+const handleBridgeCall = async (e: React.MouseEvent) => {
+  // If recording is disabled, let the default <a> tag behavior (tel:) handle it
+  if (!isRecordingEnabled) return;
+
+  e.preventDefault(); // Stop the tel: link from opening
+  
+  const loadingToast = toast.loading("Initiating secure call bridge...");
+  
+  try {
+    const res = await apiPost("/api/telephony/call/initiate", {
+      leadId: lead.id,
+      leadPhone: lead.phone
+    });
+
+    if (res.success) {
+      toast.success("Connecting! Your phone will ring now.", { id: loadingToast });
+      fetchLogs(true); // Refresh timeline to show the "initiating" log
+    }
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || "Failed to connect call", { id: loadingToast });
+  }
+};
 
   // ✅ FIX: Optimistic Update to prevent table from going empty
   const handleAddLog = async (e: React.FormEvent) => {
@@ -207,30 +247,64 @@ function InteractionHub({ lead, leads, onSelectLead, onNewLog, onBack }: Interac
           </div>
         </div>
 
-        {/* Quick action row */}
-        <div className="flex items-center gap-2">
-          <a href={`tel:${lead?.phone}`}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 dark:bg-blue-900/20
-              text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-wide
-              hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all">
-            <Phone size={13} /> Call
-          </a>
-          <a href={`https://wa.me/91${lead?.phone?.replace(/\D/g, "")}`}
-            target="_blank" rel="noreferrer"
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-50 dark:bg-emerald-900/20
-              text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-wide
-              hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all">
-            <MessageSquare size={13} /> WA
-          </a>
-          {lead?.assigned_user_name && (
-            <div className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50
-              dark:bg-indigo-900/20 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-wide">
-              <ShieldCheck size={13} />
-              <span className="truncate max-w-[70px]">{lead.assigned_user_name.split(" ")[0]}</span>
-            </div>
-          )}
-        </div>
-      </div>
+  {/* Quick action row - Forced 3 Columns */}
+<div className="grid grid-cols-3 gap-2 mt-3">
+  {/* Column 1: Call */}
+  <a 
+    href={`tel:${lead?.phone}`}
+    onClick={handleBridgeCall}
+    className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-tight transition-all border shadow-sm ${
+      isRecordingEnabled 
+        ? "bg-blue-600 text-white border-blue-700 hover:bg-blue-700 active:scale-95" 
+        : "bg-blue-50 dark:bg-blue-900/10 text-blue-600 border-blue-100 dark:border-blue-800 hover:bg-blue-100"
+    }`}
+  >
+    {isRecordingEnabled ? (
+      <>
+        <span className="relative flex h-1.5 w-1.5 shrink-0">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+        </span>
+        <span className="truncate">Bridge</span>
+      </>
+    ) : (
+      <>
+        <Phone size={12} strokeWidth={3} className="shrink-0" /> 
+        <span>Call</span>
+      </>
+    )}
+  </a>
+
+  {/* Column 2: WA */}
+  <a 
+    href={`https://wa.me/91${lead?.phone?.replace(/\D/g, "")}`}
+    target="_blank" 
+    rel="noreferrer"
+    className="flex items-center justify-center gap-1.5 py-2.5 bg-emerald-50 dark:bg-emerald-900/10
+      text-emerald-600 border border-emerald-100 dark:border-emerald-800 rounded-xl text-[10px] 
+      font-black uppercase tracking-tight hover:bg-emerald-100 transition-all active:scale-95 shadow-sm"
+  >
+    <MessageSquare size={12} strokeWidth={3} className="shrink-0" /> 
+    <span>WA</span>
+  </a>
+
+  {/* Column 3: Staff (Placeholder if no assigned user to keep 3 cols) */}
+  <div className="flex items-center justify-center gap-1.5 py-2.5 bg-indigo-50
+    dark:bg-indigo-900/10 text-indigo-600 border border-indigo-100 dark:border-indigo-800 
+    rounded-xl text-[10px] font-black uppercase tracking-tight shadow-sm">
+    {lead?.assigned_user_name ? (
+      <>
+        <ShieldCheck size={12} strokeWidth={3} className="shrink-0" />
+        <span className="truncate">{lead.assigned_user_name.split(" ")[0]}</span>
+      </>
+    ) : (
+      <>
+        <UserCircle2 size={12} strokeWidth={3} className="shrink-0" />
+        <span>Staff</span>
+      </>
+    )}
+  </div>
+</div></div>
 
       {/* ── Log form ── */}
       <div className="shrink-0 px-4 sm:px-5 py-3 bg-gray-50/60 dark:bg-gray-800/40

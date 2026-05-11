@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, UserPlus, Phone, Bell, Menu, Sun, Moon,
   Layers, Package, BrainCircuit, CheckCircle, XCircle, BarChart3,
   LogOut, Filter, Upload, Zap, Calendar, History, UserCheck,
-  ShieldCheck, X, Activity, AlertCircle, Globe
+  ShieldCheck, X, Activity, AlertCircle, Globe, Headphones
 } from "lucide-react";
 import { apiGet } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
@@ -54,6 +54,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/import":           "Bulk Import",
   "/distribution": "Lead Distribution",
   "/audit-logs":       "Activity Logs",
+   "/call-tracker": "Call Logs",
   "/masters/users":    "Staff Master",
   "/masters/courses":  "Course Master",
   "/settings":         "System Config",
@@ -380,6 +381,7 @@ useEffect(() => {
       ...(can("leads.assign") ? [{label: "Distribution",  to: "/distribution", icon: <Zap size={16}  />       }] : []),
       ...(can("data.import")       ? [{ label: "Bulk Import",   to: "/import",      icon: <Upload size={16} /> }] : []),
       ...(can("logs.activity")     ? [{ label: "Activity Logs", to: "/audit-logs",  icon: <History size={16} /> }] : []),
+      ...(can("logs.activity") ? [{ label: "Call Logs", to: "/call-tracker", icon: <Headphones size={16} /> }] : []),
       
       ...((can("master.staff") || can("master.course")) ? [{
         label: "Masters", to: "masters",

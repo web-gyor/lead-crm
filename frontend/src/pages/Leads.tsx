@@ -331,6 +331,9 @@ const k = stats || {};
       .catch(() => {});
   }, []);
 
+
+
+  
   // ── Notification poll ─────────────────────────────────────────────────────
   useEffect(() => {
     const check = async () => {
@@ -409,6 +412,19 @@ const k = stats || {};
     console.error("Failed to fetch summary:", err);
   }
 }, []);
+
+useEffect(() => {
+  // Initial fetch
+ loadData();
+
+  // Auto-refresh every 30 seconds
+  const interval = setInterval(() => {
+    loadData();
+    console.log("📡 Auto-synced with Database");
+  }, 30000); 
+
+  return () => clearInterval(interval); // Cleanup when page closes
+}, [currentPage, rowsPerPage]);
 
 useEffect(() => {
   loadData();    // Your existing table fetch
@@ -1018,10 +1034,11 @@ useEffect(() => {
                     }`}>
                       <td className="px-3 py-2 text-center"><span className="text-[11px] text-gray-400 tabular-nums">{(currentPage - 1) * rowsPerPage + i + 1}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <span className="text-[10px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-800 tracking-wider">
-                          {lead.lead_uid || `L26-${String(lead.id).padStart(4, "0")}`}
-                        </span>
-                      </td>
+  <span className="text-[10px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-800 tracking-wider">
+    {/* This forces the L26-0000 format regardless of what is in the UID column */}
+    {`L26-${String(lead.id).padStart(4, "0")}`}
+  </span>
+</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">
                           {lead.created_at ? new Date(lead.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
@@ -1029,9 +1046,20 @@ useEffect(() => {
                         <p className="text-[8px] text-gray-400 uppercase">Entry</p>
                       </td>
                       <td className="px-3 py-2 max-w-[140px]">
-                        <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">{lead.full_name || "N/A"}</p>
-                        {lead.parent_name && <p className="text-[9px] text-gray-400 truncate">👤 {lead.parent_name}</p>}
-                      </td>
+  {/* Primary Name */}
+  <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
+    {lead.full_name || "N/A"}
+  </p>
+
+  {/* Dynamic Sub-text: Shows Project ID in Blue if available, else shows Parent Name */}
+  {lead.source_project ? (
+    <p className="text-[9px] font-black text-blue-500 dark:text-blue-400 uppercase tracking-tighter truncate mt-0.5">
+      🌐 {lead.source_project.replace(/_/g, ' ')}
+    </p>
+  ) : lead.parent_name ? (
+    <p className="text-[9px] text-gray-400 truncate">👤 {lead.parent_name}</p>
+  ) : null}
+</td>
                       <td className="px-3 py-2 max-w-[110px]"><span className="text-[10px] text-gray-600 dark:text-gray-300 truncate block">{lead.interested_course || "General"}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="flex flex-col leading-tight">

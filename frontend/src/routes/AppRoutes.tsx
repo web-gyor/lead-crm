@@ -33,7 +33,7 @@ import RejectedLeads from "../pages/leads/Rejected";
 import LostLeads from "../pages/leads/Lost";
 import LeadDistribution from "../pages/LeadDistribution"; 
 import AttendanceMaster from "../pages/AttendanceMaster";
-
+import CallTracker from "../pages/CallTracker";
 // Components
 import ActivityLogs from "../components/ActivityLogs";
 import NotFound from "../components/NotFound";
@@ -122,10 +122,15 @@ export default function AppRoutes() {
               <Route index element={<Permissions />} />
           </Route>
 
-          <Route path="/audit-logs" element={<ProtectedRoute permissionKey="logs.activity" />} >
-              <Route index element={<ActivityLogs />} />
-          </Route>
+         {/* ── Activity Logs ── */}
+<Route path="/audit-logs" element={<ProtectedRoute permissionKey="logs.activity" />} >
+    <Route index element={<ActivityLogs />} />
+</Route>
 
+{/* ── Call Tracker (Communications Audit) ── */}
+<Route path="/call-tracker" element={<ProtectedRoute permissionKey="logs.tracker" />}>
+    <Route index element={<CallTracker />} />
+</Route>
           <Route path="/masters/users" element={<ProtectedRoute permissionKey="master.staff" />} >
               <Route index element={<UsersMaster />} />
           </Route>
