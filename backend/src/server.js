@@ -48,10 +48,8 @@ const allowedOrigins = rawOrigins
   .map((o) => o.trim())
   .filter(Boolean);
 
-// 🟢 Hardcode your production URLs here so they are ALWAYS allowed
-// 1. Define origins explicitly
 const allowedOrigins = [
-  "lead-crm-git-main-webgyors-projects.vercel.app",
+  "https://lead-crm-git-main-webgyors-projects.vercel.app",
   "https://lead-crm-tmz8.onrender.com"
 ];
 
@@ -59,6 +57,7 @@ if (process.env.NODE_ENV !== "production") {
   allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
 }
 
+// 2. CORS Configuration
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -74,27 +73,25 @@ const corsOptions = {
     console.error("CORS Blocked:", origin);
     return callback(new Error(`CORS: ${origin} not allowed`));
   },
-
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-
-  // optional: remove if not strictly needed
   allowedHeaders: ["Content-Type", "Authorization"],
-
   optionsSuccessStatus: 200
 };
 
-
 app.use(cors(corsOptions));
+
+// 3. Rate Limiter (Ensure this is defined AFTER cors)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max:      1000, // High limit for CRM dashboard usage
-  message:  { success: false, message: "Too many requests. Please slow down." },
+  max: 1000, 
+  message: { success: false, message: "Too many requests. Please slow down." },
   standardHeaders: true,
-  legacyHeaders:   false,
+  legacyHeaders: false,
 });
 
-app.use("/api", apiLimiter);
+// Apply the limiter to all requests
+app.use(apiLimiter);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. BODY PARSERS & LOGGING
