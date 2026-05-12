@@ -49,36 +49,43 @@ const allowedOrigins = rawOrigins
   .filter(Boolean);
 
 // 🟢 Hardcode your production URLs here so they are ALWAYS allowed
+// 1. Define origins explicitly
 const allowedOrigins = [
   "https://lead-crm-kappa-tawny.vercel.app",
   "https://lead-crm-tmz8.onrender.com"
 ];
 
-// Keep your existing development logic
 if (process.env.NODE_ENV !== "production") {
   allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
 }
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or server-to-server)
-      if (!origin) return callback(null, true);
-      
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        // This will print the blocked origin in your Render logs to help you debug
-        console.error(`CORS blocked for origin: ${origin}`);
-        callback(new Error(`CORS: origin ${origin} not allowed`));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Secret"],
-  })
-);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
 
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      origin.endsWith(".vercel.app");
+
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    console.error("CORS Blocked:", origin);
+    return callback(new Error(`CORS: ${origin} not allowed`));
+  },
+
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+
+  // optional: remove if not strictly needed
+  allowedHeaders: ["Content-Type", "Authorization"],
+
+  optionsSuccessStatus: 200
+};
+
+
+app.use(cors(corsOptions));
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max:      1000, // High limit for CRM dashboard usage
