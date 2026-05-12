@@ -42,14 +42,15 @@ const PORT = process.env.PORT || 4000;
 
 app.use(helmet());
 
-const rawOrigins = process.env.ALLOWED_ORIGINS || "";
-const allowedOrigins = rawOrigins
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
+// --- Merged allowedOrigins logic ---
+const envOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()).filter(Boolean) 
+  : [];
 
 const allowedOrigins = [
+  ...envOrigins,
   "https://lead-crm-git-main-webgyors-projects.vercel.app",
+  "https://lead-crm-kappa-tawny.vercel.app", // Added your primary production URL
   "https://lead-crm-tmz8.onrender.com"
 ];
 
@@ -57,7 +58,7 @@ if (process.env.NODE_ENV !== "production") {
   allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
 }
 
-// 2. CORS Configuration
+// --- CORS Configuration ---
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -81,7 +82,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// 3. Rate Limiter (Ensure this is defined AFTER cors)
+// --- Rate Limiter ---
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 1000, 
@@ -90,9 +91,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Apply the limiter to all requests
 app.use(apiLimiter);
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. BODY PARSERS & LOGGING
 // ═══════════════════════════════════════════════════════════════════════════════
