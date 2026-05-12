@@ -51,7 +51,7 @@ const allowedOrigins = rawOrigins
 // 🟢 Hardcode your production URLs here so they are ALWAYS allowed
 // 1. Define origins explicitly
 const allowedOrigins = [
-  "https://lead-crm-kappa-tawny.vercel.app",
+  "lead-crm-git-main-webgyors-projects.vercel.app",
   "https://lead-crm-tmz8.onrender.com"
 ];
 
