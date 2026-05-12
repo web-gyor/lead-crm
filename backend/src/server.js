@@ -48,6 +48,13 @@ const allowedOrigins = rawOrigins
   .map((o) => o.trim())
   .filter(Boolean);
 
+// 🟢 Hardcode your production URLs here so they are ALWAYS allowed
+const allowedOrigins = [
+  "https://lead-crm-kappa-tawny.vercel.app",
+  "https://lead-crm-tmz8.onrender.com"
+];
+
+// Keep your existing development logic
 if (process.env.NODE_ENV !== "production") {
   allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
 }
@@ -55,12 +62,19 @@ if (process.env.NODE_ENV !== "production") {
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or server-to-server)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin ${origin} not allowed`));
+      
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        // This will print the blocked origin in your Render logs to help you debug
+        console.error(`CORS blocked for origin: ${origin}`);
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
     },
-    credentials:    true,
-    methods:        ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Secret"],
   })
 );
@@ -104,7 +118,7 @@ app.use("/api/permissions", permissionsRouter);
 app.use("/api/activity", activityRoutes);
 app.use("/api/staff-performance", staffPerformanceRoutes);
 app.use("/api/logs", logRoutes);
-app.use("/api/attendance", attendanceRoutes);
+
 
 // Fix: Direct Alias for Lead Sources (Frontend calls /api/lead-sources)
 app.get('/api/lead-sources', authenticateToken, async (req, res) => {
