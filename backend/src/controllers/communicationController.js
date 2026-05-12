@@ -1,120 +1,123 @@
-const db = require('../config/db');
+const { pool } = require("../config/db");
 
-/**
- * CREATE COMMUNICATION LOG
- */
+// ── Matches your AuthContext role exactly ──────────────────────────────────────
+const isAdmin = (user) => user?.role?.toLowerCase() === 'admin';
+
+// ── CREATE COMMUNICATION LOG ──────────────────────────────────────────────────
+
 const createLog = async (req, res) => {
-  const { lead_id, type, summary } = req.body;
+  // Fix #1: reject if auth didn't run — never fall back to user ID 1
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
-  const userId = req.user ? req.user.id : 1;
+  const { lead_id, type, summary } = req.body;
+  const userId = req.user.id;
+
+  // Fix #2: validate required fields up front
+  if (!lead_id || !summary?.trim()) {
+    return res.status(400).json({ error: "lead_id and summary are required" });
+  }
+
+  const VALID_TYPES = ['Call', 'Email', 'WhatsApp', 'Meeting', 'Note'];
+  const logType = VALID_TYPES.includes(type) ? type : 'Call';
 
   try {
-    const sql = `
-      INSERT INTO communication_logs 
-      (lead_id, user_id, type, summary) 
-      VALUES (?, ?, ?, ?)
-    `;
+    const [result] = await db.execute(
+      `INSERT INTO communication_logs (lead_id, user_id, type, summary)
+       VALUES (?, ?, ?, ?)`,
+      [lead_id, userId, logType, summary.trim()]
+    );
 
-    const [result] = await db.execute(sql, [
-      lead_id,
-      userId,
-      type || 'Call',
-      summary
-    ]);
-
-    return res.status(201).json({
-      success: true,
-      logId: result.insertId
-    });
+    return res.status(201).json({ success: true, logId: result.insertId });
 
   } catch (err) {
-    console.error("createLog Error:", err.message);
-    return res.status(500).json({
-      error: "Database Save Failed: " + err.message
-    });
+    console.error("createLog error:", err); // full error in server logs only
+    return res.status(500).json({ error: "Failed to save log" }); // Fix #3: no leak
   }
 };
 
-/**
- * GET LOGS BY LEAD (FULL HISTORY)
- */
+// ── GET LOGS BY LEAD ──────────────────────────────────────────────────────────
+
 const getLogsByLead = async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Fix #4: validate leadId is a number
+  const leadId = parseInt(req.params.leadId);
+  if (!leadId) return res.status(400).json({ error: "Invalid lead ID" });
+
   try {
-    const sql = `
-      SELECT 
-        cl.*,
-        u.name AS user_name
+    // Fix #5: non-admins can only fetch logs for leads assigned to them
+    let sql = `
+      SELECT cl.*, u.name AS user_name
       FROM communication_logs cl
       LEFT JOIN users u ON cl.user_id = u.id
       WHERE cl.lead_id = ?
-      ORDER BY cl.created_at DESC
     `;
+    const params = [leadId];
 
-    const [rows] = await db.execute(sql, [req.params.leadId]);
-
-    return res.status(200).json({
-      success: true,
-      data: rows
-    });
-
-  } catch (err) {
-    console.error("getLogsByLead Error:", err.message);
-    return res.status(500).json({
-      error: "Fetch Failed"
-    });
-  }
-};
-
-/**
- * GET GENERAL COMMUNICATION FEED (PIPELINE STYLE)
- * (REPLACES OLD counselor_remarks SYSTEM)
- */
-const getCommLogs = async (req, res) => {
-  try {
-    const role = req.user?.role?.toLowerCase() || '';
-    const userId = req.user?.id;
-
-    let query = `
-      SELECT 
-        cl.id,
-        l.full_name,
-        cl.summary AS message,
-        cl.created_at AS timestamp,
-        u.name AS staff_name,
-        cl.type
-      FROM communication_logs cl
-      JOIN leads l ON cl.lead_id = l.id
-      JOIN users u ON cl.user_id = u.id
-      WHERE 1=1
-    `;
-
-    const params = [];
-
-    // non-admin restriction
-    if (role !== 'admin' && userId) {
-      query += " AND l.assigned_user_id = ?";
-      params.push(userId);
+    if (!isAdmin(req.user)) {
+      sql += ` AND EXISTS (
+        SELECT 1 FROM leads l
+        WHERE l.id = cl.lead_id AND l.assigned_user_id = ?
+      )`;
+      params.push(req.user.id);
     }
 
-    query += " ORDER BY cl.created_at DESC LIMIT 50";
+    sql += " ORDER BY cl.created_at DESC";
 
-    const [rows] = await db.execute(query, params);
+    const [rows] = await db.execute(sql, params);
+    return res.json({ success: true, data: rows });
 
-    return res.json({
-      success: true,
-      data: rows
-    });
-
-  } catch (error) {
-    console.error("getCommLogs Error:", error.message);
-    return res.status(500).json({
-      error: "Failed to load communication logs"
-    });
+  } catch (err) {
+    console.error("getLogsByLead error:", err);
+    return res.status(500).json({ error: "Failed to fetch logs" });
   }
 };
 
-module.exports = {
-  createLog,
-  getLogsByLead,
-  getCommLogs
+// ── GET GENERAL COMMUNICATION FEED ───────────────────────────────────────────
+
+const getCommLogs = async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Fix #6: pagination instead of hard-coded LIMIT 50
+  const page  = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit = Math.min(100, parseInt(req.query.limit) || 50);
+  const offset = (page - 1) * limit;
+
+  try {
+    let where  = "WHERE 1=1";
+    const params = [];
+
+    // Fix #7: compare against 'admin' consistently — isAdmin() lowercases it
+    if (!isAdmin(req.user)) {
+      where += " AND l.assigned_user_id = ?";
+      params.push(req.user.id);
+    }
+
+    const [rows] = await db.execute(
+      `SELECT
+         cl.id,
+         l.full_name,
+         cl.summary   AS message,
+         cl.type,
+         cl.created_at AS timestamp,
+         u.name        AS staff_name
+       FROM communication_logs cl
+       JOIN leads l ON cl.lead_id = l.id
+       JOIN users u ON cl.user_id = u.id
+       ${where}
+       ORDER BY cl.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    return res.json({ success: true, data: rows, page, limit });
+
+  } catch (err) {
+    console.error("getCommLogs error:", err);
+    return res.status(500).json({ error: "Failed to load communication logs" });
+  }
 };
+
+module.exports = { createLog, getLogsByLead, getCommLogs };

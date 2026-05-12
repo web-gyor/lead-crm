@@ -41,7 +41,6 @@ interface Filters {
   startDate: string;
   endDate: string;
 }
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getRangeDates(range: string): { startDate: string; endDate: string } | null {
@@ -76,7 +75,11 @@ const SOURCE_COLORS: Record<string, string> = {
 
 function SourceBadge({ lead, sources }: { lead: any; sources: any[] }) {
   const src  = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
-  const name = (src?.name || lead.lead_source_name || "UNKNOWN").toUpperCase();
+ const name = (
+  src?.name ||
+  lead.lead_source_name ||
+  "UNKNOWN"
+).toUpperCase();
   const cls  = SOURCE_COLORS[name] ?? "bg-slate-50 text-slate-500 border-slate-200";
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border shadow-sm ${cls}`}>
@@ -123,9 +126,9 @@ export default function NewLeads() {
   const [deleteId,            setDeleteId]            = useState<number | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [isDeleting,          setIsDeleting]          = useState(false);
-
+const [followUpDate, setFollowUpDate] = useState("");
   const isAdmin = JSON.parse(localStorage.getItem("user") || "{}")?.role?.toLowerCase() === "admin";
-
+const [editUrgency, setEditUrgency] = useState("");
   // ── Derived ──────────────────────────────────────────────────────────────
 
   const hasActiveFilters = !!(
@@ -186,7 +189,7 @@ export default function NewLeads() {
     const params: Record<string, string> = {
       page:   String(currentPage),
       limit:  String(rowsPerPage),
-      search: filters.search,
+      search: filters.search.trim(),
       status: LEAD_STATUS,
     };
 
@@ -204,10 +207,7 @@ export default function NewLeads() {
 
     if (res?.data) {
       // ✅ DO NOT CLEAR BEFORE SETTING
-      setLeads(prev => {
-        const newData = Array.isArray(res.data) ? res.data : [];
-        return silent ? newData : newData;
-      });
+      setLeads(Array.isArray(res.data) ? res.data : []);
 
       setTotalPages(res.pagination?.totalPages ?? 1);
       setTotalCount(res.pagination?.totalItems  ?? 0);
@@ -218,9 +218,20 @@ export default function NewLeads() {
   } finally {
     if (!silent) setLoading(false);
   }
-}, [currentPage, rowsPerPage, filters]);
+}, [
+  currentPage,
+  rowsPerPage,
+  filters.search,
+  filters.sourceId,
+  filters.counselorId,
+  filters.range,
+  filters.startDate,
+  filters.endDate
+]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+ useEffect(() => {
+  loadData(true);
+}, [loadData]);
 
   // ── Selection ─────────────────────────────────────────────────────────────
 
@@ -279,6 +290,9 @@ const handleBulkUpdate = async () => {
     const payload: any = { leadIds: selectedLeads };
     if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
     if (bulkStatus) payload.lead_status = bulkStatus;
+    if (bulkStatus) {
+  payload.status_updated_at = new Date().toISOString();
+}
 
     await apiPut("/api/leads/bulk-update", payload);
     
@@ -336,28 +350,52 @@ const handleBulkUpdate = async () => {
 
   // ── Single edit ───────────────────────────────────────────────────────────
 
-  const openEdit = (lead: any) => {
-    setEditingLead(lead);
-    setEditStatus(lead.lead_status || LEAD_STATUS);
-    setShowEditForm(true);
-  };
+ const openEdit = (lead: any) => {
+  setEditingLead(lead);
+  setEditStatus(lead.lead_status || LEAD_STATUS);
 
-  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  setFollowUpDate(
+    lead.next_follow_up_date
+      ? new Date(lead.next_follow_up_date)
+          .toISOString()
+          .split("T")[0]
+      : ""
+  );
+
+  setShowEditForm(true);
+};
+ 
+const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingLead) return;
     const fd  = new FormData(e.currentTarget);
     const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
     try {
-      await apiPut(`/api/leads/${editingLead.id}`, {
-        ...editingLead, ...raw,
-        lead_source_id:    Number(raw.lead_source_id),
-        email:             raw.email             || null,
-        city:              raw.city              || null,
-        qualification:     raw.qualification     || null,
-        year_of_passing:   raw.year_of_passing   || null,
-        counselor_remarks: raw.counselor_remarks || null,
-        interested_course: raw.interested_course || null,
-      });
+  const payload = {
+  ...raw,
+
+  lead_source_id: Number(raw.lead_source_id),
+  email: raw.email || null,
+  city: raw.city || null,
+  qualification: raw.qualification || null,
+  year_of_passing: raw.year_of_passing ? Number(raw.year_of_passing) : null,
+  counselor_remarks: raw.counselor_remarks || null,
+  interested_course: raw.interested_course || null,
+
+  lead_status: editStatus,
+  urgency: raw.urgency, // or editUrgency if you use state
+  whatsapp_same: fd.get("whatsapp_same") === "on" ? 1 : 0,
+
+  next_follow_up_date: editStatus.toLowerCase().includes("follow")
+    ? (followUpDate || null)
+    : null,
+
+  status_updated_at:
+    editStatus !== editingLead.lead_status
+      ? new Date().toISOString()
+      : editingLead.status_updated_at || null,
+};
+    await apiPut(`/api/leads/${editingLead.id}`, payload);
       toast.success("Lead updated");
       setShowEditForm(false);
       setEditingLead(null);
@@ -368,25 +406,87 @@ const handleBulkUpdate = async () => {
   };
 
   // ── Export ────────────────────────────────────────────────────────────────
+const fetchAllLeadsForExport = async () => {
+  // Use the same filter logic as your other tabs
+  const params = new URLSearchParams({
+    ...filters,
+    status: 'New',      // This ensures you only get the "New" leads
+    limit: '10000',     // Get all of them (bypassing page 15-count)
+    page: '1'
+  }).toString();
 
-  const handleExport = () => {
-    const headers = ["ID", "Name", "Phone", "Email", "City", "Qualification", "Year", "Source", "Assigned"];
-    const csv = [
+  const res = await apiGet(`/api/leads?${params}`);
+  
+  // Verify in console
+  console.log("Exporting New Leads. Count:", res?.data?.length);
+  
+  return res?.data || [];
+};
+
+const handleExport = async () => {
+  try {
+    // 1. Fetch the full list specifically for export
+    const allLeads = await fetchAllLeadsForExport();
+    
+    if (!allLeads || allLeads.length === 0) {
+      toast.error("No data available to export");
+      return;
+    }
+
+    const headers = [
+      "ID", "Date Joined", "Student Name", "Parent Name",
+      "Contact", "Course", "Source", "Status",
+      "Priority", "Next Follow-up", "Latest Remarks"
+    ];
+
+    const csvContent = [
       headers.join(","),
-      ...leads.map((l) => [
-        l.id, `"${l.full_name}"`, l.phone, `"${l.email || ""}"`,
-        `"${l.city || ""}"`, `"${l.qualification || ""}"`,
-        l.year_of_passing || "", `"${l.lead_source_name || ""}"`,
-        `"${l.assigned_user_name || "Unassigned"}"`,
-      ].join(","))
-    ].join("\n");
-    const link = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })),
-      download: `new_leads_${new Date().toISOString().split("T")[0]}.csv`,
-    });
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  };
+      ...allLeads.map((l: any) => {
+        const clean = (val: any) =>
+          `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
 
+        // Handle the dynamic source name property
+        const sourceDisplay = l.source_name || l.lead_source_name || l.source || "Direct";
+
+        return [
+          l.id,
+          l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : "",
+          clean(l.full_name),
+          clean(l.parent_name),
+          l.phone,
+          clean(l.interested_course),
+          clean(sourceDisplay),
+          clean(l.lead_status),
+          clean(l.urgency || "Normal"),
+          l.next_follow_up_date
+            ? new Date(l.next_follow_up_date).toLocaleDateString('en-IN')
+            : "N/A",
+          clean(l.counselor_remarks),
+        ].join(",");
+      }),
+    ].join("\n");
+
+    // 2. Build the blob with BOM for Excel compatibility
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    // 3. Trigger Download
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `LeadTracker_Full_Export_${new Date().toISOString().split("T")[0]}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success(`Exported ${allLeads.length} leads successfully`);
+  } catch (error) {
+    console.error("Export Error:", error);
+    toast.error("Export failed. Please try again.");
+  }
+};
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (

@@ -1,18 +1,24 @@
 const { pool } = require('../config/db');
 
 // Get current attendance status for the logged-in user
+exports.getAttendance = exports.getAllLogs;
+
+// Update getTodayStatus wrapper to include success: true
+// (Replace your existing getTodayStatus with this)
 exports.getTodayStatus = async (req, res) => {
     try {
         const [rows] = await pool.query(
-            // ONLY return the status if they haven't punched out yet
             "SELECT * FROM attendance WHERE user_id = ? AND date = CURDATE() AND check_out IS NULL",
             [req.user.id]
         );
         
-        // If row exists, they are "Active". If not, they see the "Punch In" button.
-        res.json({ data: rows.length > 0 ? rows[0] : null });
+        // Frontend needs the success: true flag
+        return res.json({ 
+            success: true, 
+            data: rows.length > 0 ? rows[0] : null 
+        });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
 // Punch In
@@ -52,70 +58,52 @@ exports.punchOut = async (req, res) => {
 };
 
 exports.getAllLogs = async (req, res) => {
-    // 1. Extract query parameters with defaults
     const { date, start_date, end_date, staff_id, page = 1, limit = 10 } = req.query;
-    
-    // Calculate offset for pagination
     const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
     
     let params = [];
     let whereClauses = [];
 
-    // 2. Dynamic Filter Construction
     if (staff_id) { 
         whereClauses.push("a.user_id = ?"); 
         params.push(staff_id); 
     }
     
-    if (date) { 
-        whereClauses.push("a.date = ?"); 
-        params.push(date); 
-    } else if (start_date && end_date) { 
-        // Range filtering for Weekly/Monthly overviews
+    if (start_date && end_date) { 
         whereClauses.push("a.date BETWEEN ? AND ?"); 
         params.push(start_date, end_date); 
+    } else if (date) { 
+        whereClauses.push("a.date = ?"); 
+        params.push(date); 
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     try {
-        // 3. Main Data Query
-        // Uses IFNULL(a.check_out, NOW()) to show "Live" duration for active shifts
-        const query = `
-            SELECT 
-                a.*, 
-                u.name as user_name, 
-                u.role as user_role,
-                TIMESTAMPDIFF(SECOND, a.check_in, IFNULL(a.check_out, NOW())) as duration_seconds
+        const [rows] = await pool.query(`
+            SELECT a.*, u.name as user_name, u.role as user_role,
+            /* FIX: Only calculate live duration if the punch is from TODAY */
+            CASE 
+                WHEN a.check_out IS NOT NULL THEN TIMESTAMPDIFF(SECOND, a.check_in, a.check_out)
+                WHEN a.date = CURDATE() THEN TIMESTAMPDIFF(SECOND, a.check_in, CONVERT_TZ(NOW(), '+00:00', '+05:30'))
+                ELSE NULL 
+            END as duration_seconds
             FROM attendance a 
             JOIN users u ON a.user_id = u.id
             ${whereSql}
             ORDER BY a.date DESC, a.check_in DESC
-            LIMIT ? OFFSET ?`;
+            LIMIT ? OFFSET ?`, [...params, parseInt(limit), offset]);
 
-        const [rows] = await pool.query(query, [...params, parseInt(limit), offset]);
+        const [[{ total }]] = await pool.query(`SELECT COUNT(*) as total FROM attendance a ${whereSql}`, params);
 
-        // 4. Count Query for Pagination UI
-        const countQuery = `SELECT COUNT(*) as total FROM attendance a ${whereSql}`;
-        const [countResult] = await pool.query(countQuery, params);
-        const total = countResult[0].total;
-
-        // 5. Send Professional JSON Response
-        return res.status(200).json({ 
+        res.json({ 
             success: true, 
             data: rows, 
-            total, 
-            pages: Math.ceil(total / parseInt(limit)),
-            currentPage: parseInt(page)
+            pages: Math.ceil(total / parseInt(limit)) 
         });
-
     } catch (error) {
-        console.error("Attendance Master Error:", error.message);
-        // Ensure we return here to stop execution and avoid "Headers already sent"
-        return res.status(500).json({ 
-            success: false, 
-            error: error.message,
-            message: "Critical error in Attendance Master sync"
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 };
+// ALIAS: This ensures the route 'getAttendance' works if called
+exports.getAttendance = exports.getAllLogs;

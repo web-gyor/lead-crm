@@ -1,4 +1,4 @@
-const db = require('../config/db');
+const { pool } = require("../config/db");
 
 /**
  * Creates a new communication log entry for a lead.

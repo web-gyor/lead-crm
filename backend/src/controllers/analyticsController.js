@@ -34,14 +34,18 @@ exports.getBusinessOverview = async (req, res) => {
       `),
 
       // 3. Master Conversion Funnel
-      pool.query(`
-        SELECT 
-          COUNT(*) as total,
-          SUM(CASE WHEN lead_status IN ('Contacted', 'Interested', 'Follow-up', 'Converted') THEN 1 ELSE 0 END) as contacted,
-          SUM(CASE WHEN lead_status = 'Converted' THEN 1 ELSE 0 END) as converted,
-          SUM(CASE WHEN lead_status IN ('Lost', 'Not Interested') THEN 1 ELSE 0 END) as lost
-        FROM leads
-      `),
+     pool.query(`
+  SELECT 
+    COUNT(*) as total,
+    SUM(CASE WHEN lead_status IN ('Contacted', 'Interested', 'Follow-up', 'Converted') THEN 1 ELSE 0 END) as contacted,
+    SUM(CASE WHEN lead_status = 'Converted' THEN 1 ELSE 0 END) as converted,
+    SUM(CASE WHEN lead_status IN ('Lost', 'Not Interested') THEN 1 ELSE 0 END) as lost,
+    /* Added this line to match your 4 leads */
+    SUM(CASE WHEN next_follow_up_date IS NOT NULL 
+             AND lead_status NOT IN ('Converted', 'Lost', 'Not Interested') 
+        THEN 1 ELSE 0 END) as followUp
+  FROM leads
+`),
 
       // 4. Course Distribution Data
       pool.query(`
@@ -64,6 +68,8 @@ exports.getBusinessOverview = async (req, res) => {
     const f = funnelResult[0][0];
     const courseRows = courseResult[0];
 
+    
+
     return res.status(200).json({
       success: true,
       dailyPerformance: {
@@ -74,10 +80,13 @@ exports.getBusinessOverview = async (req, res) => {
       courses: courseRows,
       funnel: {
         total: f.total || 0,
-        engaged: f.contacted || 0, // Mapped for frontend chart consistency
-        closed: f.converted || 0,  // Mapped for frontend chart consistency
+        engaged: f.contacted || 0, 
+        closed: f.converted || 0,  
         lost: f.lost || 0,
-        followUp: 0                // Reserved for future logic
+        /* FIXED: Use the value from the SQL result (f) 
+           instead of the hardcoded 0 
+        */
+        followUp: f.followUp || 0  
       }
     });
 

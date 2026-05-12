@@ -247,6 +247,60 @@ const handleBridgeCall = async (e: React.MouseEvent) => {
           </div>
         </div>
 
+{/* ── Call Recording Toggle ── */}
+<div className={`rounded-xl border overflow-hidden mb-3 transition-all ${
+  isRecordingEnabled
+    ? "border-red-200 dark:border-red-900/40"
+    : "border-gray-100 dark:border-gray-800"
+}`}>
+  
+  {/* Toggle row */}
+  <div className="flex items-center justify-between px-3 py-2.5 bg-white dark:bg-gray-900">
+    <div className="flex items-center gap-2.5">
+      {/* Animated dot — red and pulsing when ON */}
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+        isRecordingEnabled
+          ? "bg-red-500 animate-pulse"
+          : "bg-gray-300 dark:bg-gray-600"
+      }`} />
+      <div>
+        <p className="text-[11px] font-black uppercase tracking-tight text-gray-800 dark:text-white">
+          Call Recording
+        </p>
+        <p className="text-[9px] font-medium text-gray-400 uppercase tracking-widest">
+          {isRecordingEnabled ? "On — calls will be logged" : "Off — calls won't be recorded"}
+        </p>
+      </div>
+    </div>
+
+    {/* Toggle switch */}
+    <button
+      onClick={() => setIsRecordingEnabled(prev => !prev)}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+        isRecordingEnabled ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700"
+      }`}
+      aria-label="Toggle call recording"
+    >
+      <span className={`${
+        isRecordingEnabled ? "translate-x-5" : "translate-x-1"
+      } inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform`} />
+    </button>
+  </div>
+
+  {/* Live banner — only visible when recording is ON */}
+  {isRecordingEnabled && (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 dark:bg-red-900/10 border-t border-red-100 dark:border-red-900/30">
+      <span className="relative flex h-1.5 w-1.5 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+      </span>
+      <p className="text-[9px] font-black uppercase tracking-widest text-red-500">
+        Recording active — bridge calls will be logged
+      </p>
+    </div>
+  )}
+</div>
+
   {/* Quick action row - Forced 3 Columns */}
 <div className="grid grid-cols-3 gap-2 mt-3">
   {/* Column 1: Call */}

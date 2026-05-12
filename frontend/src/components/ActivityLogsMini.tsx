@@ -14,16 +14,17 @@ export default function ActivityLogsMini({ leadId }: { leadId: number }) {
   const [loading, setLoading] = useState<boolean>(false);
   const navigate = useNavigate();
 
-  useEffect(() => {
+useEffect(() => {
     if (!leadId) return;
 
     const fetchLogs = async () => {
       try {
         setLoading(true);
-        // Correct endpoint matching your Express router mounting
+        
+        // We remove the ${API_BASE} part entirely. 
+        // Just pass the string directly to apiGet.
         const response = await apiGet(`/api/activity/lead/${leadId}`);
         
-        // Handling the unified { success: true, data: [] } response structure
         const rawData = response?.data || (Array.isArray(response) ? response : []);
         setLogs(rawData.slice(0, 5));
       } catch (err) {
@@ -36,7 +37,6 @@ export default function ActivityLogsMini({ leadId }: { leadId: number }) {
 
     fetchLogs();
   }, [leadId]);
-
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800">
       
@@ -86,7 +86,7 @@ export default function ActivityLogsMini({ leadId }: { leadId: number }) {
       {/* Navigation Footer */}
       <div className="p-4 bg-gray-50/50 dark:bg-gray-800/30 border-t border-gray-50 dark:border-gray-800">
         <button
-          onClick={() => navigate(`/activity-logs?lead=${leadId}`)}
+          onClick={() => navigate(`/audit-logs?lead=${leadId}`)}
           className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700 transition-colors"
         >
           View Full Audit Trail

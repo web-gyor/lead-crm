@@ -148,7 +148,7 @@ export default function Analytics() {
     { label: "Engaged Leads",   value: engaged,   icon: Activity,  color: "text-violet-600",  bg: "bg-violet-50 dark:bg-violet-900/20", border: "border-violet-100 dark:border-violet-800", trend: 8,  sub: `${engagementRate}% engagement`  },
     { label: "Converted",       value: converted, icon: Award,     color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20",border:"border-emerald-100 dark:border-emerald-800",trend: 5,  sub: `${conversionRate}% conv rate`   },
     { label: "Lost Leads",      value: lost,      icon: UserX,     color: "text-red-500",     bg: "bg-red-50 dark:bg-red-900/20",       border: "border-red-100 dark:border-red-800",       trend: -3, sub: `${lossRate}% loss rate`         },
-    { label: "Follow-ups Due",  value: followUp || Math.round(pending * 0.3), icon: Clock, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-900/20", border: "border-orange-100 dark:border-orange-800", trend: 0, sub: "Pending action" },
+    { label: "Follow-ups Due",  value: followUp,  icon: Clock,      color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-900/20", border: "border-orange-100 dark:border-orange-800", trend: 0, sub: "Pending action" },
     { label: "Pipeline Active", value: pending,   icon: Target,    color: "text-cyan-600",    bg: "bg-cyan-50 dark:bg-cyan-900/20",     border: "border-cyan-100 dark:border-cyan-800",     trend: 2,  sub: "In progress"                   },
   ];
 
@@ -375,6 +375,7 @@ export default function Analytics() {
               { label: "Total Leads", value: total,                       color: "bg-blue-600"    },
               { label: "Engaged",     value: engaged,                     color: "bg-violet-600"  },
               { label: "Interested",  value: Math.round(engaged * 0.6),   color: "bg-orange-500"  },
+              { label: "Follow-up",   value: followUp,                    color: "bg-orange-500"  },
               { label: "Converted",   value: converted,                   color: "bg-emerald-600" },
               { label: "Lost",        value: lost,                        color: "bg-red-500"     },
             ].map((stage) => (

@@ -11,6 +11,9 @@ import { apiGet } from "../utils/api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
+
+
 function fmt(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
@@ -164,13 +167,71 @@ export default function Dashboard() {
   const k = stats || {};
   const ss = k.statusStats || {};
 
-  // ── Chart data ───────────────────────────────────────────────────────────
 
-  const chartMap = {
-    daily:   { data: (k.dailyConversions   || []).map((d: any) => ({ ...d, label: new Date(d.date).toLocaleDateString("en-IN", { weekday: "short" }) })), title: "7 Days"   },
-    weekly:  { data: k.weeklyConversions   || [], title: "6 Weeks"  },
-    monthly: { data: k.monthlyConversions  || [], title: "6 Months" },
-  };
+  // ── Chart data ───────────────────────────────────────────────────────────
+  
+const normalizeChart = (arr: any[]) =>
+  (arr || []).map((d, i) => {
+    const rawDate = d.date || d.label || "";
+
+    // Safe label builder
+    let label = "";
+
+    if (d.label) {
+      label = d.label;
+    } else if (typeof rawDate === "string" && rawDate.includes("-") && rawDate.length <= 10) {
+      // likely real date (YYYY-MM-DD)
+      label = new Date(rawDate).toLocaleDateString("en-IN", {
+        weekday: "short",
+      });
+    } else {
+      // fallback for WEEKS / MONTHS
+      label = rawDate || `#${i + 1}`;
+    }
+
+    return {
+      date: rawDate,
+      total: Number(d.total ?? d.value ?? 0),
+      converted: Number(d.converted ?? d.admitted ?? 0),
+      label,
+    };
+  });
+ const chartMap = {
+  daily: {
+    data: (k.dailyConversions || []).map((d: any) => ({
+      ...d,
+      label: new Date(d.date).toLocaleDateString("en-IN", {
+        weekday: "short",
+      }),
+    })),
+    title: "7 Days",
+  },
+
+  weekly: {
+    data: (k.weeklyConversions || []).map((d: any, i: number) => ({
+      ...d,
+      label:
+        d.label ||
+        d.week ||
+        d.date ||
+        `W${i + 1}`, // fallback safe label
+    })),
+    title: "6 Weeks",
+  },
+
+  monthly: {
+    data: (k.monthlyConversions || []).map((d: any, i: number) => ({
+      ...d,
+      label:
+        d.label ||
+        new Date(d.date || Date.now()).toLocaleDateString("en-IN", {
+          month: "short",
+        }) ||
+        `M${i + 1}`, // fallback safe label
+    })),
+    title: "6 Months",
+  },
+};
   const active     = chartMap[period];
   const totalsBar  = active.data.reduce((a: number, d: any) => a + (Number(d.total)     || 0), 0);
   const convBar    = active.data.reduce((a: number, d: any) => a + (Number(d.converted) || 0), 0);

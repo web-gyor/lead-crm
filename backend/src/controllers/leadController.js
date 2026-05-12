@@ -27,7 +27,7 @@ const getAllLeads = async (req, res) => {
     const limit  = parseInt(req.query.limit) || 15;
     const offset = (page - 1) * limit;
 
-    let whereClause = "1=1";
+let whereClause = "l.deleted_at IS NULL";
     let params = [];
     
     const { 
@@ -63,12 +63,36 @@ const today = localDate || new Date().toLocaleDateString('en-CA');
       params.push(req.user.id, req.user.id);
     }
 
-    // Search logic
-    if (search?.trim()) {
-      const term = `%${search.trim()}%`;
-      whereClause += " AND (l.full_name LIKE ? OR l.phone LIKE ? OR l.lead_uid LIKE ?)";
-      params.push(term, term, term);
-    }
+if (search?.trim()) {
+  const rawSearch = search.trim();
+  const term = `%${rawSearch}%`;
+  
+  // 1. Clean the term: Remove "L26-", "-", and leading zeros to get the raw ID
+  // Example: "L26-0219" -> "219"
+  const numericId = rawSearch.replace(/L26-/i, "").replace(/-/g, "").replace(/^0+/, "");
+  
+  // 2. Clean for UID: Remove only hyphens for the mid-string search
+  const cleanUid = rawSearch.replace(/[^a-zA-Z0-9]/g, "");
+
+  whereClause += `
+    AND (
+      l.full_name LIKE ?
+      OR l.phone LIKE ?
+      OR l.lead_uid LIKE ?
+      OR REPLACE(l.lead_uid, '-', '') LIKE ?
+      ${numericId ? "OR l.id = ?" : ""} 
+    )
+  `;
+
+  // Push parameters in order
+  params.push(term, term, term, `%${cleanUid}%`);
+  
+  if (numericId) {
+    params.push(numericId);
+  }
+
+  console.log("📦 FINAL PARAMS:", params);
+}
 
     // Status logic
     if (status && !['all', 'leads', ''].includes(status.toLowerCase())) {
@@ -132,10 +156,12 @@ if (assigned_user_id) {
 
 const [leads] = await pool.query(`
   SELECT 
-    l.*, 
-    u.name AS counselor_name -- This pulls 'Shaji' directly from the users table
+    l.*,
+    u.name AS counselor_name,
+    ls.name AS source_name
   FROM leads l 
   LEFT JOIN users u ON l.assigned_user_id = u.id
+  LEFT JOIN lead_sources ls ON l.lead_source_id = ls.id
   WHERE ${whereClause} 
   ORDER BY l.created_at DESC 
   LIMIT ? OFFSET ?
@@ -204,7 +230,7 @@ const createLead = async (req, res) => {
         // ✅ FIXED
         urgency && urgency.trim() !== ""
           ? urgency
-          : "Just inquiring",
+          : "Researching",
 
         req.user?.id
       ]
@@ -223,29 +249,36 @@ const createLead = async (req, res) => {
 const getLeadById = async (req, res) => {
   try {
     const [rows] = await pool.query(`SELECT l.* FROM leads l WHERE l.id = ?`, [req.params.id]);
-    res.json(rows[0] || null);
+    if (rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+
+    const lead = rows[0];
+    const [history] = await pool.query(`
+      SELECT h.*, u.name as user_name 
+      FROM lead_status_history h
+      LEFT JOIN users u ON h.changed_by = u.id
+      WHERE h.lead_id = ?
+      ORDER BY h.changed_at DESC
+    `, [req.params.id]);
+
+    lead.history = history;
+
+    // We send it BOTH ways to be safe for any frontend version
+    res.json({ 
+      success: true, 
+      data: lead,
+      ...lead // This spreads the lead fields at the top level too
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
 const updateLead = async (req, res) => {
-  console.log("🔥 UPDATE LEAD HIT");
-  console.log("ID:", req.params.id);
-  console.log("BODY:", req.body);
-
   const { id } = req.params;
   const updates = req.body;
 
   try {
-    // ─────────────────────────────
-    // FETCH EXISTING
-    // ─────────────────────────────
-    const [current] = await pool.query(
-      "SELECT * FROM leads WHERE id = ?",
-      [id]
-    );
+    const [current] = await pool.query("SELECT * FROM leads WHERE id = ?", [id]);
 
     if (!current.length) {
       return res.status(404).json({ error: "Lead not found" });
@@ -253,224 +286,279 @@ const updateLead = async (req, res) => {
 
     const old = current[0];
 
-    // ─────────────────────────────
-    // SAFE VALUE HANDLER
-    // ─────────────────────────────
     const safe = (newVal, oldVal, type = "string") => {
       if (newVal === undefined) return oldVal;
-
       if (type === "number") {
         if (newVal === null || newVal === "") return oldVal;
         const n = Number(newVal);
         return isNaN(n) ? oldVal : n;
       }
-
       if (type === "string") {
         if (newVal === null) return oldVal;
         const val = String(newVal).trim();
-        return val === "" ? null : val; // ✅ critical fix
+        return val === "" ? null : val;
       }
-
       return newVal;
     };
 
-    // ─────────────────────────────
-    // FIRST CONTACT LOGIC
-    // ─────────────────────────────
+    // First Contact Logic
     let firstContactedAt = old.first_contacted_at;
-
-    if (
-      (updates.lead_status === "Contacted" ||
-        updates.lead_status === "Follow-up") &&
-      !firstContactedAt
-    ) {
+    if ((updates.lead_status === "Contacted" || updates.lead_status === "Follow-up") && !firstContactedAt) {
       firstContactedAt = new Date();
     }
 
-    // ─────────────────────────────
-    // BUILD DATA OBJECT
-    // ─────────────────────────────
+    // Conversion Logic
+    let convertedAt = old.converted_at;
+    if ((updates.lead_status === "Converted" || updates.lead_status === "Closed") && !convertedAt) {
+      convertedAt = new Date();
+    }
+
     const data = {
-      full_name:        safe(updates.full_name, old.full_name),
-      phone:            safe(updates.phone, old.phone),
-      email:            safe(updates.email, old.email),
-      city:             safe(updates.city, old.city),
-      age:              safe(updates.age, old.age, "number"),
-      gender:           safe(updates.gender, old.gender, "string"),
-      qualification:    safe(updates.qualification, old.qualification),
-      year_of_passing:  safe(updates.year_of_passing, old.year_of_passing, "number"),
-      parent_name:      safe(updates.parent_name, old.parent_name),
-      parent_contact:   safe(updates.parent_contact, old.parent_contact),
-      lead_status:      safe(updates.lead_status, old.lead_status || "New"),
-      lead_source_id:   safe(updates.lead_source_id, old.lead_source_id, "number"),
-
-      assigned_user_id:
-        updates.assigned_user_id === ""
-          ? null
-          : safe(updates.assigned_user_id, old.assigned_user_id, "number"),
-
+      full_name: safe(updates.full_name, old.full_name),
+      phone: safe(updates.phone, old.phone),
+      email: safe(updates.email, old.email),
+      city: safe(updates.city, old.city),
+      age: safe(updates.age, old.age, "number"),
+      gender: safe(updates.gender, old.gender),
+      qualification: safe(updates.qualification, old.qualification),
+      year_of_passing: safe(updates.year_of_passing, old.year_of_passing, "number"),
+      parent_name: safe(updates.parent_name, old.parent_name),
+      parent_contact: safe(updates.parent_contact, old.parent_contact),
+      lead_status: safe(updates.lead_status, old.lead_status || "New"),
+      lead_source_id: safe(updates.lead_source_id, old.lead_source_id, "number"),
+      assigned_user_id: updates.assigned_user_id === "" ? null : safe(updates.assigned_user_id, old.assigned_user_id, "number"),
       interested_course: safe(updates.interested_course, old.interested_course),
       counselor_remarks: safe(updates.counselor_remarks, old.counselor_remarks),
-
-      next_follow_up_date: updates.hasOwnProperty("next_follow_up_date")
-        ? (updates.next_follow_up_date
-            ? String(updates.next_follow_up_date).split("T")[0].trim()
-            : null)
-        : (() => {
-            if (!old.next_follow_up_date) return null;
-            if (old.next_follow_up_date instanceof Date) {
-              return old.next_follow_up_date.toISOString().split("T")[0];
-            }
-            return String(old.next_follow_up_date).split("T")[0].trim();
-          })(),
-
-      urgency:      safe(updates.urgency, old.urgency),
+      next_follow_up_date: updates.hasOwnProperty("next_follow_up_date") 
+        ? (updates.next_follow_up_date ? String(updates.next_follow_up_date).split("T")[0] : null)
+        : (old.next_follow_up_date ? new Date(old.next_follow_up_date).toISOString().split("T")[0] : null),
+      urgency: safe(updates.urgency, old.urgency),
       lead_quality: safe(updates.lead_quality, old.lead_quality),
-
-      whatsapp_same: updates.hasOwnProperty("whatsapp_same")
-        ? (updates.whatsapp_same ? 1 : 0)
-        : (old.whatsapp_same ?? 0),
-
+      whatsapp_same: updates.hasOwnProperty("whatsapp_same") ? (updates.whatsapp_same ? 1 : 0) : (old.whatsapp_same ?? 0),
       first_contacted_at: firstContactedAt,
+      converted_at: convertedAt,
+      status_updated_at: updates.lead_status && updates.lead_status !== old.lead_status ? new Date() : old.status_updated_at,
       updated_at: new Date(),
     };
 
-    // ─────────────────────────────
-    // VALIDATION (AFTER DATA BUILD)
-    // ─────────────────────────────
-
-    const allowedGenders = ["Male", "Female", "Other"];
-    if (data.gender && !allowedGenders.includes(data.gender)) {
-      data.gender = null;
-    }
-
-    if (data.age && (data.age < 1 || data.age > 100)) {
-      data.age = old.age;
-    }
-
-    // ─────────────────────────────
-    // BUSINESS RULES
-    // ─────────────────────────────
-    const terminalStatuses = ["Converted", "Lost", "Rejected", "Closed"];
-
-    if (terminalStatuses.includes(data.lead_status)) {
+    // Business Rule: Terminal Statuses
+    if (["Converted", "Lost", "Rejected", "Closed"].includes(data.lead_status)) {
       data.next_follow_up_date = null;
     }
 
-    // ─────────────────────────────
-    // UPDATE QUERY
-    // ─────────────────────────────
+    // Status History Tracking
+    if (updates.lead_status && updates.lead_status !== old.lead_status) {
+      await pool.query(
+        "INSERT INTO lead_status_history (lead_id, old_status, new_status, changed_by) VALUES (?, ?, ?, ?)",
+        [id, old.lead_status, updates.lead_status, req.user?.id || null]
+      );
+    }
+
+    // Main Update Query
     await pool.query(
+      `UPDATE leads SET 
+        full_name=?, phone=?, email=?, city=?, age=?, gender=?, 
+        qualification=?, year_of_passing=?, parent_name=?, parent_contact=?, 
+        lead_status=?, lead_source_id=?, assigned_user_id=?, interested_course=?, 
+        counselor_remarks=?, next_follow_up_date=?, urgency=?, lead_quality=?, 
+        whatsapp_same=?, first_contacted_at=?, converted_at=?, 
+        status_updated_at=?, updated_at=? 
+      WHERE id=?`,
+      [
+        data.full_name, data.phone, data.email, data.city, data.age, data.gender,
+        data.qualification, data.year_of_passing, data.parent_name, data.parent_contact,
+        data.lead_status, data.lead_source_id, data.assigned_user_id, data.interested_course,
+        data.counselor_remarks, data.next_follow_up_date, data.urgency, data.lead_quality,
+        data.whatsapp_same, data.first_contacted_at, data.converted_at,
+        data.status_updated_at, data.updated_at, // <-- Added status_updated_at here
+        id
+      ]
+    );
+
+    return res.json({ success: true, message: "Updated successfully" });
+
+  } catch (error) {
+    console.error("🔥 UPDATE ERROR:", error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+const bulkAssignLeads = async (req, res) => {
+
+  const { leadIds, assigned_user_id, lead_status } = req.body;
+
+  if (!Array.isArray(leadIds) || leadIds.length === 0) {
+    return res.status(400).json({
+      error: "No leads selected"
+    });
+  }
+
+  try {
+
+    // ─────────────────────────────
+    // BUILD DYNAMIC UPDATE QUERY
+    // ─────────────────────────────
+    let updateFields = [];
+    let params = [];
+
+    // ASSIGN USER
+    updateFields.push("assigned_user_id = ?");
+    params.push(
+      assigned_user_id === "" ? null : assigned_user_id
+    );
+
+    // STATUS
+    updateFields.push("lead_status = ?");
+    params.push(lead_status || "New");
+
+    // ✅ TRACK REAL CONVERSION DATE
+    if (lead_status === "Converted") {
+      updateFields.push("converted_at = NOW()");
+    }
+
+    // OPTIONAL
+    if (lead_status === "Closed") {
+      updateFields.push("lost_at = NOW()");
+    }
+
+    // OPTIONAL:
+    // REMOVE FOLLOW-UP DATE FOR TERMINAL STATUS
+    const terminalStatuses = [
+      "Converted",
+      "Closed",
+      "Lost",
+      "Rejected"
+    ];
+
+    if (terminalStatuses.includes(lead_status)) {
+      updateFields.push("next_follow_up_date = NULL");
+    }
+
+    // AUTO UPDATED TIMESTAMP
+    updateFields.push("updated_at = NOW()");
+
+    // FINAL QUERY
+    const query = `
+      UPDATE leads
+      SET ${updateFields.join(", ")}
+      WHERE id IN (?)
+    `;
+
+    params.push(leadIds);
+
+    const [oldLeads] = await pool.query(
+  `SELECT id, lead_status FROM leads WHERE id IN (?)`,
+  [leadIds]
+);
+
+await Promise.all(
+  oldLeads.map(l =>
+    pool.query(
       `
-      UPDATE leads 
-      SET 
-        full_name=?,
-        phone=?,
-        email=?,
-        city=?,
-        age=?,
-        gender=?,
-        qualification=?,
-        year_of_passing=?,
-        parent_name=?,
-        parent_contact=?,
-        lead_status=?,
-        lead_source_id=?,
-        assigned_user_id=?,
-        interested_course=?,
-        counselor_remarks=?,
-        next_follow_up_date=?,
-        urgency=?,
-        lead_quality=?,
-        whatsapp_same=?,
-        first_contacted_at=?,
-        updated_at=?
-      WHERE id=?
+      INSERT INTO lead_status_history
+      (
+        lead_id,
+        old_status,
+        new_status,
+        changed_by
+      )
+      VALUES (?, ?, ?, ?)
       `,
       [
-        data.full_name,
-        data.phone,
-        data.email,
-        data.city,
-        data.age,
-        data.gender,
-        data.qualification,
-        data.year_of_passing,
-        data.parent_name,
-        data.parent_contact,
-        data.lead_status,
-        data.lead_source_id,
-        data.assigned_user_id,
-        data.interested_course,
-        data.counselor_remarks,
-        data.next_follow_up_date,
-        data.urgency,
-        data.lead_quality,
-        data.whatsapp_same,
-        data.first_contacted_at,
-        data.updated_at,
-        id,
+        l.id,
+        l.lead_status,
+        lead_status,
+        req.user?.id || null
+      ]
+    )
+  )
+);
+
+    // ─────────────────────────────
+    // UPDATE
+    // ─────────────────────────────
+    await pool.query(query, params);
+
+    // ─────────────────────────────
+    // FETCH UI DATA
+    // ─────────────────────────────
+    const [updatedData] = await pool.query(
+      `
+      SELECT
+
+        (SELECT name
+         FROM users
+         WHERE id = ?) AS assigned_user_name,
+
+        (SELECT ls.name
+         FROM lead_sources ls
+         JOIN leads l
+           ON l.lead_source_id = ls.id
+         WHERE l.id = ?) AS lead_source_name
+      `,
+      [
+        assigned_user_id,
+        leadIds[0]
       ]
     );
 
     // ─────────────────────────────
+    // ACTIVITY LOGS
+    // ─────────────────────────────
+    await Promise.all(
+
+      leadIds.map(leadId =>
+
+        activityController.record({
+
+          userId: req.user?.id,
+
+          leadId,
+
+          actionType: "ASSIGNED",
+
+          description:
+            `Bulk assigned to ${
+              updatedData[0]?.assigned_user_name || assigned_user_id
+            } with status "${
+              lead_status || "New"
+            }"`,
+
+          oldValue: null,
+
+          newValue: String(assigned_user_id),
+
+        })
+      )
+    );
+
+    // ─────────────────────────────
+    // RESPONSE
+    // ─────────────────────────────
     return res.json({
+
       success: true,
-      message: "Updated successfully",
+
+      message:
+        `Successfully updated ${leadIds.length} leads`,
+
+      assigned_user_name:
+        updatedData[0]?.assigned_user_name || "Assigned",
+
+      lead_source_name:
+        updatedData[0]?.lead_source_name
+
     });
 
   } catch (error) {
-    console.error("🔥 FULL ERROR:", error);
+
+    console.error(
+      "Bulk Assign Error:",
+      error
+    );
+
     return res.status(500).json({
-      error: error.message,
+      error: error.message || "Bulk update failed"
     });
-  }
-};
-
-const bulkAssignLeads = async (req, res) => {
-  const { leadIds, assigned_user_id, lead_status } = req.body;
-  
-  if (!Array.isArray(leadIds) || leadIds.length === 0) {
-    return res.status(400).json({ error: "No leads selected" });
-  }
-
-  try {
-    // 1. UPDATE
-    await pool.query(
-      `UPDATE leads SET assigned_user_id = ?, lead_status = ? WHERE id IN (?)`,
-      [assigned_user_id, lead_status || 'New', leadIds]
-    );
-
-    // 2. FETCH NAMES FOR OPTIMISTIC UI
-    const [updatedData] = await pool.query(
-      `SELECT 
-        (SELECT name FROM users WHERE id = ?) AS assigned_user_name,
-        (SELECT name FROM lead_sources ls JOIN leads l ON l.lead_source_id = ls.id WHERE l.id = ?) AS lead_source_name
-      `,
-      [assigned_user_id, leadIds[0]]
-    );
-
-    // 3. RECORD ACTIVITIES (Existing Functionality)
-    await Promise.all(leadIds.map(leadId =>
-      activityController.record({
-        userId:      req.user?.id,
-        leadId,
-        actionType:  'ASSIGNED',
-        description: `Bulk assigned to ${updatedData[0]?.assigned_user_name || assigned_user_id} with status "${lead_status || 'New'}"`,
-        oldValue:    null,
-        newValue:    String(assigned_user_id),
-      })
-    ));
-
-    // 4. RETURN DATA FOR OPTIMISTIC UI
-  res.json({ 
-      success: true,
-      message: `Successfully updated ${leadIds.length} leads`,
-      assigned_user_name: updatedData[0]?.assigned_user_name || 'Assigned',
-      lead_source_name: updatedData[0]?.lead_source_name
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Bulk update failed" });
   }
 };
 /**
@@ -630,7 +718,14 @@ const deleteLead = async (req, res) => {
   const { id } = req.params;
   try {
     if (req.user?.role?.toLowerCase() !== 'admin') return res.status(403).json({ error: "Admin required." });
-    await pool.query("DELETE FROM leads WHERE id = ?", [Number(id)]);
+    await pool.query(
+  `
+  UPDATE leads
+  SET deleted_at = NOW()
+  WHERE id = ?
+  `,
+  [Number(id)]
+);
     res.json({ success: true, message: "Lead deleted successfully" });
   } catch (error) {
     console.error("Delete Lead Error:", error.message);
@@ -732,7 +827,12 @@ const logInteraction = async (req, res) => {
     if (outcome === 'Not Reachable')                      statusUpdate = ", lead_status = 'Follow-up'";
 
     await pool.query(
-      `UPDATE leads SET updated_at = NOW(), next_follow_up_date = ? ${statusUpdate} WHERE id = ?`,
+      `UPDATE leads
+SET
+  next_follow_up_date = ?,
+  last_interaction_at = NOW()
+  ${statusUpdate}
+WHERE id = ?`,
       [next_follow_up || null, lead_id]
     );
 
@@ -760,7 +860,7 @@ const updateLeadStatus = async (req, res) => {
         const { leadId, newStatus, oldStatus } = req.body;
         const userId = req.user?.id || 1; 
 
-        await pool.query("UPDATE leads SET status = ? WHERE id = ?", [newStatus, leadId]);
+        await pool.query("UPDATE leads SET lead_status = ? WHERE id = ?", [newStatus, leadId]);
 
         if (activityController && activityController.record) {
             await activityController.record({
@@ -806,14 +906,56 @@ const bulkUpdateLeads = async (req, res) => {
       params.push(lead_source_id);
     }
 
-    if (lead_status) {
-      updateFields.push("lead_status = ?");
-      params.push(lead_status);
-    }
+   if (lead_status) {
+
+  updateFields.push("lead_status = ?");
+  params.push(lead_status);
+
+  // ✅ Track real conversion date
+  if (lead_status === "Converted") {
+    updateFields.push("converted_at = NOW()");
+  }
+
+  // OPTIONAL:
+  // Track close date also
+  if (lead_status === "Closed") {
+    updateFields.push("closed_at = NOW()");
+  }
+}
 
     if (updateFields.length === 0) {
       return res.status(400).json({ error: "Nothing to update" });
     }
+
+const [oldLeads] = await pool.query(
+  `SELECT id, lead_status FROM leads WHERE id IN (?)`,
+  [leadIds]
+);
+
+if (lead_status) {
+  await Promise.all(
+    oldLeads.map(l =>
+      pool.query(
+        `
+        INSERT INTO lead_status_history
+        (
+          lead_id,
+          old_status,
+          new_status,
+          changed_by
+        )
+        VALUES (?, ?, ?, ?)
+        `,
+        [
+          l.id,
+          l.lead_status,
+          lead_status,
+          req.user?.id || null
+        ]
+      )
+    )
+  );
+}
 
     // Build the query
     const query = `UPDATE leads SET ${updateFields.join(', ')} WHERE id IN (?)`;
@@ -836,89 +978,137 @@ const bulkUpdateLeads = async (req, res) => {
 
 // ── controller ────────────────────────────────────────────────────────────────
 
-const generateLeadUid = () => {
-    const yearShort = new Date().getFullYear().toString().slice(-2); // "26"
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000); // 4 random digits
-    return `L${yearShort}-${randomSuffix}`;
-};
+// ─── Helpers (define once at top of leadController.js) ───────────────────────
+// If you've moved these to utils/leadHelpers.js, import them instead:
+// const { sanitize, generateLeadUid } = require('../utils/leadHelpers');
+
 const sanitize = (val, maxLen = 255) =>
-    typeof val === "string" ? val.trim().slice(0, maxLen) : null;
-/**
- * Capture Lead Controller
- * Handles external POST requests from Web Forms, WhatsApp, etc.
- */
-const captureLead = async (req, res) => {
-    try {
-        // 1. Extract and Sanitize Data
-        const project_id = sanitize(req.query.project_id, 100);
-        
-        // Dynamic Source ID: Default to 4 (Website) if not provided in URL
-        const lead_source_id = parseInt(req.query.source_id) || 4;
+  typeof val === "string" ? val.trim().slice(0, maxLen) : null;
 
-        const full_name = sanitize(req.body.full_name, 255);
-        const phone = sanitize(req.body.phone, 20);
-        const email = sanitize(req.body.email, 255);
-
-        // 2. Validation
-        if (!phone) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Phone number is required." 
-            });
-        }
-
-        const leadUid = generateLeadUid();
-
-        // 3. Database Insert
-        // Using lead_source_id dynamically based on your lead_sources table
-        const [result] = await pool.query(
-            `INSERT INTO leads (
-                full_name,
-                phone,
-                email,
-                lead_status,
-                lead_uid,
-                source_project,
-                lead_source_id,
-                counselor_remarks
-            ) VALUES (?, ?, ?, 'New', ?, ?, ?, ?)`,
-            [
-                full_name || "Web Inquiry",
-                phone,
-                email || null,
-                leadUid,
-                project_id || "webgyor_portal",
-                lead_source_id,
-                `System Capture | Source ID: ${lead_source_id} | Project: ${project_id || 'Direct'}`
-            ]
-        );
-
-        console.log("✅ Lead Captured Successfully:", { 
-            id: result.insertId, 
-            uid: leadUid, 
-            source_id: lead_source_id 
-        });
-
-        // 4. Success Response
-        res.status(201).json({ 
-            success: true, 
-            leadId: result.insertId, 
-            leadUid 
-        });
-
-    } catch (error) {
-        console.error("❌ captureLead DB error:", error.sqlMessage || error.message);
-
-        const isDuplicate = error.code === "ER_DUP_ENTRY";
-        res.status(isDuplicate ? 409 : 500).json({
-            success: false,
-            message: isDuplicate
-                ? "A lead with this phone number already exists."
-                : `Failed to capture lead: ${error.sqlMessage || 'Check server logs'}`
-        });
-    }
+const generateLeadUid = () => {
+  const year   = new Date().getFullYear().toString().slice(-2);
+  const suffix = Math.floor(1000 + Math.random() * 9000);
+  return `L${year}-${suffix}`;
 };
 
+// Source key → lead_sources table ID
+// Keep in sync with SOURCE_ID_MAP in webhookController.js
+const SOURCE_ID_MAP = {
+  whatsapp: 1,
+  meta:     2,
+  website:  4,
+  google:   5,
+  linkedin: 6,
+};
+
+// ─── captureLead ──────────────────────────────────────────────────────────────
+// POST /api/leads/capture?project_id=my-agency&source=website
+// Called by: Elementor forms, custom webhooks, direct POST
+
+const captureLead = async (req, res) => {
+  try {
+    // ── 1. Read inputs ────────────────────────────────────────────────────────
+    const { full_name, email, phone: phoneRaw } = req.body;
+
+    // source comes from query param — defaults to 'website'
+    const sourceKey  = sanitize(req.query.source, 20)?.toLowerCase() || "website";
+    const project_id = sanitize(req.query.project_id, 100) || "direct";
+
+    // ── 2. Phone validation — 10-digit Indian standard ────────────────────────
+    if (!phoneRaw) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required",
+      });
+    }
+
+    const cleanedPhone = String(phoneRaw).replace(/\D/g, "").slice(-10);
+    if (cleanedPhone.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid 10-digit mobile number",
+      });
+    }
+
+    // ── 3. Sanitize remaining fields ──────────────────────────────────────────
+    const safeName  = sanitize(full_name, 255) || "Web Inquiry";
+    const safeEmail = sanitize(email, 255)     || null;
+    const leadUid   = generateLeadUid();
+
+    // Resolve source ID — fallback to website (4) for any unknown source key
+    const lead_source_id = SOURCE_ID_MAP[sourceKey] ?? SOURCE_ID_MAP.website;
+    const sourceLabel    = sourceKey.charAt(0).toUpperCase() + sourceKey.slice(1);
+
+    // ── 4. Insert ─────────────────────────────────────────────────────────────
+    // No ON DUPLICATE KEY here — we want a clean 409 on duplicate phones
+    // so the caller knows the lead already exists and can handle it in the UI.
+    const [result] = await pool.query(
+      `INSERT INTO leads
+         (full_name, phone, email, lead_status, lead_uid, source, source_project, lead_source_id, counselor_remarks)
+       VALUES (?, ?, ?, 'New', ?, ?, ?, ?, ?)`,
+      [
+        safeName,
+        cleanedPhone,
+        safeEmail,
+        leadUid,
+        sourceLabel,
+        project_id,
+        lead_source_id,
+        `Web capture | source: ${sourceLabel} | project: ${project_id}`,
+      ]
+    );
+
+    console.log("✅ Lead captured:", {
+      insertId: result.insertId,
+      uid:      leadUid,
+      phone:    cleanedPhone,
+      source:   sourceLabel,
+      project:  project_id,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Lead captured successfully",
+      leadId:  result.insertId,
+      leadUid,
+    });
+
+  } catch (error) {
+    // ── Duplicate phone — clean 409 ───────────────────────────────────────────
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "This phone number is already registered",
+      });
+    }
+
+    // ── Everything else — log full error, return generic message ──────────────
+    console.error("captureLead error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to capture lead — check server logs",
+    });
+  }
+};
+// 1. Check that getSources is there and spelled correctly
+exports.getSources = async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT * FROM lead_sources ORDER BY name ASC");
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// 2. ADD THIS: This is the one that is currently "White" (Undefined)
+exports.getCourses = async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT * FROM courses ORDER BY name ASC");
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
 module.exports = {
   authenticateToken,
 

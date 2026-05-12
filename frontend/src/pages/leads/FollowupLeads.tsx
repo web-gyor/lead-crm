@@ -416,46 +416,130 @@ export default function FollowupLeads() {
   };
 
   const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editingLead) return;
-    const fd  = new FormData(e.currentTarget);
-    const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
-    try {
-      await apiPut(`/api/leads/${editingLead.id}`, {
-        ...editingLead, ...raw,
-        lead_status:         raw.lead_status || LEAD_STATUS,
-        lead_source_id:      Number(raw.lead_source_id || editingLead.lead_source_id),
-        next_follow_up_date: raw.next_follow_up_date || editingLead.next_follow_up_date || null,
-      });
-      toast.success("Follow-up updated");
-      setShowEditForm(false);
-      setEditingLead(null);
-      loadData(true);
-    } catch {
-      toast.error("Update failed");
-    }
-  };
+  e.preventDefault();
+  if (!editingLead) return;
+
+  const fd = new FormData(e.currentTarget);
+  const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
+
+  try {
+    const payload = {
+      // base form
+      ...raw,
+
+      // safe conversions
+      lead_source_id: Number(raw.lead_source_id || editingLead.lead_source_id),
+
+      // status control (important for follow-up pipeline)
+      lead_status: raw.lead_status || editingLead.lead_status || LEAD_STATUS,
+
+      // follow-up logic (VERY IMPORTANT FIELD)
+      next_follow_up_date:
+        raw.next_follow_up_date ||
+        editingLead.next_follow_up_date ||
+        null,
+
+      // optional safety fields (if present in form)
+      email: raw.email || editingLead.email || null,
+      city: raw.city || editingLead.city || null,
+      phone: raw.phone || editingLead.phone || null,
+    };
+
+    await apiPut(`/api/leads/${editingLead.id}`, payload);
+
+    toast.success("Follow-up updated");
+    setShowEditForm(false);
+    setEditingLead(null);
+    loadData(true);
+  } catch {
+    toast.error("Update failed");
+  }
+};
 
   // ── Export ────────────────────────────────────────────────────────────────
 
-  const handleExport = () => {
-    const headers = ["ID", "Name", "Phone", "City", "Source", "Follow-up Date", "Status", "Assigned", "Notes"];
-    const csv = [
-      headers.join(","),
-      ...leads.map((l) => [
-        l.id, `"${l.full_name}"`, l.phone, `"${l.city || ""}"`,
-        `"${l.lead_source_name || ""}"`, l.next_follow_up_date || "",
-        l.lead_status || "", `"${l.assigned_user_name || "Unassigned"}"`,
-        `"${(l.counselor_remarks || "").replace(/"/g, '""')}"`,
-      ].join(","))
-    ].join("\n");
-    const link = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })),
-      download: `followup_leads_${new Date().toISOString().split("T")[0]}.csv`,
-    });
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  };
+const fetchAllLeadsForExport = async () => {
+  // 1. Fetch the data (using the 10000 limit to get everything)
+  const params = new URLSearchParams({
+    ...filters,
+    limit: '10000',
+    page: '1'
+  }).toString();
 
+  const res = await apiGet(`/api/leads?${params}`);
+  const rawData = res?.data || [];
+
+  // 2. MANUALLY FILTER for follow-ups (matching your UI logic)
+  // We only want leads that HAVE a next_follow_up_date
+  const filteredData = rawData.filter((l: any) => 
+    l.next_follow_up_date && l.next_follow_up_date !== ""
+  );
+
+  console.log("Follow-up Export Count:", filteredData.length); // Should now say 4
+  return filteredData;
+};
+
+const handleExport = async () => {
+  try {
+    toast.loading("Preparing follow-up export...", { id: "export-toast" });
+    
+    const allLeads = await fetchAllLeadsForExport();
+    
+    if (!allLeads || allLeads.length === 0) {
+      toast.error("No follow-ups found to export", { id: "export-toast" });
+      return;
+    }
+
+    const headers = [
+      "ID", "Date Joined", "Student Name", "Parent Name",
+      "Contact", "Course", "Source", "Status",
+      "Priority", "Next Follow-up", "Latest Remarks"
+    ];
+
+    const csvContent = [
+      headers.join(","),
+      ...allLeads.map((l: any) => {
+        const clean = (val: any) =>
+          `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+
+        const sourceDisplay = l.source_name || l.lead_source_name || l.source || "Direct";
+
+        return [
+          l.id,
+          l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : "",
+          clean(l.full_name),
+          clean(l.parent_name),
+          l.phone,
+          clean(l.interested_course),
+          clean(sourceDisplay),
+          clean(l.lead_status),
+          clean(l.urgency || "Normal"),
+          l.next_follow_up_date
+            ? new Date(l.next_follow_up_date).toLocaleDateString('en-IN')
+            : "N/A",
+          clean(l.counselor_remarks),
+        ].join(",");
+      }),
+    ].join("\n");
+
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    // Updated filename for the Follow-up tab
+    link.download = `Followup_Leads_Export_${new Date().toISOString().split("T")[0]}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success(`Exported ${allLeads.length} follow-ups successfully`, { id: "export-toast" });
+  } catch (error) {
+    console.error("Export Error:", error);
+    toast.error("Export failed. Please try again.", { id: "export-toast" });
+  }
+};
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (

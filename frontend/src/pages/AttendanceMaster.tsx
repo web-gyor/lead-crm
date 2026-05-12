@@ -1,21 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
-import { Clock, Calendar, MapPin, Home, RefreshCw, ChevronLeft, ChevronRight, Users, ArrowRight } from "lucide-react";
+import { Clock, Calendar, RefreshCw, ChevronLeft, ChevronRight, Users, ArrowRight } from "lucide-react";
 import { apiGet } from "../utils/api";
 import toast from "react-hot-toast";
+
+// Helper to get local date string (YYYY-MM-DD) avoiding UTC timezone shifts
+const getLocalDateString = (date = new Date()) => {
+  const offset = date.getTimezoneOffset();
+  const adjustedDate = new Date(date.getTime() - (offset * 60 * 1000));
+  return adjustedDate.toISOString().split('T')[0];
+};
 
 export default function AttendanceMaster() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [staffList, setStaffList] = useState<any[]>([]);
   
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [selectedStaff, setSelectedStaff] = useState("");
   const [viewRange, setViewRange] = useState("daily"); 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-const [viewType, setViewType] = useState<string>("day"); // Default to 'day'
-
-
 
   // 1. Fetch Staff List to populate the dropdown
   const fetchStaff = useCallback(async () => {
@@ -35,13 +39,15 @@ const [viewType, setViewType] = useState<string>("day"); // Default to 'day'
       let query = `/api/attendance/all?page=${currentPage}&limit=10`;
       if (selectedStaff) query += `&staff_id=${selectedStaff}`;
 
-      const today = new Date();
+      const anchorDate = new Date(selectedDate);
+      
       if (viewRange === 'weekly') {
-        const lastWeek = new Date(today.setDate(today.getDate() - 7)).toISOString().split('T')[0];
-        query += `&start_date=${lastWeek}&end_date=${new Date().toISOString().split('T')[0]}`;
+        const startDate = new Date(anchorDate);
+        startDate.setDate(startDate.getDate() - 7);
+        query += `&start_date=${getLocalDateString(startDate)}&end_date=${selectedDate}`;
       } else if (viewRange === 'monthly') {
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-        query += `&start_date=${firstDay}&end_date=${new Date().toISOString().split('T')[0]}`;
+        const firstDay = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+        query += `&start_date=${getLocalDateString(firstDay)}&end_date=${selectedDate}`;
       } else {
         query += `&date=${selectedDate}`;
       }
@@ -60,16 +66,37 @@ const [viewType, setViewType] = useState<string>("day"); // Default to 'day'
 
   useEffect(() => {
     fetchStaff();
-    fetchLogs();
-  }, [fetchStaff, fetchLogs]);
+  }, [fetchStaff]);
 
-  
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
 
   const formatTime = (dateStr: string) => {
-    if (!dateStr) return "—";
-    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-  };
+    if (!dateStr || dateStr.includes("0000-00-00")) return "—";
+    
+    // Split "YYYY-MM-DD HH:MM:SS" to handle local time manually
+    // This prevents the browser from shifting the time by +5:30 or -5:30
+    const parts = dateStr.replace('T', ' ').split(/[- :]/);
+    if (parts.length < 5) return "—";
 
+    // Create date: Year, Month (0-indexed), Day, Hour, Minute
+    const localDate = new Date(
+      parseInt(parts[0]),
+      parseInt(parts[1]) - 1,
+      parseInt(parts[2]),
+      parseInt(parts[3]),
+      parseInt(parts[4])
+    );
+
+    if (isNaN(localDate.getTime())) return "—";
+
+    return localDate.toLocaleTimeString('en-IN', { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      hour12: true 
+    });
+  };
   const formatDuration = (seconds: number | null) => {
     if (seconds === null || seconds < 0) return "—";
     const hrs = Math.floor(seconds / 3600);
@@ -77,26 +104,23 @@ const [viewType, setViewType] = useState<string>("day"); // Default to 'day'
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
   };
 
-  // Add this inside your component before the return statement
-const isFiltered = 
-  selectedStaff !== "" || 
-  viewRange !== "daily" || 
-  selectedDate !== new Date().toISOString().split('T')[0];
+  const isFiltered = 
+    selectedStaff !== "" || 
+    viewRange !== "daily" || 
+    selectedDate !== getLocalDateString();
 
-const handleResetFilters = () => {
-  setSelectedStaff("");
-  setViewRange("daily"); 
-  const today = new Date().toISOString().split('T')[0];
-  setSelectedDate(today);
-  setCurrentPage(1);
-};
+  const handleResetFilters = () => {
+    setSelectedStaff("");
+    setViewRange("daily"); 
+    setSelectedDate(getLocalDateString());
+    setCurrentPage(1);
+  };
   
   return (
     <div className="space-y-4 pb-20 px-2 sm:px-0">
       {/* Header Card */}
       <div className="bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm relative overflow-hidden">
         
-        {/* Sync Icon - Absolute Top Right with padding to avoid overlap */}
         <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
           <button 
             onClick={fetchLogs} 
@@ -108,7 +132,6 @@ const handleResetFilters = () => {
         </div>
 
         <div className="space-y-6">
-          {/* Title Section */}
           <div className="pr-12">
             <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2">
               <Clock className="text-blue-600" size={24} /> Attendance Master
@@ -116,10 +139,7 @@ const handleResetFilters = () => {
             <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Staff Daily Muster Roll</p>
           </div>
           
-          {/* PARALLEL FILTER ROW - Responsive Flex */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            
-            {/* Left Side: Selectors */}
             <div className="flex flex-row items-center gap-2 flex-wrap sm:flex-nowrap">
               <div className="relative group flex-1 sm:flex-none">
                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={12} />
@@ -127,33 +147,32 @@ const handleResetFilters = () => {
                   type="date"
                   disabled={viewRange !== 'daily'}
                   value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+                  onChange={(e) => { setSelectedDate(e.target.value); setCurrentPage(1); }}
                   className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-8 pr-3 py-1.5 text-[11px] font-bold text-gray-600 dark:text-white outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50"
                 />
               </div>
 
               <div className="relative group flex-1 sm:flex-none">
                 <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={12} />
-              <select
-  value={selectedStaff}
-  onChange={(e) => { setSelectedStaff(e.target.value); setCurrentPage(1); }}
-  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-8 pr-8 py-1.5 text-[11px] font-bold text-gray-600 dark:text-white outline-none focus:ring-1 focus:ring-blue-500/20 appearance-none min-w-[140px] sm:w-auto cursor-pointer"
->
-  <option value="">All Staff Members</option>
-  {staffList && staffList.length > 0 ? (
-    staffList.map((s) => (
-      <option key={s.id} value={s.id}>
-        {s.name} ({s.role})
-      </option>
-    ))
-  ) : (
-    <option disabled className="text-red-400">Loading staff list...</option>
-  )}
-</select>
+                <select
+                  value={selectedStaff}
+                  onChange={(e) => { setSelectedStaff(e.target.value); setCurrentPage(1); }}
+                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-lg pl-8 pr-8 py-1.5 text-[11px] font-bold text-gray-600 dark:text-white outline-none focus:ring-1 focus:ring-blue-500/20 appearance-none min-w-[140px] sm:w-auto cursor-pointer"
+                >
+                  <option value="">All Staff Members</option>
+                  {staffList && staffList.length > 0 ? (
+                    staffList.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.role})
+                      </option>
+                    ))
+                  ) : (
+                    <option disabled className="text-red-400">Loading staff list...</option>
+                  )}
+                </select>
               </div>
             </div>
 
-            {/* Right Side: Range Tabs */}
             <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
               {['daily', 'weekly', 'monthly'].map((r) => (
                 <button
@@ -166,27 +185,18 @@ const handleResetFilters = () => {
               ))}
 
               {isFiltered && (
-  <button
-    onClick={handleResetFilters}
-    className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-200 animate-in fade-in zoom-in"
-  >
-    <svg 
-      className="w-3 h-3" 
-      fill="none" 
-      stroke="currentColor" 
-      viewBox="0 0 24 24"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-    Reset View
-  </button>
-)}
+                <button
+                  onClick={handleResetFilters}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-200"
+                >
+                  Reset View
+                </button>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Table Section */}
       <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -236,7 +246,6 @@ const handleResetFilters = () => {
           </table>
         </div>
 
-        {/* Pagination Controls */}
         {totalPages > 1 && (
           <div className="p-4 border-t border-gray-50 dark:border-gray-800 flex justify-between items-center bg-gray-50/30">
             <p className="text-[9px] sm:text-[10px] font-black text-gray-400 uppercase tracking-widest">Page {currentPage} of {totalPages}</p>

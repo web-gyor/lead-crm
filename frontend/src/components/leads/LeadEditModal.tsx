@@ -174,11 +174,10 @@ export default function LeadEditModal({
               <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Source</label><select name="lead_source_id" defaultValue={editingLead.lead_source_id} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none"><option value="">Select</option>{sourceOptions.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
               <div className="space-y-0.5"><label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Urgency</label>
               <select name="urgency" defaultValue={editingLead.urgency || 'Normal'} className="w-full px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:bg-gray-800 outline-none">
-     
-  <option value="Immediate (pain)">Immediate </option>
+  <option value="Immediate">Immediate</option>
   <option value="Within 1 week">Within 1 week</option>
   <option value="Within 1 month">Within 1 month</option>
-  <option value="Just inquiring">Just inquiring</option>
+  <option value="Researching">Just inquiring</option>
 </select>
               </div>
             

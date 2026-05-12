@@ -354,47 +354,134 @@ export default function InterestedLeads() {
     setShowEditForm(true);
   };
 
-  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editingLead) return;
-    const fd  = new FormData(e.currentTarget);
-    const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
-    try {
-      await apiPut(`/api/leads/${editingLead.id}`, {
-        ...editingLead, ...raw,
-        lead_source_id: Number(raw.lead_source_id),
-      });
-      toast.success("Lead updated");
-      setShowEditForm(false);
-      setEditingLead(null);
-      loadData(true);
-    } catch {
-      toast.error("Update failed");
-    }
-  };
+const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  if (!editingLead) return;
+
+  const fd = new FormData(e.currentTarget);
+  const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
+
+  try {
+    const payload = {
+      // base raw values
+      ...raw,
+
+      // numeric conversions
+      lead_source_id: Number(raw.lead_source_id),
+
+      // optional fields safety
+      email: raw.email || null,
+      city: raw.city || null,
+      qualification: raw.qualification || null,
+      interested_course: raw.interested_course || null,
+      counselor_remarks: raw.counselor_remarks || null,
+
+      // number conversion
+      year_of_passing: raw.year_of_passing
+        ? Number(raw.year_of_passing)
+        : null,
+
+      // controlled state values (IMPORTANT)
+      lead_status: editStatus,
+      urgency: raw.urgency,
+
+      // checkbox handling
+      whatsapp_same: raw.whatsapp_same === "on" ? 1 : 0,
+
+      // status tracking
+      status_updated_at:
+        editStatus !== editingLead.lead_status
+          ? new Date().toISOString()
+          : editingLead.status_updated_at || null,
+    };
+
+    await apiPut(`/api/leads/${editingLead.id}`, payload);
+
+    toast.success("Lead updated");
+    setShowEditForm(false);
+    setEditingLead(null);
+    loadData(true);
+  } catch {
+    toast.error("Update failed");
+  }
+};
 
   // ── Export ────────────────────────────────────────────────────────────────
 
-  const handleExport = () => {
-    const headers = ["ID", "Name", "Phone", "City", "Course", "Quality", "Source", "Updated", "Assigned", "Notes"];
-    const csv = [
-      headers.join(","),
-      ...leads.map((l) => [
-        l.id, `"${l.full_name}"`, l.phone, `"${l.city || ""}"`,
-        `"${l.interested_course || ""}"`, l.lead_quality || "",
-        `"${l.lead_source_name || ""}"`,
-        l.updated_at ? new Date(l.updated_at).toLocaleDateString() : "",
-        `"${l.assigned_user_name || "Unassigned"}"`,
-        `"${(l.counselor_remarks || "").replace(/"/g, '""')}"`,
-      ].join(","))
-    ].join("\n");
-    const link = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })),
-      download: `interested_leads_${new Date().toISOString().split("T")[0]}.csv`,
-    });
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  };
+const fetchAllLeadsForExport = async () => {
+  // Use current filters but force status to 'Interested' for this tab
+  const params = new URLSearchParams({
+    ...filters,
+    status: 'Interested', // Updated for this tab
+    limit: '10000',
+    page: '1'
+  }).toString();
 
+  const res = await apiGet(`/api/leads?${params}`);
+  return res?.data || [];
+};
+
+const handleExport = async () => {
+  try {
+    toast.loading("Preparing export...", { id: "export-toast" });
+    
+    const allLeads = await fetchAllLeadsForExport();
+    
+    if (!allLeads || allLeads.length === 0) {
+      toast.error("No data available to export", { id: "export-toast" });
+      return;
+    }
+
+    const headers = [
+      "ID", "Date Joined", "Student Name", "Parent Name",
+      "Contact", "Course", "Source", "Status",
+      "Priority", "Next Follow-up", "Latest Remarks"
+    ];
+
+    const csvContent = [
+      headers.join(","),
+      ...allLeads.map((l: any) => {
+        const clean = (val: any) =>
+          `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+
+        const sourceDisplay = l.source_name || l.lead_source_name || l.source || "Direct";
+
+        return [
+          l.id,
+          l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : "",
+          clean(l.full_name),
+          clean(l.parent_name),
+          l.phone,
+          clean(l.interested_course),
+          clean(sourceDisplay),
+          clean(l.lead_status),
+          clean(l.urgency || "Normal"),
+          l.next_follow_up_date
+            ? new Date(l.next_follow_up_date).toLocaleDateString('en-IN')
+            : "N/A",
+          clean(l.counselor_remarks),
+        ].join(",");
+      }),
+    ].join("\n");
+
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    // Updated filename for the Interested tab
+    link.download = `Interested_Leads_Export_${new Date().toISOString().split("T")[0]}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success(`Exported ${allLeads.length} leads successfully`, { id: "export-toast" });
+  } catch (error) {
+    console.error("Export Error:", error);
+    toast.error("Export failed. Please try again.", { id: "export-toast" });
+  }
+};
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (

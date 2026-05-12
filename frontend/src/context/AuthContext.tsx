@@ -12,7 +12,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const fetchPermsForRole = async (role: string) => {
     const response: any = await apiGet(`/api/permissions/${role.toLowerCase()}`);
     const list = Array.isArray(response) ? response : (response?.data || []);
-    console.log(`[AuthContext] Permissions fetched for "${role}":`, list.length, 'rows');
+    //console.log(`[AuthContext] Permissions fetched for "${role}":`, list.length, 'rows');
     return list;
   };
 

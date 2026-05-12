@@ -68,11 +68,11 @@ const getDashboardStats = async (req, res) => {
       FROM leads l
       WHERE ${whereClause}
       AND l.next_follow_up_date IS NOT NULL
-      AND DATE(l.next_follow_up_date) <= CURDATE()
+      /* Removed the <= CURDATE() filter to include future dates */
       AND l.lead_status NOT IN ('Converted', 'Lost', 'Not Interested')
     `, params);
 
-    const pendingFollowUps = Number(followupRows[0]?.pendingCount) || 0;
+const pendingFollowUps = Number(followupRows[0]?.pendingCount) || 0;
 
     // ─────────────────────────────────────────────
     // 4. TODAY LEADS
@@ -120,6 +120,28 @@ const getDashboardStats = async (req, res) => {
       FROM leads l WHERE ${whereClause} AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
       GROUP BY date ORDER BY date ASC
     `, params);
+    const [weeklyConversions] = await pool.query(`
+  SELECT 
+    YEARWEEK(l.created_at, 1) AS week,
+    COUNT(*) AS total,
+    SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
+  FROM leads l
+  WHERE ${whereClause}
+    AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 WEEK)
+  GROUP BY week
+  ORDER BY week ASC
+`, params);
+const [monthlyConversions] = await pool.query(`
+  SELECT 
+    DATE_FORMAT(l.created_at, '%Y-%m') AS month,
+    COUNT(*) AS total,
+    SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
+  FROM leads l
+  WHERE ${whereClause}
+    AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+  GROUP BY month
+  ORDER BY month ASC
+`, params);
 
     // ─────────────────────────────────────────────
     // 7. FINAL RESPONSE
@@ -128,18 +150,20 @@ const getDashboardStats = async (req, res) => {
       ? Math.round((statusStats.converted / totalLeads) * 100)
       : 0;
 
-    return res.json({
-      success: true,
-      totalLeads,
-      newToday,
-      conversionRate,
-      highIntentLeads, // Return to Frontend
-      pendingFollowUps, // Return to Frontend
-      statusStats,
-      recentLeads: recentLeads || [],
-      sourceStats: sourceStats || [],
-      dailyConversions: dailyConversions || []
-    });
+   return res.json({
+  success: true,
+  totalLeads,
+  newToday,
+  conversionRate,
+  highIntentLeads,
+  pendingFollowUps,
+  statusStats,
+  recentLeads: recentLeads || [],
+  sourceStats: sourceStats || [],
+  dailyConversions: dailyConversions || [],
+  weeklyConversions: weeklyConversions || [],   // ✅ ADD
+  monthlyConversions: monthlyConversions || [],  // ✅ ADD
+});
 
   } catch (error) {
     console.error("[DASHBOARD ERROR]", error.message);

@@ -441,12 +441,12 @@ export default function Settings() {
 
         // PLACE THIS HERE
         setCommSettings({
-          is_call_recording_enabled: !!data.is_call_recording_enabled,
-          is_sms_template_enabled: false, 
-          is_whatsapp_automation_enabled: false,
-          is_email_trigger_enabled: false,
-          telephony_provider: data.telephony_provider ?? "none"
-        });
+  is_call_recording_enabled:    !!data.is_call_recording_enabled,
+  is_sms_template_enabled:      !!data.is_sms_template_enabled,      // ✅ read from API
+  is_whatsapp_automation_enabled: !!data.is_whatsapp_automation_enabled, // ✅
+  is_email_trigger_enabled:     !!data.is_email_trigger_enabled,     // ✅
+  telephony_provider:           data.telephony_provider ?? "none",
+});
       }
     } catch { toast.error("Failed to load settings"); }
     finally { setLoading(false); }
@@ -519,13 +519,12 @@ export default function Settings() {
     try {
       setSaving(true);
       const response = await apiPut("/api/settings", {
-        ...company, 
-        logo_url: newLogoPreview || savedLogoUrl,
-        admin_name: account.fullName, 
-        admin_email: account.email,
-        new_password: account.newPassword || null, 
-        current_password: account.currentPassword || null,
-        
+  ...company,
+  logo_url:         newLogoPreview || savedLogoUrl,
+  admin_name:       account.fullName,
+  admin_email:      account.email,
+  new_password:     account.newPassword     || null,
+  current_password: account.currentPassword || null,
         // PLACE THESE HERE
         is_call_recording_enabled: commSettings.is_call_recording_enabled,
         telephony_provider: commSettings.telephony_provider,

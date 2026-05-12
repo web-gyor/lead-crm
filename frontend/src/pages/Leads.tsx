@@ -37,18 +37,25 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const SOURCE_COLORS: Record<string, string> = {
-  "WHATSAPP":        "bg-green-50 text-green-600 border-green-200",
-  "PHONE CALL":      "bg-blue-50 text-blue-600 border-blue-200",
-  "WALK-IN":         "bg-orange-50 text-orange-600 border-orange-200",
-  "WEBSITE ":       "bg-indigo-50 text-indigo-600 border-indigo-200",
-  "REFERRAL":        "bg-purple-50 text-purple-600 border-purple-200",
-  "SOCIAL ":        "bg-pink-50 text-pink-600 border-pink-200",
-  "META ADS":        "bg-blue-600 text-white border-blue-700",
-  "GOOGLE ADS":      "bg-emerald-50 text-emerald-700 border-emerald-200",
-  "BULK IMPORT":     "bg-slate-100 text-slate-700 border-slate-300",
-  "UNKNOWN":         "bg-gray-100 text-gray-500 border-gray-200",
+  // Direct Messaging
+  "WHATSAPP":      "bg-green-50 text-green-700 border-green-200",
+  
+  // Organic/Inbound
+  "WEBSITE":       "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "PHONE CALL":    "bg-sky-50 text-sky-700 border-sky-200",
+  "WALK-IN":       "bg-amber-50 text-amber-700 border-amber-200",
+  
+  // Paid Ads (Stronger Colors)
+  "META ADS":      "bg-blue-600 text-white border-blue-700",
+  "FACEBOOK ADS":  "bg-blue-600 text-white border-blue-700", // Matches Meta
+  "GOOGLE ADS":    "bg-emerald-600 text-white border-emerald-700",
+  
+  // Marketing & Others
+  "SOCIAL":        "bg-pink-50 text-pink-700 border-pink-200",
+  "REFERRAL":      "bg-purple-50 text-purple-700 border-purple-200",
+  "BULK IMPORT":   "bg-slate-100 text-slate-600 border-slate-300",
+  "UNKNOWN":       "bg-gray-100 text-gray-500 border-gray-200",
 };
-
 const QUALITY_CONFIG: Record<string, { label: string; icon: any; style: string }> = {
   hot: { label: "HOT", icon: <Flame size={12} className="fill-current" />, style: "bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:border-red-800/30 animate-pulse" },
   warm: { label: "WRM", icon: <Thermometer size={12} />, style: "bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/20 dark:border-orange-800/30" },
@@ -120,6 +127,7 @@ interface Lead {
   first_contacted_at?: string;
   created_at?: string;
   updated_at?: string;
+  status_updated_at?: string;
   whatsapp_same?: number | null;
   urgency?: string;
 }
@@ -127,14 +135,13 @@ interface Lead {
 interface Filters {
   search: string;
   status: string;
-  sourceId: string;
-  counselorId: string;  // "" = all, "unassigned" = no assignment, numeric string = user id
+  sourceId: string;   // ONLY THIS
+  counselorId: string;
   quality: string;
   range: string;
   startDate: string;
   endDate: string;
 }
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function todayISO() {
@@ -157,20 +164,42 @@ function getRangeDates(range: string): { startDate: string; endDate: string } | 
 }
 
 function getFollowUpStatus(dateStr?: string): "overdue" | "today" | "future" | null {
+
   if (!dateStr) return null;
-  const todayStr = new Date().toLocaleDateString("en-CA");
-  const fuStr    = new Date(dateStr).toLocaleDateString("en-CA");
-  if (fuStr === todayStr) return "today";
-  if (fuStr < todayStr)  return "overdue";
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const follow = new Date(dateStr);
+  follow.setHours(0,0,0,0);
+
+  if (follow.getTime() === today.getTime()) {
+    return "today";
+  }
+
+  if (follow < today) {
+    return "overdue";
+  }
+
   return "future";
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SourceBadge({ lead, sources }: { lead: Lead; sources: any[] }) {
-  const src  = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
-  const name = (src?.name || lead.lead_source_name || "UNKNOWN").toUpperCase();
-  const cls  = SOURCE_COLORS[name] ?? "bg-slate-50 text-slate-500 border-slate-200";
+  // 1. Try to find the source in the provided sources list (by ID)
+  const src = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
+  
+  // 2. CHANGE THE PRIORITY: Check lead.source FIRST
+ const name = (
+  src?.name || 
+  lead.lead_source_name || 
+  "UNKNOWN"
+).toUpperCase();
+
+  // 3. Get the color class
+  const cls = SOURCE_COLORS[name] ?? "bg-slate-50 text-slate-500 border-slate-200";
+
   return (
     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border shadow-sm ${cls}`}>
       {name}
@@ -276,16 +305,16 @@ export default function Leads() {
   const [editStatus,     setEditStatus]     = useState("New");
   const [selectedCourse, setSelectedCourse] = useState("");
 const [editUrgency, setEditUrgency] = useState<string>("Normal");
-const [editWhatsappSame, setEditWhatsappSame] = useState<boolean>(true);
+
   // ── Phone duplicate check ─────────────────────────────────────────────────
   const [phone,         setPhone]         = useState("");
   const [checkingPhone, setCheckingPhone] = useState(false);
   const [duplicateLead, setDuplicateLead] = useState<any>(null);
-
+const [allLeadsForExport, setAllLeadsForExport] = useState([]);
   // ── Delete ────────────────────────────────────────────────────────────────
   const [deleteId,      setDeleteId]   = useState<number | null>(null);
   const [isDeleting,    setIsDeleting] = useState(false);
-
+const [editWhatsappSame, setEditWhatsappSame] = useState(false);
   // ── Bulk select ───────────────────────────────────────────────────────────
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
 
@@ -306,9 +335,9 @@ const k = stats || {};
     const load = async () => {
       try {
         const [c1, c2, s1, s2] = await Promise.all([
-          apiGet("/api/masters/courses").catch(() => []),
+          apiGet("/api/leads/masters/courses").catch(() => []),
           apiGet("/api/courses").catch(() => []),
-          apiGet("/api/masters/sources").catch(() => []),
+          apiGet("/api/leads/masters/sources").catch(() => []),
           apiGet("/api/lead-sources").catch(() => []),
         ]);
         setMasterCourses(Array.isArray(c1) && c1.length ? c1 : Array.isArray(c2) ? c2 : []);
@@ -414,51 +443,76 @@ const k = stats || {};
 }, []);
 
 useEffect(() => {
-  // Initial fetch
- loadData();
 
-  // Auto-refresh every 30 seconds
+  loadData();
+
   const interval = setInterval(() => {
-    loadData();
-    console.log("📡 Auto-synced with Database");
-  }, 30000); 
+    loadData(true);
+  
+  }, 30000);
 
-  return () => clearInterval(interval); // Cleanup when page closes
-}, [currentPage, rowsPerPage]);
+  return () => clearInterval(interval);
 
-useEffect(() => {
-  loadData();    // Your existing table fetch
-}, [loadData, fetchSummary]);
+}, [loadData]);
+
+
 
   // ── Filter helpers ────────────────────────────────────────────────────────
+  const normalize = (v: any) =>
+  String(v || "")
+    .toLowerCase()
+    .trim();
+
+const filteredLeads = useMemo(() => {
+  return leads.filter((l) => {
+    const search = normalize(filters.search);
+
+    // if no search, keep all
+    if (!search) return true;
+
+    const match =
+      normalize(l.id).includes(search) ||
+      normalize(l.full_name).includes(search) ||
+      normalize(l.phone).includes(search);
+
+    return match;
+  });
+}, [leads, filters.search]);
+
   // ✅ SINGLE SOURCE OF TRUTH: KPI DATA
 const kpiStats = useMemo(() => {
   return {
-    // 1. Use the total count from the backend pagination metadata
-    total: totalCount, 
-
-    // 2. Use the global stats from the fetchSummary API (k variable)
-    highIntent: Number(k.highIntentLeads || 0), 
-
-    // 3. Use the global stats for follow-ups
-    followUp: Number(k.pendingFollowUps || 0),
-
-    // 4. Calculate local conversion if needed, or use k.conversionRate
-    conversionRate: k.conversionRate || 0
+    total: totalCount,
+    highIntent: Number(k?.highIntentLeads || 0),
+    followUp: Number(k?.pendingFollowUps || 0),
+    conversionRate: k?.conversionRate || 0,
   };
-}, [totalCount, k]); // Re-runs when the global summary or total count changes
-  const handleStatusChange = async (leadId, newStatus) => {
+}, [
+  totalCount,
+  k?.highIntentLeads,
+  k?.pendingFollowUps,
+  k?.conversionRate,
+]);
+
+const handleStatusChange = async (leadId: number, newStatus: string) => {
   try {
-    await apiPost(`/api/leads/update/${leadId}`, { status: newStatus });
+    await apiPut(`/api/leads/${leadId}`, {
+      lead_status: newStatus,
+    });
+
     toast.success("Status updated");
-    
-    // 🔄 THIS REFRESHES KPIs AND TABLE WITHOUT A PAGE RELOAD
-    loadData(true); 
+
+    // reset UI state first
+    setCurrentPage(1);
+
+    // force full reload (no stale cache)
+    await loadData(true);
+
   } catch (err) {
     toast.error("Failed to update");
+    console.error(err); // Good to keep for debugging
   }
 };
-
 
   const updateFilters = (patch: Partial<Filters>) => {
     setFilters((prev) => ({ ...prev, ...patch }));
@@ -506,7 +560,7 @@ const kpiStats = useMemo(() => {
   const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
 
   // ✅ ALWAYS read directly (NOT from raw)
-  const whatsappSame = fd.get("whatsapp_same") === "1";
+const whatsappSame = Boolean(fd.get("whatsapp_same"));
   const urgencyValue = (fd.get("urgency") as string) || "Just inquiring";
 
   const finalCourse =
@@ -580,16 +634,32 @@ const kpiStats = useMemo(() => {
 
   try {
     // Construct a CLEAN object
-    const payload = {
-      ...raw, // Start with form data
-      lead_status: editStatus,
-      urgency: editUrgency, // Use the state variable
-      whatsapp_same: fd.get("whatsapp_same") === "on" ? 1 : 0,
-      next_follow_up_date: editStatus.toLowerCase().includes("follow") ? (followUpDate || null) : null,
-      // Ensure numeric fields are numbers or null, not empty strings
-      age: raw.age ? Number(raw.age) : null,
-      year_of_passing: raw.year_of_passing ? Number(raw.year_of_passing) : null
-    };
+const payload = {
+  ...raw,
+
+  lead_status: editStatus,
+
+  status_updated_at:
+    editStatus !== editingLead.lead_status
+      ? new Date().toISOString()
+      : editingLead.status_updated_at,
+
+  urgency: editUrgency,
+
+  whatsapp_same: Boolean(fd.get("whatsapp_same")) ? 1 : 0,
+
+  next_follow_up_date:
+    editStatus.toLowerCase().includes("follow")
+      ? (followUpDate || null)
+      : null,
+
+  age: raw.age ? Number(raw.age) : null,
+
+  year_of_passing:
+    raw.year_of_passing
+      ? Number(raw.year_of_passing)
+      : null
+};
 
     await apiPut(`/api/leads/${editingLead.id}`, payload);
 
@@ -608,7 +678,7 @@ const handleEditClick = (lead: Lead) => {
   setEditStatus(lead.lead_status || "New");
 
   // Try every possible variation of the date key name
-  const rawDate = lead.next_follow_up_date || lead.next_followup_date || (lead as any).follow_up_date;
+const rawDate = lead.next_follow_up_date || (lead as any).follow_up_date;
   
   console.log("Extracted rawDate:", rawDate); // If this is null/undefined, your state will stay empty
 
@@ -632,16 +702,20 @@ const handleEditClick = (lead: Lead) => {
 
 // ✅ CORRECT — state declared first, effect once after
 const [followUpDate, setFollowUpDate] = useState<string>(() => {
-  const raw = editingLead?.next_follow_up_date
-           || editingLead?.next_followup_date
-           || (editingLead as any)?.follow_up_date
+  // Access the primary property first
+  const raw = editingLead?.next_follow_up_date 
+           || (editingLead as any)?.next_followup_date // Use 'as any' to bypass the error
+           || (editingLead as any)?.follow_up_date 
            || "";
+
   if (!raw) return "";
+  
   const d = new Date(raw);
   if (isNaN(d.getTime())) return "";
+
+  // Return formatted YYYY-MM-DD
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 });
-
 
 
 useEffect(() => {
@@ -656,13 +730,14 @@ useEffect(() => {
     setEditStatus(editingLead.lead_status || "New");
 
     // 4. Handle Date
-    const rawDate = editingLead.next_follow_up_date || editingLead.next_followup_date;
-    if (rawDate) {
-      const d = new Date(rawDate);
-      setFollowUpDate(!isNaN(d.getTime()) ? d.toISOString().split('T')[0] : "");
-    } else {
-      setFollowUpDate("");
-    }
+    const rawDate = editingLead.next_follow_up_date || (editingLead as any).next_followup_date;
+
+if (rawDate) {
+  const d = new Date(rawDate);
+  setFollowUpDate(!isNaN(d.getTime()) ? d.toISOString().split('T')[0] : "");
+} else {
+  setFollowUpDate("");
+}
   }
 }, [editingLead, showEditForm]);
 
@@ -684,24 +759,58 @@ useEffect(() => {
   };
 
   // ── Export ────────────────────────────────────────────────────────────────
-  const handleExport = () => {
-    const headers = ["ID", "Student", "Parent", "Contact", "Course", "Status", "Notes", "Date"];
-    const csv = [
-      headers.join(","),
-      ...leads.map((l) => [
-        l.id, `"${l.full_name}"`, `"${l.parent_name || ""}"`, l.phone,
-        `"${l.interested_course || ""}"`, l.lead_status,
-        `"${(l.counselor_remarks || "").replace(/"/g, '""')}"`,
-        l.created_at ? new Date(l.created_at).toLocaleDateString() : "",
-      ].join(","))
-    ].join("\n");
-    const link = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })),
-      download: `Leads_${todayISO()}.csv`,
-    });
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  const fetchAllLeadsForExport = async () => {
+  const res = await apiGet(`/api/leads?limit=10000&page=1`);
+  return res?.data || [];
+};
+const handleExport = async () => {
+  const allLeads = await fetchAllLeadsForExport();
 
-  };
+  const headers = [
+    "ID", "Date Joined", "Student Name", "Parent Name",
+    "Contact", "Course", "Source", "Status",
+    "Priority", "Next Follow-up", "Latest Remarks"
+  ];
+
+  const csvContent = [
+    headers.join(","),
+    ...allLeads.map((l) => {
+      const clean = (val: any) =>
+        `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+
+      return [
+        l.id,
+        l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : "",
+        clean(l.full_name),
+        clean(l.parent_name),
+        l.phone,
+        clean(l.interested_course),
+          clean(l.source_name ?? l.lead_source_name ?? "Direct"),
+        clean(l.lead_status),
+        clean(l.urgency || "Normal"),
+        l.next_follow_up_date
+          ? new Date(l.next_follow_up_date).toLocaleDateString('en-IN')
+          : "N/A",
+        clean(l.counselor_remarks),
+      ].join(",");
+    }),
+  ].join("\n");
+
+  const BOM = "\uFEFF";
+  const blob = new Blob([BOM + csvContent], {
+    type: "text/csv;charset=utf-8;",
+  });
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `LeadTracker_Export_${new Date()
+    .toISOString()
+    .split("T")[0]}.csv`;
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
 
   // ── Bulk delete ───────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
@@ -722,7 +831,8 @@ useEffect(() => {
     area.value = `${ts}: ${prefix} - ${label}.\n${area.value}`;
   };
 
-  const isFollowUpStatus = editStatus === "Follow-up" || editStatus === "Follow-up Needed";
+  const isFollowUpStatus =
+  editStatus === "Follow-up";
 
   // ── Counselor select (reused in both desktop + mobile) ────────────────────
   const CounselorSelect = ({ full = false }: { full?: boolean }) => (
@@ -1014,7 +1124,7 @@ useEffect(() => {
           <table className="w-full text-sm min-w-[960px]">
             <thead className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700">
               <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                {["#", "ID", "Date", "Name", "Course", "Contact",  "Source", "Status", "Quality", "Follow-up", "Assigned", "Notes", "Actions"].map((h) => (
+                {["#", "ID", "Date", "Name", "Course", "Contact",  "Source", "Status", "Quality", "Last Update", "Assigned", "Notes", "Actions"].map((h) => (
                   <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${h === "Actions" ? "text-right" : "text-left"}`}>{h}</th>
                 ))}
               </tr>
@@ -1043,22 +1153,26 @@ useEffect(() => {
                         <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">
                           {lead.created_at ? new Date(lead.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                         </p>
+                        {lead.status_updated_at && (
+  <p className="text-[10px] text-gray-500 dark:text-gray-400">
+    Status Updated:
+    {new Date(lead.status_updated_at).toLocaleString("en-GB")}
+  </p>
+)}
                         <p className="text-[8px] text-gray-400 uppercase">Entry</p>
                       </td>
-                      <td className="px-3 py-2 max-w-[140px]">
+                     <td className="px-3 py-2 max-w-[140px]">
   {/* Primary Name */}
   <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
     {lead.full_name || "N/A"}
   </p>
 
-  {/* Dynamic Sub-text: Shows Project ID in Blue if available, else shows Parent Name */}
-  {lead.source_project ? (
-    <p className="text-[9px] font-black text-blue-500 dark:text-blue-400 uppercase tracking-tighter truncate mt-0.5">
-      🌐 {lead.source_project.replace(/_/g, ' ')}
+  {/* Sub-text: Parent Name */}
+  {lead.parent_name && (
+    <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
+      👤 {lead.parent_name}
     </p>
-  ) : lead.parent_name ? (
-    <p className="text-[9px] text-gray-400 truncate">👤 {lead.parent_name}</p>
-  ) : null}
+  )}
 </td>
                       <td className="px-3 py-2 max-w-[110px]"><span className="text-[10px] text-gray-600 dark:text-gray-300 truncate block">{lead.interested_course || "General"}</span></td>
                       <td className="px-3 py-2 whitespace-nowrap">
@@ -1166,6 +1280,12 @@ useEffect(() => {
                       <p className="text-xs text-gray-600 dark:text-gray-400">
                         {lead.created_at ? new Date(lead.created_at).toLocaleDateString("en-GB") : "—"}
                       </p>
+                      {lead.status_updated_at && (
+  <p className="text-[10px] text-gray-500 dark:text-gray-400">
+    Status Updated:
+    {new Date(lead.status_updated_at).toLocaleString("en-GB")}
+  </p>
+)}
                     </div>
                     {lead.next_follow_up_date && (
                       <div>
@@ -1304,7 +1424,7 @@ useEffect(() => {
                   {selectedCourse === "Other" && <input required type="text" name="custom_course_name" placeholder="Type course name…" className={`${INPUT} mt-2 border-blue-400`} autoFocus />}
                 </Field>
                 <Field label="Source">
-                  <select name="lead_source_id" className={SELECT}>
+                  <select name="lead_sourceId" className={SELECT}>
                     <option value="">Select Source</option>
                     {sourceOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
@@ -1491,7 +1611,7 @@ useEffect(() => {
                 </div>
               </form>
               <div className="hidden md:block w-80 bg-gray-50/50 dark:bg-gray-950/20 overflow-y-auto border-l border-gray-100 dark:border-gray-800 shrink-0">
-                <ActivityLogsMini leadId={editingLead.id} />
+              {editingLead?.id && <ActivityLogsMini leadId={editingLead.id} />}
               </div>
             </div>
           </div>

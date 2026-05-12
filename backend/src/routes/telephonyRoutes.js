@@ -1,3 +1,4 @@
+const pool = require('../config/db');
 const express = require('express');
 const router = express.Router();
 const telephonyController = require('../controllers/telephonyController');
@@ -7,6 +8,7 @@ const { authenticateToken } = require('../middleware/auth'); // Ensure this path
 router.get('/logs', authenticateToken, telephonyController.getCallLogs);
 router.put('/feedback', authenticateToken, telephonyController.saveFeedback);
 // Clear logs older than 30 days
+router.post('/logs', authenticateToken, telephonyController.createCallLog);
 router.put('/clear-old-logs', authenticateToken, async (req, res) => {
 
   try {

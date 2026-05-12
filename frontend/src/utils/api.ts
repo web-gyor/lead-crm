@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/$/, '');
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export const clearAuth = () => {
   localStorage.removeItem('token');

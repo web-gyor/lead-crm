@@ -333,47 +333,128 @@ export default function RejectedLeads() {
     setShowEditForm(true);
   };
 
-  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editingLead) return;
-    const fd  = new FormData(e.currentTarget);
-    const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
-    try {
-      await apiPut(`/api/leads/${editingLead.id}`, {
-        ...editingLead, ...raw,
-        lead_source_id: Number(raw.lead_source_id),
-      });
-      toast.success("Profile updated");
-      setShowEditForm(false);
-      setEditingLead(null);
-      loadData(true);
-    } catch {
-      toast.error("Update failed");
-    }
-  };
+const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  if (!editingLead) return;
+
+  const fd = new FormData(e.currentTarget);
+  const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
+
+  try {
+    const payload = {
+      ...editingLead,
+
+      // core fields
+      lead_source_id: Number(raw.lead_source_id || editingLead.lead_source_id),
+      lead_status: raw.lead_status || "REJECTED",
+
+      // optional fields
+      email: raw.email || null,
+      phone: raw.phone || editingLead.phone,
+      city: raw.city || null,
+      interested_course: raw.interested_course || null,
+      qualification: raw.qualification || null,
+
+      // tracking fields
+      counselor_remarks: raw.counselor_remarks || null,
+
+      // safe status tracking
+      status_updated_at:
+        raw.lead_status !== editingLead.lead_status
+          ? new Date().toISOString()
+          : editingLead.status_updated_at || null,
+    };
+
+    await apiPut(`/api/leads/${editingLead.id}`, payload);
+
+    toast.success("Rejected lead updated");
+    setShowEditForm(false);
+    setEditingLead(null);
+    loadData(true);
+  } catch {
+    toast.error("Update failed");
+  }
+};
 
   // ── Export ────────────────────────────────────────────────────────────────
 
-  const handleExport = () => {
-    const headers = ["ID", "Name", "Phone", "City", "Source", "Entry Date", "Last Contact", "Assigned", "Notes"];
-    const csv = [
-      headers.join(","),
-      ...leads.map((l) => [
-        l.id, `"${l.full_name}"`, l.phone, `"${l.city || ""}"`,
-        `"${l.lead_source_name || ""}"`,
-        l.created_at ? new Date(l.created_at).toLocaleDateString() : "",
-        l.updated_at ? new Date(l.updated_at).toLocaleDateString() : "",
-        `"${l.assigned_user_name || "Unassigned"}"`,
-        `"${(l.counselor_remarks || "").replace(/"/g, '""')}"`,
-      ].join(","))
-    ].join("\n");
-    const link = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })),
-      download: `rejected_leads_${new Date().toISOString().split("T")[0]}.csv`,
-    });
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  };
+const fetchAllLeadsForExport = async () => {
+  // We need to make sure the 'status' key matches exactly what the backend expects
+  const params = new URLSearchParams({
+    ...filters,        // This includes your search/date filters
+    status: 'Rejected', // This MUST be the same case used in the DB
+    limit: '10000',     // Get everything
+    page: '1'
+  }).toString();
 
+  const res = await apiGet(`/api/leads?${params}`);
+  
+  // LOG THIS to see what is actually coming back from the server
+  console.log("Export Data Count:", res?.data?.length); 
+  
+  return res?.data || [];
+};
+const handleExport = async () => {
+  try {
+    toast.loading("Preparing conversion export...", { id: "export-toast" });
+    
+    const allLeads = await fetchAllLeadsForExport();
+    
+    if (!allLeads || allLeads.length === 0) {
+      toast.error("No converted leads found to export", { id: "export-toast" });
+      return;
+    }
+
+    const headers = [
+      "ID", "Date Joined", "Student Name", "Parent Name",
+      "Contact", "Course", "Source", "Status",
+      "Priority", "Next Follow-up", "Latest Remarks"
+    ];
+
+    const csvContent = [
+      headers.join(","),
+      ...allLeads.map((l: any) => {
+        const clean = (val: any) =>
+          `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+
+        const sourceDisplay = l.source_name || l.lead_source_name || l.source || "Direct";
+
+        return [
+          l.id,
+          l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : "",
+          clean(l.full_name),
+          clean(l.parent_name),
+          l.phone,
+          clean(l.interested_course),
+          clean(sourceDisplay),
+          clean(l.lead_status),
+          clean(l.urgency || "Normal"),
+          l.next_follow_up_date
+            ? new Date(l.next_follow_up_date).toLocaleDateString('en-IN')
+            : "N/A",
+          clean(l.counselor_remarks),
+        ].join(",");
+      }),
+    ].join("\n");
+
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    // Updated filename for the Converted tab
+    link.download = `Converted_Leads_Report_${new Date().toISOString().split("T")[0]}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success(`Exported ${allLeads.length} converted leads`, { id: "export-toast" });
+  } catch (error) {
+    console.error("Export Error:", error);
+    toast.error("Export failed. Please try again.", { id: "export-toast" });
+  }
+};
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (

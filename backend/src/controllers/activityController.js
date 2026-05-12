@@ -8,33 +8,100 @@ const activityController = {
   /**
    * Fetches the activity history for a specific lead.
    */
-getLeadHistory: async (req, res) => {
-  const { leadId } = req.params;
-   const limit = parseInt(req.query.limit) || 5; 
 
-  try {
-    let query = `
-      SELECT 
-        al.id, al.lead_id, al.user_id,
-        COALESCE(u.name, 'System') AS user_name,
-        al.action_type, al.description,
-        al.old_value, al.new_value, al.created_at
-      FROM activity_logs al
-      LEFT JOIN users u ON al.user_id = u.id
-      WHERE al.lead_id = ?
-      ORDER BY al.created_at DESC
-    `;
-
-    const params = [leadId];
-
-  
-    if (limit) {
-      query += " LIMIT ?";
-      params.push(Number(limit));
+getActivityByLead: async (req, res) => {
+    const leadId = Number(req.params.id); 
+    
+    if (isNaN(leadId)) {
+      return res.json({ success: true, data: [], message: "Invalid Numeric ID" });
     }
 
-    const [rows] = await pool.query(query, params);
+    try {
+      const [rows] = await pool.query(`
+        SELECT * FROM (
+          SELECT 
+            id,
+            'STATUS_CHANGE' as action_type,
+            CONCAT('Status changed from ', old_status, ' to ', new_status) as description,
+            changed_at as created_at
+          FROM lead_status_history 
+          WHERE lead_id = ?
+          
+          UNION ALL
 
+          SELECT 
+            id,
+            action_type,
+            description,
+            created_at
+          FROM activity_logs 
+          WHERE lead_id = ?
+        ) AS combined_logs
+        ORDER BY created_at DESC
+        LIMIT 10
+      `, [leadId, leadId]);
+
+      console.log(`✅ Found ${rows.length} logs for Lead ID: ${leadId}`);
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      console.error("❌ SQL ERROR:", error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  /**
+   * Fetches the activity history for a specific lead (Full List)
+   */
+getLeadHistory: async (req, res) => {
+  // Use leadId from params (ensure it's a number)
+  const leadId = Number(req.params.leadId);
+  const limit = parseInt(req.query.limit) || 20;
+
+  if (isNaN(leadId)) {
+    return res.status(400).json({ success: false, error: "Invalid Lead ID" });
+  }
+
+  try {
+    // UNION pulls from BOTH tables so you don't miss the status changes
+    const [rows] = await pool.query(`
+      SELECT * FROM (
+        -- 1. Get Status Changes
+        SELECT 
+          h.id, 
+          h.lead_id, 
+          h.changed_by as user_id,
+          COALESCE(u.name, 'System') AS user_name,
+          'STATUS_CHANGE' as action_type,
+          CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) as description,
+          h.old_status as old_value,
+          h.new_status as new_value,
+          h.changed_at as created_at
+        FROM lead_status_history h
+        LEFT JOIN users u ON h.changed_by = u.id
+        WHERE h.lead_id = ?
+
+        UNION ALL
+
+        -- 2. Get General Activities
+        SELECT 
+          al.id, 
+          al.lead_id, 
+          al.user_id,
+          COALESCE(u.name, 'System') AS user_name,
+          al.action_type, 
+          al.description,
+          al.old_value, 
+          al.new_value, 
+          al.created_at
+        FROM activity_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        WHERE al.lead_id = ?
+      ) AS combined_history
+      ORDER BY created_at DESC
+      LIMIT ?
+    `, [leadId, leadId, limit]);
+
+    console.log(`📜 History Sync: Found ${rows.length} records for Lead ${leadId}`);
     return res.status(200).json({ success: true, data: rows });
 
   } catch (err) {
@@ -42,8 +109,6 @@ getLeadHistory: async (req, res) => {
     return res.status(500).json({ success: false, error: "Failed to retrieve lead history" });
   }
 },
-
-
   /**
    * Fetches global logs for administrative audit purposes.
    * Limited to the most recent 100 entries for performance.
