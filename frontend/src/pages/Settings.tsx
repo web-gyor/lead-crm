@@ -557,15 +557,18 @@ const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 };
 
   // ─── Save ───────────────────────────────────────────────────────────────
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4000";
-const cleanBaseUrl = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4000";
+
+const cleanBaseUrl = API_BASE.endsWith("/")
+  ? API_BASE.slice(0, -1)
+  : API_BASE;
 
 const displayLogo = newLogoPreview
   ? newLogoPreview
   : savedLogoUrl
-    ? `${API_BASE}${savedLogoUrl.startsWith("/") ? "" : "/"}${savedLogoUrl}`
+    ? `${cleanBaseUrl}${savedLogoUrl.startsWith("/") ? "" : "/"}${savedLogoUrl}`
     : "/default-logo.png";
-
 
 const passwordMismatch = !!account.confirmPassword && account.newPassword !== account.confirmPassword;
 const projectSlug = (account.fullName || "").toLowerCase().trim().replace(/\s+/g, "-");
