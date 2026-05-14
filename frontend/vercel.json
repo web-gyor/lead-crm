@@ -1,43 +1,44 @@
 {
   "version": 2,
   "framework": "vite",
+
   "headers": [
     {
       "source": "/manifest.webmanifest",
       "headers": [
-        { "key": "Content-Type", "value": "application/manifest+json" },
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" }
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/(icon-.*\\.png)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    },
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Credentials", "value": "true" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
-        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     }
   ],
+
   "rewrites": [
-    { 
-      "source": "/api/(.*)", 
-      "destination": "https://lead-crm-tmz8.onrender.com/api/$1" 
+    {
+      "source": "/api/(.*)",
+      "destination": "https://lead-crm-tmz8.onrender.com/api/$1"
     },
-    { 
-      "source": "/(manifest.webmanifest|sw.js|icon-.*\\.png|assets/.*)", 
-      "destination": "/$1" 
+    {
+      "source": "/(manifest.webmanifest|sw.js|icon-.*\\.png|assets/.*)",
+      "destination": "/$1"
     },
-    { 
-      "source": "/(.*)", 
-      "destination": "/index.html" 
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
