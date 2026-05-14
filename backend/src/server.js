@@ -95,9 +95,14 @@ const apiLimiter = rateLimit({
   message: { success: false, message: "Too many requests. Please slow down." },
   standardHeaders: true,
   legacyHeaders: false,
+  // This skip ensures the browser's "handshake" (OPTIONS) is never blocked
+  skip: (req) => req.method === 'OPTIONS',
 });
 
-app.use(apiLimiter);
+// CHANGE THIS: Instead of global app.use(apiLimiter), 
+// apply it only to your data-heavy routes
+app.use("/api/", apiLimiter);
+app.use("/auth/", apiLimiter);
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. BODY PARSERS & LOGGING
 // ═══════════════════════════════════════════════════════════════════════════════
