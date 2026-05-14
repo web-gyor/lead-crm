@@ -565,10 +565,6 @@ const cleanBaseUrl = API_BASE.endsWith("/")
   ? API_BASE.slice(0, -1)
   : API_BASE;
 
-// Debug logs
-console.log("savedLogoUrl:", savedLogoUrl);
-console.log("newLogoPreview:", newLogoPreview);
-
 const displayLogo =
   newLogoPreview && newLogoPreview.startsWith("blob:")
     ? newLogoPreview
@@ -579,7 +575,6 @@ const displayLogo =
       : "/default-logo.png";
 
 console.log("displayLogo:", displayLogo);
-
 const passwordMismatch = !!account.confirmPassword && account.newPassword !== account.confirmPassword;
 const projectSlug = (account.fullName || "").toLowerCase().trim().replace(/\s+/g, "-");
 
@@ -682,7 +677,25 @@ const handleSave = async () => {
               <SectionCard title="Company Logo">
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden border-blue-100 bg-white dark:bg-gray-800 shadow-md">
-                    {displayLogo ? <img src={displayLogo} alt="Company logo" className="w-full h-full object-contain p-2" /> : <ImageIcon size={24} className="text-gray-300" />}
+                  {displayLogo ? (
+  <img
+    src={displayLogo}
+    alt="Company logo"
+    className="w-full h-full object-contain p-2"
+    onLoad={() => {
+      console.log("✅ IMAGE LOADED:", displayLogo);
+    }}
+    onError={(e) => {
+      console.log("❌ IMAGE FAILED:", displayLogo);
+
+      // fallback test
+      e.currentTarget.src =
+        "https://lead-crm-tmz8.onrender.com/uploads/1778690008319-system-logo.png";
+    }}
+  />
+) : (
+  <ImageIcon size={24} className="text-gray-300" />
+)}
                   </div>
                   <div className="flex-1 space-y-2">
                     <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoChange} className="hidden" id="logo-up" />
