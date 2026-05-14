@@ -44,6 +44,25 @@ app.use(
   })
 );
 
+const envOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+      .map(o => o.trim())
+      .filter(Boolean)
+  : [];
+
+const allowedOrigins = [
+  ...envOrigins,
+  "https://lead-crm-git-main-webgyors-projects.vercel.app",
+  "https://lead-crm-kappa-tawny.vercel.app"
+];
+
+if (process.env.NODE_ENV !== "production") {
+  allowedOrigins.push(
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173"
+  );
+}
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -64,6 +83,7 @@ const corsOptions = {
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 };
+
 
 app.use(cors(corsOptions));
 
@@ -92,7 +112,7 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 // 3. ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-app.use("/auth", userRoutes);
+app.use("/api/auth", userRoutes);
 app.use("/api/users", userRoutes);
 app.use("/webhooks", webhookRoutes);
 
