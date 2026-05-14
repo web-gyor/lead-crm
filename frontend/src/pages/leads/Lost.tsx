@@ -61,7 +61,20 @@ function getRangeDates(range: string): { startDate: string; endDate: string } | 
 
 function fmtDate(iso?: string) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  
+  // Extract only the date part YYYY-MM-DD regardless of T or space separator
+  const datePart = String(iso).split(/[T ]/)[0]; 
+  const parts = datePart.split("-").map(Number);
+  
+  if (parts.length !== 3 || parts.some(isNaN)) return "—";
+  
+  // Using UTC or specific parts prevents timezone shifts from showing the "previous day"
+  return new Date(parts[0], parts[1] - 1, parts[2])
+    .toLocaleDateString("en-GB", { 
+      day: "2-digit", 
+      month: "short", 
+      year: "numeric" 
+    });
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -81,7 +94,12 @@ const SOURCE_COLORS: Record<string, string> = {
 
 function SourceBadge({ lead, sources }: { lead: any; sources: any[] }) {
   const src  = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
-  const name = (src?.name || lead.lead_source_name || "UNKNOWN").toUpperCase();
+  const name = (
+  src?.name ||
+  lead.source_name ||
+  lead.lead_source_name ||
+  "UNKNOWN"
+).toUpperCase();
   const cls  = SOURCE_COLORS[name] ?? "bg-slate-50 text-slate-500 border-slate-200";
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border shadow-sm ${cls}`}>
@@ -125,6 +143,8 @@ export default function LostLeads() {
   const [deleteId,            setDeleteId]            = useState<number | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [isDeleting,          setIsDeleting]          = useState(false);
+  const [followUpDate, setFollowUpDate] = useState("");
+const [editUrgency,  setEditUrgency]  = useState("");
 
   const isAdmin = JSON.parse(localStorage.getItem("user") || "{}")?.role?.toLowerCase() === "admin";
 
@@ -224,7 +244,16 @@ export default function LostLeads() {
   } finally {
     if (!silent) setLoading(false);
   }
-}, [currentPage, rowsPerPage, filters]);
+}, [
+  currentPage,
+  rowsPerPage,
+  filters.search,
+  filters.sourceId,
+  filters.counselorId,
+  filters.range,
+  filters.startDate,
+  filters.endDate,
+]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -267,24 +296,26 @@ export default function LostLeads() {
   // ── Bulk edit ─────────────────────────────────────────────────────────────
 
   const handleBulkUpdate = async () => {
-    if (noneSelected)                 return toast.error("Select leads first");
-    if (!bulkSourceId && !bulkStatus) return toast.error("Choose a source or status to update");
-    const toastId = toast.loading(`Updating ${selectedLeads.length} leads…`);
-    try {
-      const payload: Record<string, any> = { leadIds: selectedLeads };
-      if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
-      if (bulkStatus)   payload.lead_status    = bulkStatus;
-      await apiPut("/api/leads/bulk-update", payload);
-      toast.success(`${selectedLeads.length} leads updated`, { id: toastId });
-      setSelectedLeads([]);
-      setBulkSourceId("");
-      setBulkStatus("");
-      loadData(true);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
-    }
-  };
-
+  if (noneSelected)                 return toast.error("Select leads first");
+  if (!bulkSourceId && !bulkStatus) return toast.error("Choose a source or status to update");
+  setIsBulkLoading(true);                              // ← ADD
+  const toastId = toast.loading(`Updating ${selectedLeads.length} leads…`);
+  try {
+    const payload: Record<string, any> = { leadIds: selectedLeads };
+    if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
+    if (bulkStatus)   payload.lead_status    = bulkStatus;
+    await apiPut("/api/leads/bulk-update", payload);
+    toast.success(`${selectedLeads.length} leads updated`, { id: toastId });
+    setSelectedLeads([]);
+    setBulkSourceId("");
+    setBulkStatus("");
+    loadData(true);
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
+  } finally {
+    setIsBulkLoading(false);                           // ← ADD
+  }
+};
   // ── Single delete ─────────────────────────────────────────────────────────
 
   const confirmSingleDelete = async () => {
@@ -328,50 +359,45 @@ export default function LostLeads() {
 
   // ── Single edit ───────────────────────────────────────────────────────────
 
-  const openEdit = (lead: any) => {
-    setEditingLead(lead);
-    setEditStatus(lead.lead_status || LEAD_STATUS);
-    setShowEditForm(true);
-  };
-
+const openEdit = (lead: any) => {
+  setEditingLead(lead);
+  setEditStatus(lead.lead_status || LEAD_STATUS);
+  setEditUrgency(lead.urgency || "");
+  setFollowUpDate(
+    lead.next_follow_up_date
+      ? String(lead.next_follow_up_date).split("T")[0]
+      : ""
+  );
+  setShowEditForm(true);
+};
 const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   if (!editingLead) return;
 
-  const fd = new FormData(e.currentTarget);
+  const fd  = new FormData(e.currentTarget);
   const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
 
   try {
     const payload = {
-      ...editingLead,
-
-      // core fields
-      lead_source_id: Number(raw.lead_source_id || editingLead.lead_source_id),
-      lead_status: raw.lead_status || LEAD_STATUS,
-
-      // optional fields (safe null handling)
-      email: raw.email || null,
-      phone: raw.phone || editingLead.phone,
-      city: raw.city || null,
-      interested_course: raw.interested_course || null,
-      qualification: raw.qualification || null,
-
-      // dates
-      next_follow_up_date:
-        raw.next_follow_up_date || editingLead.next_follow_up_date || null,
-
-      // metadata
-      counselor_remarks: raw.counselor_remarks || null,
-
-      // tracking
-      status_updated_at:
-        raw.lead_status !== editingLead.lead_status
-          ? new Date().toISOString()
-          : editingLead.status_updated_at || null,
+      full_name:          raw.full_name          || editingLead.full_name,
+      phone:              raw.phone              || editingLead.phone,
+      email:              raw.email              || null,
+      city:               raw.city               || null,
+      qualification:      raw.qualification      || null,
+      year_of_passing:    raw.year_of_passing ? Number(raw.year_of_passing) : null,
+      parent_name:        raw.parent_name        || null,
+      parent_contact:     raw.parent_contact     || null,
+      interested_course:  raw.interested_course  || null,
+      counselor_remarks:  raw.counselor_remarks  || null,
+      lead_source_id:     Number(raw.lead_source_id || editingLead.lead_source_id),
+      lead_status:        editStatus,
+      urgency:            editUrgency || raw.urgency || editingLead.urgency,
+      whatsapp_same:      fd.get("whatsapp_same") ? 1 : 0,
+      next_follow_up_date: followUpDate || null,  // null if user cleared it
+      // controller owns: status_updated_at, lost_at, converted_at
     };
 
     await apiPut(`/api/leads/${editingLead.id}`, payload);
-
     toast.success("Lost lead updated");
     setShowEditForm(false);
     setEditingLead(null);
@@ -384,18 +410,25 @@ const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   // ── Export ────────────────────────────────────────────────────────────────
 
 const fetchAllLeadsForExport = async () => {
-  // Use current filters but force status to 'Lost'
-  const params = new URLSearchParams({
-    ...filters,
-    status: 'Lost', // <-- This ensures only the 8 Lost leads are fetched
-    limit: '10000',
-    page: '1'
-  }).toString();
+  const p: Record<string, string> = {
+    status: "Lost",
+    limit:  "10000",
+    page:   "1",
+    search: filters.search.trim(),
+  };
+  if (filters.sourceId)    p.source_id        = filters.sourceId;
+  if (filters.counselorId) p.assigned_user_id = filters.counselorId;
 
-  const res = await apiGet(`/api/leads?${params}`);
-  return res?.data || [];
+  const dates = filters.range === "custom"
+    ? { startDate: filters.startDate, endDate: filters.endDate }
+    : getRangeDates(filters.range);
+
+  if (dates?.startDate) p.startDate = dates.startDate;
+  if (dates?.endDate)   p.endDate   = dates.endDate;
+
+  const res = await apiGet(`/api/leads?${new URLSearchParams(p)}`);
+  return res?.data ?? [];
 };
-
 const handleExport = async () => {
   try {
     toast.loading("Preparing conversion export...", { id: "export-toast" });
@@ -452,9 +485,14 @@ const handleExport = async () => {
     document.body.removeChild(link);
     
     toast.success(`Exported ${allLeads.length} converted leads`, { id: "export-toast" });
+    toast.loading("Preparing lost leads export...", { id: "export-toast" });   // ← was "conversion export"
+link.download = `Lost_Leads_Report_${new Date().toISOString().split("T")[0]}.csv`; // ← was "Converted"
+toast.success(`Exported ${allLeads.length} lost leads`, { id: "export-toast" });   // ← was "converted leads"
+toast.error("No lost leads found to export", { id: "export-toast" });     
   } catch (error) {
     console.error("Export Error:", error);
     toast.error("Export failed. Please try again.", { id: "export-toast" });
+    
   }
 };
   // ── Render ────────────────────────────────────────────────────────────────
@@ -540,8 +578,9 @@ const handleExport = async () => {
                 {BULK_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               <button type="button" onClick={handleBulkUpdate}
+  disabled={isBulkLoading}
                 className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shrink-0">
-                Apply ({selectedLeads.length})
+                 {isBulkLoading ? "…" : `Apply (${selectedLeads.length})`}
               </button>
             </div>
           )}
@@ -583,7 +622,7 @@ const handleExport = async () => {
 
             {/* Counselor */}
             <select value={filters.counselorId} onChange={(e) => updateFilters({ counselorId: e.target.value })}
-              className="flex-1 min-w-[140px] px-3 py-2border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
+              className="flex-1 min-w-[140px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white text-xs font-medium outline-none">
               <option value="">All Counselors</option>
               <option value="unassigned">Unassigned</option>
               {counselors.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
@@ -821,14 +860,18 @@ const handleExport = async () => {
         )}
       </div>
 
-      {/* ── Edit Modal ── */}
-      {showEditForm && editingLead && (
-        <LeadEditModal editingLead={editingLead} status={editStatus} setStatus={setEditStatus}
-          sourceOptions={sourceOptions} dbCourses={dbCourses}
-          onClose={() => { setShowEditForm(false); setEditingLead(null); }}
-          onSubmit={handleEditSubmit} />
-      )}
-
+     <LeadEditModal
+  editingLead={editingLead}
+  status={editStatus}
+  setStatus={setEditStatus}
+  followUpDate={followUpDate}
+  setFollowUpDate={setFollowUpDate}
+  editUrgency={editUrgency}
+  sourceOptions={sourceOptions}
+  dbCourses={dbCourses}
+  onClose={() => { setShowEditForm(false); setEditingLead(null); }}
+  onSubmit={handleEditSubmit}
+/>
       {/* ── Delete Modal ── */}
       <DeleteModal
         isOpen={deleteId !== null || showBulkDeleteModal}

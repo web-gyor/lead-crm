@@ -257,7 +257,11 @@ function IntegrationCard({ source, isActive, onToggle, onConfigure }: {
 
 function WebhookBox({ projectSlug }: { projectSlug: string }) {
   const [copied, setCopied] = useState(false);
-  const url = `http://127.0.0.1:4000/api/leads/capture?project_id=${projectSlug || "my-agency"}`;
+  const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://127.0.0.1:4000";
+
+const url = `${API_BASE}/api/leads/capture?project_id=${projectSlug || "my-agency"}`;
   const copy = () => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1800); };
   return (
     <SectionCard title="Universal Webhook">
@@ -393,6 +397,7 @@ function DocsTab() {
   );
 }
 
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -423,35 +428,63 @@ export default function Settings() {
   });
 
   // ─── Fetch ──────────────────────────────────────────────────────────────────
+  const normalizeLogoUrl = (logo?: string) => {
+  if (!logo) return "/default-logo.png";
 
- const fetchSettings = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await apiGet("/api/settings");
-      if (data) {
-        setCompany({ 
-            name: data.company_name ?? "", 
-            phone: data.company_phone ?? "", 
-            email: data.company_email ?? "", 
-            address: data.company_address ?? "", 
-            website: data.company_website ?? "" 
-        });
-        setSavedLogoUrl(data.logo_url ?? "");
-        setAccount((prev) => ({ ...prev, fullName: data.admin_name ?? "", email: data.admin_email ?? "" }));
+  // already full URL
+  if (logo.startsWith("http")) return logo;
 
-        // PLACE THIS HERE
-        setCommSettings({
-  is_call_recording_enabled:    !!data.is_call_recording_enabled,
-  is_sms_template_enabled:      !!data.is_sms_template_enabled,      // ✅ read from API
-  is_whatsapp_automation_enabled: !!data.is_whatsapp_automation_enabled, // ✅
-  is_email_trigger_enabled:     !!data.is_email_trigger_enabled,     // ✅
-  telephony_provider:           data.telephony_provider ?? "none",
-});
-      }
-    } catch { toast.error("Failed to load settings"); }
-    finally { setLoading(false); }
-  }, []);
+  // ensure proper format
+  return `${cleanBaseUrl}${logo.startsWith("/") ? logo : "/" + logo}`;
+};
 
+const fetchSettings = useCallback(async () => {
+  try {
+    setLoading(true);
+
+    const response = await apiGet("/api/settings");
+
+    // support both formats: {data: {...}} OR direct object
+    const data = response?.data || response;
+
+    if (!data) return;
+
+    // ─── COMPANY ─────────────────────────────
+    setCompany({
+      name: data.company_name || "",
+      phone: data.company_phone || "",
+      email: data.company_email || "",
+      address: data.company_address || "",
+      website: data.company_website || ""
+    });
+
+    // ─── ADMIN ───────────────────────────────
+    setAccount(prev => ({
+      ...prev,
+      fullName: data.admin_name || "",
+      email: data.admin_email || ""
+    }));
+
+    // ─── LOGO (IMPORTANT FIX) ────────────────
+    // ❌ DO NOT normalize here
+    setSavedLogoUrl(data.logo_url || "");
+
+    // ─── COMM SETTINGS ───────────────────────
+    setCommSettings({
+      is_call_recording_enabled: !!data.is_call_recording_enabled,
+      telephony_provider: data.telephony_provider || "none",
+      is_sms_template_enabled: !!data.is_sms_template_enabled,
+      is_whatsapp_automation_enabled: !!data.is_whatsapp_automation_enabled,
+      is_email_trigger_enabled: !!data.is_email_trigger_enabled
+    });
+
+  } catch (err) {
+    console.error("fetchSettings error:", err);
+    toast.error("Failed to load settings");
+  } finally {
+    setLoading(false);
+  }
+}, []);
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
   useEffect(() => {
@@ -499,50 +532,94 @@ export default function Settings() {
 
   // ─── Logo ───────────────────────────────────────────────────────────────
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error("Logo must be under 2 MB"); return; }
-    setNewLogoFile(file);
-    const reader = new FileReader();
-    reader.onload = (ev) => setNewLogoPreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
-  };
+const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    toast.error("Only image files allowed");
+    return;
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    toast.error("Logo must be under 2 MB");
+    return;
+  }
+
+  // CLEANUP: Revoke the old preview URL to free memory
+  if (newLogoPreview) {
+    URL.revokeObjectURL(newLogoPreview);
+  }
+
+  setNewLogoFile(file);
+
+  const previewUrl = URL.createObjectURL(file);
+  setNewLogoPreview(previewUrl);
+};
 
   // ─── Save ───────────────────────────────────────────────────────────────
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4000";
+const cleanBaseUrl = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
 
-  const handleSave = async () => {
-    if (account.newPassword && account.newPassword !== account.confirmPassword) { 
-        toast.error("New passwords do not match"); 
-        return; 
+const displayLogo = newLogoPreview
+  ? newLogoPreview
+  : savedLogoUrl
+    ? `${API_BASE}${savedLogoUrl.startsWith("/") ? "" : "/"}${savedLogoUrl}`
+    : "/default-logo.png";
+
+
+const passwordMismatch = !!account.confirmPassword && account.newPassword !== account.confirmPassword;
+const projectSlug = (account.fullName || "").toLowerCase().trim().replace(/\s+/g, "-");
+const handleSave = async () => {
+  if (saving) return;
+  
+  // LOGGING: Check your browser console (F12) to see if these are empty
+  console.log("COMMITTING SAVE WITH:", { company, commSettings });
+
+  try {
+    setSaving(true);
+    const formData = new FormData();
+
+    // 1. TEXT FIELDS (Explicitly using the state values)
+    formData.append("company_name", String(company.name || "").trim());
+    formData.append("company_phone", String(company.phone || "").trim());
+    formData.append("company_email", String(company.email || "").trim());
+    formData.append("company_address", String(company.address || "").trim());
+    formData.append("company_website", String(company.website || "").trim());
+
+    // 2. TOGGLES (Explicitly stringify)
+    formData.append("is_call_recording_enabled", commSettings.is_call_recording_enabled ? "true" : "false");
+    formData.append("is_sms_template_enabled", commSettings.is_sms_template_enabled ? "true" : "false");
+    formData.append("is_whatsapp_automation_enabled", commSettings.is_whatsapp_automation_enabled ? "true" : "false");
+    formData.append("is_email_trigger_enabled", commSettings.is_email_trigger_enabled ? "true" : "false");
+    formData.append("telephony_provider", commSettings.telephony_provider || "none");
+
+    // 3. LOGO (Must be the LAST item)
+    if (newLogoFile) {
+      formData.append("logo", newLogoFile); 
+    } else {
+      // If no new file, send the current path so we don't lose it
+      const relativePath = (savedLogoUrl || "").replace(API_BASE, "");
+      formData.append("logo_url", relativePath);
     }
-    try {
-      setSaving(true);
-      const response = await apiPut("/api/settings", {
-  ...company,
-  logo_url:         newLogoPreview || savedLogoUrl,
-  admin_name:       account.fullName,
-  admin_email:      account.email,
-  new_password:     account.newPassword     || null,
-  current_password: account.currentPassword || null,
-        // PLACE THESE HERE
-        is_call_recording_enabled: commSettings.is_call_recording_enabled,
-        telephony_provider: commSettings.telephony_provider,
-      });
 
-      if (response) {
-        toast.success("Settings saved successfully");
-        setAccount((p) => ({ ...p, currentPassword: "", newPassword: "", confirmPassword: "" }));
-        setNewLogoFile(null);
-        fetchSettings();
-      }
-    } catch (err: any) { toast.error(err?.message ?? "Save failed"); }
-    finally { setSaving(false); }
-  };
-  const displayLogo      = newLogoPreview || savedLogoUrl;
-  const passwordMismatch = !!account.confirmPassword && account.newPassword !== account.confirmPassword;
-  const projectSlug      = account.fullName.toLowerCase().replace(/\s+/g, "-");
+    // FINAL CHECK: Log the FormData keys
+    for (var pair of formData.entries()) {
+        console.log(pair[0]+ ': ' + pair[1]); 
+    }
 
+    const response = await apiPut("/api/settings", formData);
+    
+    if (response.success) {
+      toast.success("Settings saved successfully");
+      fetchSettings();
+    }
+  } catch (err: any) {
+    console.error("SAVE ERROR:", err);
+    toast.error(err.message || "Save failed");
+  } finally {
+    setSaving(false);
+  }
+};
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
@@ -603,14 +680,49 @@ export default function Settings() {
                 </div>
               </SectionCard>
               <SectionCard title="Company Information">
-                <Field label="Agency Name"><input value={company.name} onChange={(e) => setCompany((p) => ({ ...p, name: e.target.value }))} className={INPUT_CLS} /></Field>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Phone"><input value={company.phone} onChange={(e) => setCompany((p) => ({ ...p, phone: e.target.value }))} className={INPUT_CLS} /></Field>
-                  <Field label="Email"><input value={company.email} onChange={(e) => setCompany((p) => ({ ...p, email: e.target.value }))} className={INPUT_CLS} /></Field>
-                </div>
-                <Field label="Website"><input value={company.website} onChange={(e) => setCompany((p) => ({ ...p, website: e.target.value }))} className={INPUT_CLS} /></Field>
-                <Field label="Address"><textarea value={company.address} onChange={(e) => setCompany((p) => ({ ...p, address: e.target.value }))} rows={2} className={`${INPUT_CLS} resize-none`} /></Field>
-              </SectionCard>
+  <Field label="Agency Name">
+    <input 
+      value={company.name || ""} 
+      onChange={(e) => setCompany((p) => ({ ...p, name: e.target.value }))} 
+      className={INPUT_CLS} 
+    />
+  </Field>
+  
+  <div className="grid grid-cols-2 gap-4">
+    <Field label="Phone">
+      <input 
+        value={company.phone || ""} 
+        onChange={(e) => setCompany((p) => ({ ...p, phone: e.target.value }))} 
+        className={INPUT_CLS} 
+      />
+    </Field>
+    
+    <Field label="Email">
+      <input 
+        value={company.email || ""} 
+        onChange={(e) => setCompany((p) => ({ ...p, email: e.target.value }))} 
+        className={INPUT_CLS} 
+      />
+    </Field>
+  </div>
+
+  <Field label="Website">
+    <input 
+      value={company.website || ""} 
+      onChange={(e) => setCompany((p) => ({ ...p, website: e.target.value }))} 
+      className={INPUT_CLS} 
+    />
+  </Field>
+
+  <Field label="Address">
+    <textarea 
+      value={company.address || ""} 
+      onChange={(e) => setCompany((p) => ({ ...p, address: e.target.value }))} 
+      rows={2} 
+      className={`${INPUT_CLS} resize-none`} 
+    />
+  </Field>
+</SectionCard>
             </div>
           )}
 
@@ -682,13 +794,14 @@ export default function Settings() {
 
       {/* Config Modal stays at the bottom */}
       {selectedSource && (
-        <ConfigModal
-          source={selectedSource}
-          isOpen={!!selectedSource}
-          initialValues={savedConfigs[selectedSource.id] ?? {}}
-          onClose={() => setSelectedSource(null)}
-          onSave={handleModalSave}
-        />
+       <ConfigModal
+  source={selectedSource}
+  isOpen={!!selectedSource}
+  initialValues={savedConfigs[selectedSource.id] ?? {}}
+  onClose={() => setSelectedSource(null)}
+  onSave={handleModalSave}
+
+/>
       )}
     </div>
   );

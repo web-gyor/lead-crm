@@ -31,59 +31,77 @@ const getSettings = async (req, res) => {
 /**
  * Updates company settings and admin profile within a transaction.
  */
+const fs = require('fs');
+const path = require('path');
+
 const updateSettings = async (req, res) => {
-  let connection;
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
+    const d = req.body;
+    
+    // 1. Get current logo path from DB
+    const [rows] = await pool.query("SELECT logo_url FROM settings WHERE id = 1");
+    const oldLogoUrl = rows[0]?.logo_url;
 
-    const data = req.body;
-    const userId = req.user.id;
+    // 2. Determine the static path for the new logo
+    // We force this to be 'agency-logo' to match your Multer config
+   let logoToSave = oldLogoUrl || "";
 
-    // Update Company Settings
-    await connection.execute(
-      `UPDATE settings SET 
-        company_name = ?, company_phone = ?, company_email = ?, 
-        company_address = ?, company_website = ?, logo_url = ? 
-       WHERE id = 1`,
-      [
-        data.company_name, 
-        data.company_phone, 
-        data.company_email, 
-        data.company_address, 
-        data.company_website, 
-        data.logo_url
-      ]
-    );
+if (req.file) {
+  logoToSave = `/uploads/${req.file.filename}`;
+}
 
-    // Update Admin Profile
-    await connection.execute(
-      "UPDATE users SET name = ?, email = ? WHERE id = ?",
-      [data.admin_name, data.admin_email, userId]
-    );
+    if (req.file) {
+      logoToSave = `/uploads/${req.file.filename}`;
 
-    // Password Update Logic
-    if (data.new_password && data.current_password) {
-      const [user] = await connection.execute("SELECT password FROM users WHERE id = ?", [userId]);
-      const isMatch = await bcrypt.compare(data.current_password, user[0].password);
-      
-      if (!isMatch) {
-        throw new Error("Current password incorrect");
+      // 3. DELETE OLD FILE: Use process.cwd() so it finds the file in backend/uploads
+      if (oldLogoUrl && oldLogoUrl !== logoToSave) {
+        const absoluteOldPath = path.join(process.cwd(), oldLogoUrl);
+        if (fs.existsSync(absoluteOldPath)) {
+          fs.unlinkSync(absoluteOldPath);
+        }
       }
-
-      const hashed = await bcrypt.hash(data.new_password, 10);
-      await connection.execute("UPDATE users SET password = ? WHERE id = ?", [hashed, userId]);
     }
 
-    await connection.commit();
-    return res.status(200).json({ success: true, message: "Settings updated successfully" });
+    // 4. DEFINE THE SQL STRING (This fixes your 'sql is not defined' error)
+    const sql = `
+      INSERT INTO settings (
+        id, company_name, company_phone, company_email, company_address, company_website, 
+        logo_url, admin_name, admin_email, is_call_recording_enabled, telephony_provider, 
+        is_sms_template_enabled, is_whatsapp_automation_enabled, is_email_trigger_enabled
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+        company_name=VALUES(company_name), company_phone=VALUES(company_phone), 
+        company_email=VALUES(company_email), company_address=VALUES(company_address), 
+        company_website=VALUES(company_website), logo_url=VALUES(logo_url), 
+        admin_name=VALUES(admin_name), admin_email=VALUES(admin_email),
+        is_call_recording_enabled=VALUES(is_call_recording_enabled),
+        telephony_provider=VALUES(telephony_provider),
+        is_sms_template_enabled=VALUES(is_sms_template_enabled),
+        is_whatsapp_automation_enabled=VALUES(is_whatsapp_automation_enabled),
+        is_email_trigger_enabled=VALUES(is_email_trigger_enabled)
+    `;
+
+    // 5. Prepare values (Ensure booleans are converted to 1/0 for MySQL)
+    const values = [
+      d.company_name || "", d.company_phone || "", d.company_email || "",
+      d.company_address || "", d.company_website || "", 
+      logoToSave, 
+      req.user?.name || "System Admin", req.user?.email || "",
+      d.is_call_recording_enabled === 'true' || d.is_call_recording_enabled === true ? 1 : 0,
+      d.telephony_provider || "none",
+      d.is_sms_template_enabled === 'true' || d.is_sms_template_enabled === true ? 1 : 0,
+      d.is_whatsapp_automation_enabled === 'true' || d.is_whatsapp_automation_enabled === true ? 1 : 0,
+      d.is_email_trigger_enabled === 'true' || d.is_email_trigger_enabled === true ? 1 : 0
+    ];
+
+    await pool.query(sql, values);
+    res.json({ success: true });
+
   } catch (err) {
-    if (connection) await connection.rollback();
-    console.error("Settings Update Error:", err.message);
-    return res.status(400).json({ error: err.message });
-  } finally {
-    if (connection) connection.release();
+    console.error("BACKEND ERROR:", err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+module.exports = { updateSettings };
 
 module.exports = { getSettings, updateSettings };

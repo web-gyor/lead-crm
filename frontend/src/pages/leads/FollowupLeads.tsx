@@ -117,7 +117,12 @@ const SOURCE_COLORS: Record<string, string> = {
 
 function SourceBadge({ lead, sources }: { lead: any; sources: any[] }) {
   const src  = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
-  const name = (src?.name || lead.lead_source_name || "UNKNOWN").toUpperCase();
+  const name = (
+  src?.name ||
+  lead.source_name ||
+  lead.lead_source_name ||
+  "UNKNOWN"
+).toUpperCase();
   const cls  = SOURCE_COLORS[name] ?? "bg-slate-50 text-slate-500 border-slate-200";
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border shadow-sm ${cls}`}>
@@ -190,6 +195,8 @@ export default function FollowupLeads() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingLead,  setEditingLead]  = useState<any>(null);
   const [editStatus,   setEditStatus]   = useState(LEAD_STATUS);
+  const [followUpDate, setFollowUpDate] = useState("");
+const [editUrgency,  setEditUrgency]  = useState("");
 
   const [deleteId,            setDeleteId]            = useState<number | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
@@ -305,7 +312,16 @@ export default function FollowupLeads() {
   } finally {
     if (!silent) setLoading(false);
   }
-}, [currentPage, rowsPerPage, filters]);
+}, [
+  currentPage,
+  rowsPerPage,
+  filters.search,
+  filters.sourceId,
+  filters.counselorId,
+  filters.range,
+  filters.startDate,
+  filters.endDate,
+]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -348,24 +364,26 @@ export default function FollowupLeads() {
   // ── Bulk edit ─────────────────────────────────────────────────────────────
 
   const handleBulkUpdate = async () => {
-    if (noneSelected)                 return toast.error("Select leads first");
-    if (!bulkSourceId && !bulkStatus) return toast.error("Choose a source or status to update");
-    const toastId = toast.loading(`Updating ${selectedLeads.length} leads…`);
-    try {
-      const payload: Record<string, any> = { leadIds: selectedLeads };
-      if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
-      if (bulkStatus)   payload.lead_status    = bulkStatus;
-      await apiPut("/api/leads/bulk-update", payload);
-      toast.success(`${selectedLeads.length} leads updated`, { id: toastId });
-      setSelectedLeads([]);
-      setBulkSourceId("");
-      setBulkStatus("");
-      loadData(true);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
-    }
-  };
-
+  if (noneSelected)                 return toast.error("Select leads first");
+  if (!bulkSourceId && !bulkStatus) return toast.error("Choose a source or status to update");
+  setIsBulkLoading(true);                              // ← ADD
+  const toastId = toast.loading(`Updating ${selectedLeads.length} leads…`);
+  try {
+    const payload: Record<string, any> = { leadIds: selectedLeads };
+    if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
+    if (bulkStatus)   payload.lead_status    = bulkStatus;
+    await apiPut("/api/leads/bulk-update", payload);
+    toast.success(`${selectedLeads.length} leads updated`, { id: toastId });
+    setSelectedLeads([]);
+    setBulkSourceId("");
+    setBulkStatus("");
+    loadData(true);
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
+  } finally {
+    setIsBulkLoading(false);                           // ← ADD
+  }
+};
   // ── Single delete ─────────────────────────────────────────────────────────
 
   const confirmSingleDelete = async () => {
@@ -409,44 +427,47 @@ export default function FollowupLeads() {
 
   // ── Single edit ───────────────────────────────────────────────────────────
 
-  const openEdit = (lead: any) => {
-    setEditingLead(lead);
-    setEditStatus(lead.lead_status || LEAD_STATUS);
-    setShowEditForm(true);
-  };
-
+const openEdit = (lead: any) => {
+  setEditingLead(lead);
+  setEditStatus(lead.lead_status || LEAD_STATUS);
+  setEditUrgency(lead.urgency || "");
+  setFollowUpDate(
+    lead.next_follow_up_date
+      ? String(lead.next_follow_up_date).split("T")[0]  // safe — no UTC shift
+      : ""
+  );
+  setShowEditForm(true);
+};
   const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   if (!editingLead) return;
 
-  const fd = new FormData(e.currentTarget);
+  const fd  = new FormData(e.currentTarget);
   const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
 
   try {
     const payload = {
-      // base form
-      ...raw,
+      full_name:          raw.full_name          || editingLead.full_name,
+      phone:              raw.phone              || editingLead.phone,
+      email:              raw.email              || null,
+      city:               raw.city               || null,
+      qualification:      raw.qualification      || null,
+      year_of_passing:    raw.year_of_passing ? Number(raw.year_of_passing) : null,
+      parent_name:        raw.parent_name        || null,
+      parent_contact:     raw.parent_contact     || null,
+      interested_course:  raw.interested_course  || null,
+      counselor_remarks:  raw.counselor_remarks  || null,
+      lead_source_id:     Number(raw.lead_source_id || editingLead.lead_source_id),
+      lead_status:        editStatus,
+      urgency:            editUrgency || raw.urgency || editingLead.urgency,
+      whatsapp_same:      fd.get("whatsapp_same") ? 1 : 0,
+  
+     next_follow_up_date: followUpDate || null,
 
-      // safe conversions
-      lead_source_id: Number(raw.lead_source_id || editingLead.lead_source_id),
-
-      // status control (important for follow-up pipeline)
-      lead_status: raw.lead_status || editingLead.lead_status || LEAD_STATUS,
-
-      // follow-up logic (VERY IMPORTANT FIELD)
-      next_follow_up_date:
-        raw.next_follow_up_date ||
-        editingLead.next_follow_up_date ||
-        null,
-
-      // optional safety fields (if present in form)
-      email: raw.email || editingLead.email || null,
-      city: raw.city || editingLead.city || null,
-      phone: raw.phone || editingLead.phone || null,
+      // controller owns status_updated_at, converted_at, lost_at — don't send them
     };
 
     await apiPut(`/api/leads/${editingLead.id}`, payload);
-
     toast.success("Follow-up updated");
     setShowEditForm(false);
     setEditingLead(null);
@@ -459,24 +480,26 @@ export default function FollowupLeads() {
   // ── Export ────────────────────────────────────────────────────────────────
 
 const fetchAllLeadsForExport = async () => {
-  // 1. Fetch the data (using the 10000 limit to get everything)
-  const params = new URLSearchParams({
-    ...filters,
-    limit: '10000',
-    page: '1'
-  }).toString();
+  const p: Record<string, string> = {
+    status:    "Follow-up",
+    limit:     "10000",
+    page:      "1",
+    search:    filters.search.trim(),
+    localDate: getLocalTodayStr(),
+  };
+  if (filters.sourceId)    p.source_id        = filters.sourceId;
+  if (filters.counselorId) p.assigned_user_id = filters.counselorId;
 
-  const res = await apiGet(`/api/leads?${params}`);
-  const rawData = res?.data || [];
+  const dates = filters.range === "custom"
+    ? { startDate: filters.startDate, endDate: filters.endDate }
+    : getRangeDates(filters.range);
 
-  // 2. MANUALLY FILTER for follow-ups (matching your UI logic)
-  // We only want leads that HAVE a next_follow_up_date
-  const filteredData = rawData.filter((l: any) => 
-    l.next_follow_up_date && l.next_follow_up_date !== ""
-  );
+  if (dates?.startDate) p.startDate = dates.startDate;
+  if (dates?.endDate)   p.endDate   = dates.endDate;
 
-  console.log("Follow-up Export Count:", filteredData.length); // Should now say 4
-  return filteredData;
+  const res = await apiGet(`/api/leads?${new URLSearchParams(p)}`);
+  return res?.data ?? [];
+  // removed client-side filter — server returns only Follow-up status leads
 };
 
 const handleExport = async () => {
@@ -631,9 +654,10 @@ const handleExport = async () => {
                 <option value="">Update Status…</option>
                 {BULK_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-              <button type="button" onClick={handleBulkUpdate}
+             <button type="button" onClick={handleBulkUpdate}
+  disabled={isBulkLoading} 
                 className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shrink-0">
-                Apply ({selectedLeads.length})
+                  {isBulkLoading ? "…" : `Apply (${selectedLeads.length})`}
               </button>
             </div>
           )}
@@ -949,10 +973,18 @@ const handleExport = async () => {
 
       {/* ── Edit Modal ── */}
       {showEditForm && editingLead && (
-        <LeadEditModal editingLead={editingLead} status={editStatus} setStatus={setEditStatus}
-          sourceOptions={sourceOptions} dbCourses={dbCourses}
-          onClose={() => { setShowEditForm(false); setEditingLead(null); }}
-          onSubmit={handleEditSubmit} />
+    <LeadEditModal
+  editingLead={editingLead}
+  status={editStatus}
+  setStatus={setEditStatus}
+  followUpDate={followUpDate}
+  setFollowUpDate={setFollowUpDate}
+  editUrgency={editUrgency}
+  sourceOptions={sourceOptions}
+  dbCourses={dbCourses}
+  onClose={() => { setShowEditForm(false); setEditingLead(null); }}
+  onSubmit={handleEditSubmit}
+/>
       )}
 
       {/* ── Delete Modal ── */}

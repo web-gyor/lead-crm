@@ -46,6 +46,9 @@ interface Lead {
   interested_course?: string;
   assigned_user_name?: string;
   updated_at?: string;
+  lead_source: string;
+  created_at?: string;
+  assigned_user_id?: number | string;
 }
 // ─── Lead Card ────────────────────────────────────────────────────────────────
 
@@ -205,33 +208,39 @@ export default function Pipeline() {
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  const fetchData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const [leadsRes, sourcesRes, staffRes] = await Promise.all([
-        apiGet("/api/leads?status=all&limit=400"),
-        apiGet("/api/lead-sources").catch(() => []),
-        apiGet("/api/users").catch(() => []),
-      ]);
+const fetchData = useCallback(async (silent = false) => {
+  if (!silent) setLoading(true);
+  try {
+    const [leadsRes, sourcesRes, staffRes] = await Promise.all([
+      apiGet(`/api/leads?status=all&limit=400&range=${timeRange}`),
+      apiGet("/api/lead-sources").catch(() => []),
+      apiGet("/api/users").catch(() => []),
+    ]);
 
-      setLeads(
-        Array.isArray(leadsRes?.data) ? leadsRes.data
-        : Array.isArray(leadsRes) ? leadsRes
-        : []
-      );
-      setSources(Array.isArray(sourcesRes) ? sourcesRes : []);
-      setStaff(
-        Array.isArray(staffRes) ? staffRes
-        : staffRes?.data ?? staffRes?.users ?? []
-      );
-    } catch {
-      toast.error("Pipeline sync failed");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+    // Ensure Leads are set correctly
+    setLeads(Array.isArray(leadsRes?.leads) ? leadsRes.leads : (Array.isArray(leadsRes?.data) ? leadsRes.data : []));
 
+    // FIX: Ensure Sources list is extracted correctly from the response
+    const sourceData = Array.isArray(sourcesRes) ? sourcesRes : (sourcesRes?.data || sourcesRes?.sources || []);
+    setSources(sourceData);
+
+    // Filter Counselors
+    const allUsers = Array.isArray(staffRes) ? staffRes : (staffRes?.data || staffRes?.users || []);
+   const counselorsOnly = allUsers
+  .filter((u: any) => u.role?.toLowerCase() === 'counselor')
+  .map((u: any) => ({
+    id: u.id,
+    name: u.name // This name must match lead.assigned_user_name exactly
+  }));
+
+setStaff(counselorsOnly);
+  } catch {
+    toast.error("Pipeline sync failed");
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+}, [timeRange]);
   useEffect(() => { fetchData(); }, [fetchData, timeRange]);
 
   // ── Drag & Drop ───────────────────────────────────────────────────────────
@@ -259,17 +268,90 @@ export default function Pipeline() {
   };
 
   // ── Filtering ─────────────────────────────────────────────────────────────
+  const isWithinTimeRange = (dateString?: string) => {
+  if (!dateString) return false;
 
-  const getLeads = useCallback((stageId: string): Lead[] => {
-    return leads.filter((l) => {
-      if (l.lead_status !== stageId) return false;
-      if (searchTerm && !l.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) && !l.phone?.includes(searchTerm)) return false;
-      if (courseFilter     && l.interested_course  !== courseFilter)     return false;
-      if (counsellorFilter && l.assigned_user_name !== counsellorFilter) return false;
-      if (sourceFilter && String(l.source_name) !== sourceFilter) return false;
+  const date = new Date(dateString);
+  const now = new Date();
+
+  switch (timeRange) {
+
+    case "today":
+      return date.toDateString() === now.toDateString();
+
+    case "week": {
+      const weekAgo = new Date();
+      weekAgo.setDate(now.getDate() - 7);
+      return date >= weekAgo;
+    }
+
+    case "month":
+      return (
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear()
+      );
+
+    case "year":
+      return date.getFullYear() === now.getFullYear();
+
+    default:
       return true;
-    });
-  }, [leads, searchTerm, courseFilter, counsellorFilter, sourceFilter]);
+  }
+};
+
+const getLeads = useCallback((stageId: string): Lead[] => {
+  return leads.filter((l) => {
+
+    // Stage
+    if (l.lead_status !== stageId) return false;
+
+    // ✅ Time Range Filter FIX
+    if (!isWithinTimeRange(l.created_at)) return false;
+
+    // Search
+    if (
+      searchTerm &&
+      !l.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !l.phone?.includes(searchTerm)
+    ) {
+      return false;
+    }
+
+    // Counselor
+    if (
+      counsellorFilter &&
+      String(l.assigned_user_id) !== String(counsellorFilter)
+    ) {
+      return false;
+    }
+
+    // Course
+    if (
+      courseFilter &&
+      l.interested_course !== courseFilter
+    ) {
+      return false;
+    }
+
+    // Source
+    if (
+      sourceFilter &&
+      l.source_name !== sourceFilter
+    ) {
+      return false;
+    }
+
+    return true;
+
+  });
+}, [
+  leads,
+  timeRange,
+  searchTerm,
+  courseFilter,
+  counsellorFilter,
+  sourceFilter
+]);
 
   const hasActiveFilters = !!(searchTerm || courseFilter || counsellorFilter || sourceFilter);
 
@@ -287,8 +369,8 @@ export default function Pipeline() {
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
 
       {/* ── Toolbar ── */}
-      <div className="shrink-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-3 space-y-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div className="px-4 sm:px-5 py-4 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-lg sm:text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
               <span className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20 shrink-0">
@@ -367,8 +449,12 @@ export default function Pipeline() {
               onChange={(e) => setCounsellorFilter(e.target.value)}
               className="px-2 py-2 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-[10px] font-black uppercase text-gray-500 outline-none"
             >
-              <option value="">All Staff</option>
-              {staff.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              <option value="">All Counselors</option>
+              {staff.map((s: any) => (
+                <option value={String(s.id)}>
+  {s.name}
+</option>
+              ))}
             </select>
 
             <select

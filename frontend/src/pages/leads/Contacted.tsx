@@ -84,7 +84,12 @@ const QUALITY_CONFIG: Record<string, { label: string; icon: string; style: strin
 
 function SourceBadge({ lead, sources }: { lead: any; sources: any[] }) {
   const src  = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
-  const name = (src?.name || lead.lead_source_name || "UNKNOWN").toUpperCase();
+  const name = (
+  src?.name ||
+  lead.source_name ||       // ← controller JOIN returns this
+  lead.lead_source_name ||
+  "UNKNOWN"
+).toUpperCase();
   const cls  = SOURCE_COLORS[name] ?? "bg-slate-50 text-slate-500 border-slate-200";
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border shadow-sm ${cls}`}>
@@ -143,6 +148,8 @@ export default function ContactedLeads() {
   const [deleteId,            setDeleteId]            = useState<number | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [isDeleting,          setIsDeleting]          = useState(false);
+  const [followUpDate, setFollowUpDate] = useState("");
+const [editUrgency,  setEditUrgency]  = useState("");
 
   const isAdmin = JSON.parse(localStorage.getItem("user") || "{}")?.role?.toLowerCase() === "admin";
 
@@ -208,7 +215,6 @@ export default function ContactedLeads() {
 
 const loadData = useCallback(async (silent = false) => {
   if (!silent) setLoading(true);
-
   try {
     const params: Record<string, string> = {
       page:   String(currentPage),
@@ -216,7 +222,6 @@ const loadData = useCallback(async (silent = false) => {
       search: filters.search,
       status: LEAD_STATUS,
     };
-
     if (filters.sourceId)    params.source_id        = filters.sourceId;
     if (filters.counselorId) params.assigned_user_id = filters.counselorId;
 
@@ -228,23 +233,28 @@ const loadData = useCallback(async (silent = false) => {
     if (dates?.endDate)   params.endDate   = dates.endDate;
 
     const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
-
     if (res?.data) {
-      const newData = Array.isArray(res.data) ? res.data : [];
-
-      // ✅ NO UI WIPE
-      setLeads(newData);
-
+      setLeads(Array.isArray(res.data) ? res.data : []);
       setTotalPages(res.pagination?.totalPages ?? 1);
       setTotalCount(res.pagination?.totalItems  ?? 0);
     }
-
   } catch {
     toast.error("Failed to sync leads queue");
   } finally {
     if (!silent) setLoading(false);
   }
-}, [currentPage, rowsPerPage, filters]);
+}, [
+  currentPage,
+  rowsPerPage,
+  filters.search,
+  filters.sourceId,
+  filters.counselorId,
+  filters.range,
+  filters.startDate,
+  filters.endDate,
+]);
+
+
   useEffect(() => { loadData(); }, [loadData]);
 
   // ── Single assign ─────────────────────────────────────────────────────────
@@ -285,24 +295,28 @@ const loadData = useCallback(async (silent = false) => {
 
   // ── Bulk edit ─────────────────────────────────────────────────────────────
 
-  const handleBulkUpdate = async () => {
-    if (noneSelected)                 return toast.error("Select leads first");
-    if (!bulkSourceId && !bulkStatus) return toast.error("Choose a source or status to update");
-    const toastId = toast.loading(`Updating ${selectedLeads.length} leads…`);
-    try {
-      const payload: Record<string, any> = { leadIds: selectedLeads };
-      if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
-      if (bulkStatus)   payload.lead_status    = bulkStatus;
-      await apiPut("/api/leads/bulk-update", payload);
-      toast.success(`${selectedLeads.length} leads updated`, { id: toastId });
-      setSelectedLeads([]);
-      setBulkSourceId("");
-      setBulkStatus("");
-      loadData(true);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
-    }
-  };
+const handleBulkUpdate = async () => {
+  if (noneSelected)                 return toast.error("Select leads first");
+  if (!bulkSourceId && !bulkStatus) return toast.error("Choose a source or status to update");
+  
+  setIsBulkLoading(true);  // ← ADD
+  const toastId = toast.loading(`Updating ${selectedLeads.length} leads…`);
+  try {
+    const payload: Record<string, any> = { leadIds: selectedLeads };
+    if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
+    if (bulkStatus)   payload.lead_status    = bulkStatus;
+    await apiPut("/api/leads/bulk-update", payload);
+    toast.success(`${selectedLeads.length} leads updated`, { id: toastId });
+    setSelectedLeads([]);
+    setBulkSourceId("");
+    setBulkStatus("");
+    loadData(true);
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error ?? "Bulk update failed", { id: toastId });
+  } finally {
+    setIsBulkLoading(false);  // ← ADD
+  }
+};
 
   // ── Single delete ─────────────────────────────────────────────────────────
 
@@ -347,12 +361,17 @@ const loadData = useCallback(async (silent = false) => {
 
   // ── Single edit ───────────────────────────────────────────────────────────
 
-  const openEdit = (lead: any) => {
-    setEditingLead(lead);
-    setEditStatus(lead.lead_status || LEAD_STATUS);
-    setShowEditForm(true);
-  };
-
+ const openEdit = (lead: any) => {
+  setEditingLead(lead);
+  setEditStatus(lead.lead_status || LEAD_STATUS);
+  setEditUrgency(lead.urgency || "");
+  setFollowUpDate(
+    lead.next_follow_up_date
+      ? String(lead.next_follow_up_date).split("T")[0]  // safe — no UTC shift
+      : ""
+  );
+  setShowEditForm(true);
+};
 const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   if (!editingLead) return;
@@ -361,27 +380,18 @@ const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   const raw = Object.fromEntries(fd.entries()) as Record<string, string>;
 
   try {
-    const payload = {
-      ...raw,
-
-      lead_source_id: Number(raw.lead_source_id),
-      email: raw.email || null,
-      city: raw.city || null,
-      qualification: raw.qualification || null,
-      year_of_passing: raw.year_of_passing
-        ? Number(raw.year_of_passing)
-        : null,
-
-      lead_status: editStatus,
-      urgency: raw.urgency,
-
-      whatsapp_same: raw.whatsapp_same === "on" ? 1 : 0,
-
-      status_updated_at:
-        editStatus !== editingLead.lead_status
-          ? new Date().toISOString()
-          : editingLead.status_updated_at || null,
-    };
+   const payload = {
+  ...raw,
+  lead_source_id:  Number(raw.lead_source_id),
+  email:           raw.email           || null,
+  city:            raw.city            || null,
+  qualification:   raw.qualification   || null,
+  year_of_passing: raw.year_of_passing ? Number(raw.year_of_passing) : null,
+  lead_status:     editStatus,
+  urgency:         raw.urgency,
+  whatsapp_same:   fd.get("whatsapp_same") ? 1 : 0,
+  // controller sets status_updated_at, converted_at, lost_at
+};
 
     await apiPut(`/api/leads/${editingLead.id}`, payload);
 
@@ -397,16 +407,24 @@ const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   // ── Export ────────────────────────────────────────────────────────────────
 
 const fetchAllLeadsForExport = async () => {
-  // Use current filters (status, search, etc.) but set a massive limit to get all records
-  const params = new URLSearchParams({
-    ...filters,
-    status: 'Contacted', // Force the status for this specific tracker
-    limit: '10000',
-    page: '1'
-  }).toString();
+  const p: Record<string, string> = {
+    status: "Contacted",
+    limit:  "10000",
+    page:   "1",
+    search: filters.search.trim(),
+  };
+  if (filters.sourceId)    p.source_id        = filters.sourceId;
+  if (filters.counselorId) p.assigned_user_id = filters.counselorId;
 
-  const res = await apiGet(`/api/leads?${params}`);
-  return res?.data || [];
+  const dates = filters.range === "custom"
+    ? { startDate: filters.startDate, endDate: filters.endDate }
+    : getRangeDates(filters.range);
+
+  if (dates?.startDate) p.startDate = dates.startDate;
+  if (dates?.endDate)   p.endDate   = dates.endDate;
+
+  const res = await apiGet(`/api/leads?${new URLSearchParams(p)}`);
+  return res?.data ?? [];
 };
 
 const handleExport = async () => {
@@ -550,9 +568,9 @@ const handleExport = async () => {
                 <option value="">Update Status…</option>
                 {BULK_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-              <button type="button" onClick={handleBulkUpdate}
+              <button type="button" onClick={handleBulkUpdate} disabled={isBulkLoading}
                 className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shrink-0">
-                Apply ({selectedLeads.length})
+                {isBulkLoading ? "…" : `Apply (${selectedLeads.length})`}
               </button>
             </div>
           )}
@@ -856,10 +874,18 @@ const handleExport = async () => {
 
       {/* ── Edit Modal ── */}
       {showEditForm && editingLead && (
-        <LeadEditModal editingLead={editingLead} status={editStatus} setStatus={setEditStatus}
-          sourceOptions={sourceOptions} dbCourses={dbCourses}
-          onClose={() => { setShowEditForm(false); setEditingLead(null); }}
-          onSubmit={handleEditSubmit} />
+        <LeadEditModal
+  editingLead={editingLead}
+  status={editStatus}
+  setStatus={setEditStatus}
+  followUpDate={followUpDate}          // ← ADD
+  setFollowUpDate={setFollowUpDate}    // ← ADD
+  editUrgency={editUrgency}            // ← ADD
+  sourceOptions={sourceOptions}
+  dbCourses={dbCourses}
+  onClose={() => { setShowEditForm(false); setEditingLead(null); }}
+  onSubmit={handleEditSubmit}
+/>
       )}
 
       {/* ── Delete Modal ── */}

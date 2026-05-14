@@ -1,17 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { getSettings, updateSettings } = require('../controllers/settingsController');
-const { authenticateToken } = require('../controllers/leadController'); 
+const settingsController = require('../controllers/settingsController');
+const upload = require('../middleware/upload');
 
-/**
- * Settings Router
- * Handles system configuration and company profile management.
- */
 
-// Retrieve current company and admin settings
-router.get('/', authenticateToken, getSettings);
-
-// Update company profile, admin details, or password
-router.put('/', authenticateToken, updateSettings);
+router.put("/", upload.single("logo"), settingsController.updateSettings);
 
 module.exports = router;

@@ -90,7 +90,8 @@ function InteractionHub({ lead, leads, onSelectLead, onNewLog, onBack }: Interac
   const [logsLoading, setLogsLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-const [isRecordingEnabled, setIsRecordingEnabled] = useState(false);
+const [recordingFeatureEnabled, setRecordingFeatureEnabled] = useState(false);
+const [useRecording, setUseRecording] = useState(false);
 
 
   const fetchLogs = useCallback(async (silent = false) => {
@@ -112,39 +113,80 @@ useEffect(() => {
   const checkSettings = async () => {
     try {
       const data = await apiGet("/api/settings");
-      // Use logical OR to check both direct and nested data paths
-      const enabled = data?.is_call_recording_enabled || data?.data?.is_call_recording_enabled;
-      setIsRecordingEnabled(!!enabled);
+
+      const enabled =
+  Number(data?.is_call_recording_enabled) === 1 ||
+  Number(data?.data?.is_call_recording_enabled) === 1;
+
+    setRecordingFeatureEnabled(enabled);
+
+      // Optional:
+      // Auto-enable toggle if admin enabled globally
+      if (enabled) {
+        setUseRecording(true);
+      }
+
     } catch (err) {
       console.error("Settings fetch failed", err);
     }
   };
+
   checkSettings();
-}, [lead?.id]);
+}, []);
+
+const bridgeEnabled =
+  recordingFeatureEnabled &&
+  useRecording &&
+  !!lead?.phone;
 
 const handleBridgeCall = async (e: React.MouseEvent) => {
-  // If recording is disabled, let the default <a> tag behavior (tel:) handle it
-  if (!isRecordingEnabled) return;
 
-  e.preventDefault(); // Stop the tel: link from opening
-  
-  const loadingToast = toast.loading("Initiating secure call bridge...");
-  
+  if (!bridgeEnabled) return;
+
+  e.preventDefault();
+
+  const loadingToast = toast.loading(
+    "Initiating secure call bridge..."
+  );
+
   try {
-    const res = await apiPost("/api/telephony/call/initiate", {
-      leadId: lead.id,
-      leadPhone: lead.phone
-    });
 
-    if (res.success) {
-      toast.success("Connecting! Your phone will ring now.", { id: loadingToast });
-      fetchLogs(true); // Refresh timeline to show the "initiating" log
+   const res = await apiPost(
+  "/api/telephony/call/initiate",
+  {
+    leadId: lead.id,
+    recordCall: useRecording
+  }
+);
+    if (res?.success) {
+
+      toast.success(
+        "Connecting! Your phone will ring now.",
+        { id: loadingToast }
+      );
+
+      fetchLogs(true);
+
+    } else {
+
+      toast.error(
+        "Bridge unavailable. Opening normal dialer...",
+        { id: loadingToast }
+      );
+
+      window.location.href = `tel:${lead.phone}`;
     }
+
   } catch (err: any) {
-    toast.error(err.response?.data?.message || "Failed to connect call", { id: loadingToast });
+
+    toast.error(
+      "Bridge failed. Opening normal dialer...",
+      { id: loadingToast }
+    );
+
+    window.location.href = `tel:${lead.phone}`;
   }
 };
-
   // ✅ FIX: Optimistic Update to prevent table from going empty
   const handleAddLog = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,7 +291,7 @@ const handleBridgeCall = async (e: React.MouseEvent) => {
 
 {/* ── Call Recording Toggle ── */}
 <div className={`rounded-xl border overflow-hidden mb-3 transition-all ${
-  isRecordingEnabled
+    useRecording
     ? "border-red-200 dark:border-red-900/40"
     : "border-gray-100 dark:border-gray-800"
 }`}>
@@ -259,7 +301,7 @@ const handleBridgeCall = async (e: React.MouseEvent) => {
     <div className="flex items-center gap-2.5">
       {/* Animated dot — red and pulsing when ON */}
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-        isRecordingEnabled
+          useRecording
           ? "bg-red-500 animate-pulse"
           : "bg-gray-300 dark:bg-gray-600"
       }`} />
@@ -268,27 +310,34 @@ const handleBridgeCall = async (e: React.MouseEvent) => {
           Call Recording
         </p>
         <p className="text-[9px] font-medium text-gray-400 uppercase tracking-widest">
-          {isRecordingEnabled ? "On — calls will be logged" : "Off — calls won't be recorded"}
+          {useRecording? "On — calls will be logged" : "Off — calls won't be recorded"}
         </p>
       </div>
     </div>
 
     {/* Toggle switch */}
-    <button
-      onClick={() => setIsRecordingEnabled(prev => !prev)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
-        isRecordingEnabled ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700"
-      }`}
-      aria-label="Toggle call recording"
-    >
-      <span className={`${
-        isRecordingEnabled ? "translate-x-5" : "translate-x-1"
-      } inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform`} />
-    </button>
+<button
+  disabled={!recordingFeatureEnabled}
+  onClick={() => setUseRecording(prev => !prev)}
+ className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
+    useRecording
+      ? "bg-blue-600"
+      : "bg-gray-200 dark:bg-gray-700"
+  }`}
+  aria-label="Toggle call recording"
+>
+  <span
+    className={`${
+      useRecording
+        ? "translate-x-5"
+        : "translate-x-1"
+    } inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform`}
+  />
+</button>
   </div>
 
   {/* Live banner — only visible when recording is ON */}
-  {isRecordingEnabled && (
+  {useRecording && (
     <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 dark:bg-red-900/10 border-t border-red-100 dark:border-red-900/30">
       <span className="relative flex h-1.5 w-1.5 shrink-0">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
@@ -302,28 +351,39 @@ const handleBridgeCall = async (e: React.MouseEvent) => {
 </div>
 
   {/* Quick action row - Forced 3 Columns */}
+{/* Recording Warning */}
+{!recordingFeatureEnabled && (
+  <div className="mb-3 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900/30">
+    <p className="text-[9px] font-black uppercase tracking-widest text-amber-600">
+      Recording unavailable — enable from settings
+    </p>
+  </div>
+)}
+
+{/* Quick action row */}
 <div className="grid grid-cols-3 gap-2 mt-3">
+
   {/* Column 1: Call */}
-  <a 
+  <a
     href={`tel:${lead?.phone}`}
     onClick={handleBridgeCall}
     className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-tight transition-all border shadow-sm ${
-      isRecordingEnabled 
-        ? "bg-blue-600 text-white border-blue-700 hover:bg-blue-700 active:scale-95" 
+      useRecording
+        ? "bg-blue-600 text-white border-blue-700 hover:bg-blue-700 active:scale-95"
         : "bg-blue-50 dark:bg-blue-900/10 text-blue-600 border-blue-100 dark:border-blue-800 hover:bg-blue-100"
     }`}
   >
-    {isRecordingEnabled ? (
+    {useRecording ? (
       <>
         <span className="relative flex h-1.5 w-1.5 shrink-0">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
         </span>
-        <span className="truncate">Bridge</span>
+        <span className="truncate">Rec</span>
       </>
     ) : (
       <>
-        <Phone size={12} strokeWidth={3} className="shrink-0" /> 
+        <Phone size={12} strokeWidth={3} className="shrink-0" />
         <span>Call</span>
       </>
     )}
@@ -483,7 +543,7 @@ export default function CommunicationPage() {
   const [searchTerm,   setSearchTerm]   = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [loading,      setLoading]      = useState(true);
-
+const [totalCount,  setTotalCount]  = useState(0);
   const fetchLeads = useCallback(async () => {
     try {
       const res: any = await apiGet("/api/leads?status=all&limit=300");
@@ -539,7 +599,7 @@ export default function CommunicationPage() {
             <span className="text-[9px] font-bold px-2 py-1 rounded-full
               bg-blue-50 dark:bg-blue-900/20 text-blue-600
               border border-blue-100 dark:border-blue-800 uppercase tracking-wide">
-              {filteredLeads.length}
+              {totalCount} 
             </span>
           </div>
 
@@ -592,7 +652,7 @@ export default function CommunicationPage() {
               <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
               <span className="text-[10px] font-semibold uppercase tracking-wide">Loading…</span>
             </div>
-          ) : filteredLeads.length === 0 ? (
+          ) : leads.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 gap-2">
               <UserCircle2 size={32} className="text-gray-200 dark:text-gray-700" />
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
@@ -655,7 +715,7 @@ export default function CommunicationPage() {
         {selectedLead ? (
           <InteractionHub
             lead={selectedLead}
-            leads={filteredLeads}
+            leads={leads}
             onSelectLead={setSelectedLead}
             onNewLog={fetchLeads}
             onBack={() => setSelectedLead(null)}

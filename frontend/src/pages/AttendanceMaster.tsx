@@ -117,7 +117,7 @@ export default function AttendanceMaster() {
   };
   
   return (
-    <div className="space-y-4 pb-20 px-2 sm:px-0">
+    <div className="space-y-4 pb-12 max-w-5xl mx-auto">
       {/* Header Card */}
       <div className="bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm relative overflow-hidden">
         

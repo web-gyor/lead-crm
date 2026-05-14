@@ -109,14 +109,7 @@ const HEADERS: Record<ReportType, string[]> = {
   attendance:  ["Name",    "Role", "Working Days",   "Present",   "Absent",     "Late",      "Attendance %"],
 };
 
-const FILTER_DATE_FIELD: Record<ReportType, "created_at" | "updated_at" | "both"> = {
-  admissions:  "updated_at",
-  velocity:    "both",
-  performance: "created_at",
-  sources:     "created_at",
-  lost:        "updated_at",
-  attendance:  "created_at",
-};
+
 
 const SOURCE_COLORS: Record<string, string> = {
   "WhatsApp":        "green",
@@ -241,32 +234,61 @@ function extractArray(res: any): any[] {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 
-function getRelevantDate(l: Lead, type: ReportType): string | undefined {
+function getRelevantDate(
+  l: Lead,
+  type: ReportType
+): string | undefined {
+
   switch (type) {
+
+    // ✅ Admission / Conversion Reports
     case "admissions":
       return (
         l.converted_at ||
         l.admission_date ||
         l.closed_at ||
         l.status_updated_at ||
+        l.updated_at
+      );
+
+    // ✅ Velocity = date converted
+    case "velocity":
+      return (
+        l.converted_at ||
+        l.admission_date ||
+        l.closed_at ||
+        l.status_updated_at ||
+        l.updated_at
+      );
+
+    // ✅ Counselor Performance
+    case "performance":
+      return (
+        l.converted_at ||
         l.updated_at ||
         l.created_at
       );
 
-    case "lost":
-      return l.updated_at || l.created_at;
-
-    case "velocity":
+    // ✅ Source analytics = when lead entered CRM
+    case "sources":
       return l.created_at;
 
-    case "performance":
-    case "sources":
+    // ✅ Lost lead date
+    case "lost":
+      return (
+        l.status_updated_at ||
+        l.updated_at ||
+        l.created_at
+      );
+
+    // ✅ Attendance
     case "attendance":
+      return l.created_at;
+
     default:
       return l.created_at;
   }
 }
-
 
 // Fix #2 & #3 — allStaff is now a required parameter
 function transformAttendance(
@@ -409,6 +431,83 @@ function transformAdmissions(
       return db - da;
     });
 }
+
+function transformVelocity(
+  leads: Lead[],
+  sMap: Record<string, string>,
+  range: DateRange
+): VelocityRow[] {
+
+  const SUCCESS = new Set([
+    "converted",
+    "closed",
+    "admission",
+    "success",
+    "won"
+  ]);
+
+  return leads
+    .filter((l) => {
+
+      const status = normalizeStatus(l.lead_status);
+
+      if (!SUCCESS.has(status)) return false;
+
+      const conversionDate = getRelevantDate(l, "velocity");
+
+      return !!conversionDate;
+    })
+
+    .map((l) => {
+
+      const entryDateRaw =
+        l.created_at;
+
+      const conversionDateRaw =
+        getRelevantDate(l, "velocity");
+
+      const entryDate =
+        parseDateStr(entryDateRaw);
+
+      const conversionDate =
+        parseDateStr(conversionDateRaw);
+
+      let days = 1;
+
+      if (entryDate && conversionDate) {
+
+        const ms =
+          conversionDate.getTime() -
+          entryDate.getTime();
+
+        days =
+          ms > 0
+            ? Math.ceil(ms / 86400000)
+            : 1;
+      }
+
+      return {
+        id: leadId(l),
+        name: safeStr(l.full_name, "N/A"),
+        course: safeStr(l.interested_course, "General"),
+        entryDate: fmtDate(entryDateRaw),
+        convertedDate: fmtDate(conversionDateRaw),
+        days,
+        counselor: getCounselor(l),
+      };
+    })
+
+    .sort((a, b) => {
+      const da =
+        parseDateStr(a.convertedDate)?.getTime() || 0;
+
+      const db =
+        parseDateStr(b.convertedDate)?.getTime() || 0;
+
+      return db - da;
+    });
+}
+
 function transformPerformance(
   leads: Lead[],
   range: DateRange,
@@ -588,7 +687,7 @@ function transformLeads(
       return transformAdmissions(safeData, sMap, range);
 
     case "velocity":
-      return transformVelocity(safeData, range);
+  return transformVelocity(safeData, sMap, range);
 
     case "performance":
       return transformPerformance(safeData, range);
@@ -850,24 +949,38 @@ function filterLeadsByDate(
   type: ReportType,
   range: DateRange
 ): Lead[] {
-  if (!Array.isArray(leads)) return [];
-  if (type === "attendance") return [];
 
-  // Normalize range to start and end of days (no time)
-  const fromTime = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate()).getTime();
-  const toTime   = new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate()).getTime();
+  if (!Array.isArray(leads)) return [];
 
   return leads.filter((lead) => {
+
     const dateValue = getRelevantDate(lead, type);
+
     if (!dateValue) return false;
 
     const dt = parseDateStr(dateValue);
+
     if (!dt || isNaN(dt.getTime())) return false;
 
-    // Normalize lead date to start of day (no time)
-    const leadTime = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+    const leadDate = new Date(
+      dt.getFullYear(),
+      dt.getMonth(),
+      dt.getDate()
+    ).getTime();
 
-    return leadTime >= fromTime && leadTime <= toTime;
+    const from = new Date(
+      range.from.getFullYear(),
+      range.from.getMonth(),
+      range.from.getDate()
+    ).getTime();
+
+    const to = new Date(
+      range.to.getFullYear(),
+      range.to.getMonth(),
+      range.to.getDate()
+    ).getTime();
+
+    return leadDate >= from && leadDate <= to;
   });
 }
 // ADD THIS BLOCK

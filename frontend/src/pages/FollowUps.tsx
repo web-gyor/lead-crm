@@ -593,7 +593,7 @@ setTimeout(() => {
           })
         )
       );
-      toast.success(`${filteredLeads.length} follow-ups cleared`);
+      toast.success(`${totalCount} follow-ups cleared`);
       fetchData();
     } catch { toast.error("Some updates failed"); setLoading(false); }
   };

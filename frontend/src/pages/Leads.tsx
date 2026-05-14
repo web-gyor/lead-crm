@@ -122,14 +122,25 @@ interface Lead {
   counselor_remarks?: string;
   assigned_user_id?: number;
   assigned_user_name?: string;
-  counselor_name?: string;        // from SQL JOIN — used by AssignedBadge
+  counselor_name?: string;        
   next_follow_up_date?: string;
   first_contacted_at?: string;
   created_at?: string;
   updated_at?: string;
   status_updated_at?: string;
+  converted_at?: string; 
+  lost_at?: string;
   whatsapp_same?: number | null;
   urgency?: string;
+  source_name?:          string;   
+  lead_score?:           number;   
+  last_interaction_at?:  string;   
+  area_locality?:        string;   
+  alternate_phone?:      string;   
+  referred_by_name?:     string;   
+  referred_by_phone?:    string;   
+  referred_by_type?:     string;  
+  assignment_mode?:      string;   
 }
 
 interface Filters {
@@ -191,9 +202,10 @@ function SourceBadge({ lead, sources }: { lead: Lead; sources: any[] }) {
   const src = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
   
   // 2. CHANGE THE PRIORITY: Check lead.source FIRST
- const name = (
-  src?.name || 
-  lead.lead_source_name || 
+const name = (
+  src?.name ||
+  lead.source_name ||        
+  lead.lead_source_name ||  
   "UNKNOWN"
 ).toUpperCase();
 
@@ -258,7 +270,37 @@ const SELECT = "w-full px-2 py-1.5 text-xs rounded-md border border-gray-300 dar
 
 const SELECT_CLS = "px-2 py-1.5 bg-gray-50 dark:bg-gray-700 dark:text-white border border-gray-200 dark:border-gray-600 rounded-lg text-xs outline-none hover:border-blue-400 cursor-pointer";
 
+function fmtDate(iso?: string) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
 
+const getRecencyColor = (isoDate?: string) => {
+  if (!isoDate) return "bg-gray-100 text-gray-400 border-gray-200 dark:bg-gray-800 dark:text-gray-500";
+  
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const days = diff / (1000 * 60 * 60 * 24);
+
+  if (days < 1) return "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"; // Today
+  if (days < 3) return "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800";    // 1-3 Days
+  return "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800";                 // >3 Days
+};
+
+function LastUpdateBadge({ lead }: { lead: Lead }) {
+  const dateValue = lead.updated_at || lead.created_at;
+  const colorClass = getRecencyColor(dateValue);
+
+  return (
+    <div className="flex flex-col min-w-[80px]">
+      <span className={`px-2 py-0.5 rounded text-[9px] font-black border text-center ${colorClass}`}>
+        {fmtDate(dateValue)}
+      </span>
+      <p className="text-[7px] text-gray-400 uppercase font-black mt-0.5 tracking-tighter text-center">
+        Last Action
+      </p>
+    </div>
+  );
+}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -341,7 +383,9 @@ const k = stats || {};
           apiGet("/api/lead-sources").catch(() => []),
         ]);
         setMasterCourses(Array.isArray(c1) && c1.length ? c1 : Array.isArray(c2) ? c2 : []);
-        const apiSrc = Array.isArray(s1) && s1.length ? s1 : Array.isArray(s2) && s2.length ? s2 : [];
+        const srcList1 = Array.isArray(s1?.data) ? s1.data : Array.isArray(s1) ? s1 : [];
+        const srcList2 = Array.isArray(s2?.data) ? s2.data : Array.isArray(s2) ? s2 : [];
+        const apiSrc   = srcList1.length ? srcList1 : srcList2.length ? srcList2 : [];
         setSourceOptions(apiSrc.length > 0 ? apiSrc : FALLBACK_SOURCES);
       } catch {
         setSourceOptions(FALLBACK_SOURCES);
@@ -367,8 +411,9 @@ const k = stats || {};
   useEffect(() => {
     const check = async () => {
       try {
-        const res   = await apiGet("/api/leads?status=New&limit=1");
-        const count = res?.pagination?.totalItems ?? 0;
+        const res = await apiGet("/api/leads?status=New&limit=1");
+if (res?.success === false) return; // token expired or server error — skip
+const count = res?.pagination?.totalItems ?? 0;
         if (!isFirstLoad.current && count > newLeadCountRef.current) {
           const diff = count - newLeadCountRef.current;
           if (Notification.permission === "granted") {
@@ -388,52 +433,16 @@ const k = stats || {};
   }, []);
 
   // ── Load leads ────────────────────────────────────────────────────────────
-  const loadData = useCallback(async (silent = false) => {
-  if (!silent) setLoading(true);
 
-  try {
-    const params: Record<string, string> = {
-      page: String(currentPage),
-      limit: String(rowsPerPage),
-      search: debouncedSearch,
-      status: filters.status === "all" ? "" : (filters.status || ""),
-    };
-
-    if (filters.sourceId) params.source_id = filters.sourceId;
-    if (filters.quality) params.quality = filters.quality;
-    if (filters.counselorId) params.assigned_user_id = filters.counselorId;
-
-    const dates =
-      filters.range === "custom"
-        ? { startDate: filters.startDate, endDate: filters.endDate }
-        : getRangeDates(filters.range);
-
-    if (dates?.startDate) params.startDate = dates.startDate;
-    if (dates?.endDate) params.endDate = dates.endDate;
-
-    const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
-
-    if (res) {
-      setLeads(res.data ?? []);
-      setTotalCount(res.pagination?.totalItems ?? 0);
-      setTotalPages(res.pagination?.totalPages ?? 1);
-      fetchSummary();
-    }
-  } catch {
-    toast.error("Failed to load leads");
-  } finally {
-    if (!silent) setLoading(false);
-  }
-}, [currentPage, rowsPerPage, debouncedSearch, filters]);
-  const fetchSummary = useCallback(async () => {
+ const fetchSummary = useCallback(async () => {
   try {
     const res = await apiGet("/api/leads/dashboard-data");
     if (res) {
       setStats({
         ...res,
-        conversionRate: res.conversionRate || 
-          (res.statusStats?.converted && res.totalLeads 
-            ? Math.round((res.statusStats.converted / res.totalLeads) * 100) 
+        conversionRate: res.conversionRate ||
+          (res.statusStats?.converted && res.totalLeads
+            ? Math.round((res.statusStats.converted / res.totalLeads) * 100)
             : 0),
       });
     }
@@ -442,42 +451,65 @@ const k = stats || {};
   }
 }, []);
 
+const loadData = useCallback(async (silent = false) => {
+  if (!silent) setLoading(true);
+  try {
+    const params: Record<string, string> = {
+      page:   String(currentPage),
+      limit:  String(rowsPerPage),
+      search: debouncedSearch,
+      status: filters.status === "all" ? "" : (filters.status || ""),
+    };
+
+    if (filters.sourceId)    params.source_id        = filters.sourceId;
+    if (filters.quality)     params.quality           = filters.quality;
+    if (filters.counselorId) params.assigned_user_id  = filters.counselorId;
+
+    const dates =
+      filters.range === "custom"
+        ? { startDate: filters.startDate, endDate: filters.endDate }
+        : getRangeDates(filters.range);
+
+    if (dates?.startDate) params.startDate = dates.startDate;
+    if (dates?.endDate)   params.endDate   = dates.endDate;
+
+    const res = await apiGet(`/api/leads?${new URLSearchParams(params)}`);
+    console.log("🔍 loadData res:", res);
+    if (res) {
+      setLeads(res.data ?? []);
+      setTotalCount(res.pagination?.totalItems  ?? 0);
+      setTotalPages(res.pagination?.totalPages  ?? 1);
+      fetchSummary();
+    }
+  } catch {
+    toast.error("Failed to load leads");
+  } finally {
+    if (!silent) setLoading(false);
+  }
+}, [
+  // ✅ spread individual filter values — not the filters object
+  currentPage,
+  rowsPerPage,
+  debouncedSearch,
+  filters.status,
+  filters.sourceId,
+  filters.counselorId,
+  filters.quality,
+  filters.range,
+  filters.startDate,
+  filters.endDate,
+  // fetchSummary removed — it has empty deps so its reference is stable
+  //                        but listing it here caused double-render loops
+]);
+
+
 useEffect(() => {
-
   loadData();
-
-  const interval = setInterval(() => {
-    loadData(true);
-  
-  }, 30000);
-
+  const interval = setInterval(() => loadData(true), 30000);
   return () => clearInterval(interval);
-
 }, [loadData]);
-
-
-
   // ── Filter helpers ────────────────────────────────────────────────────────
-  const normalize = (v: any) =>
-  String(v || "")
-    .toLowerCase()
-    .trim();
 
-const filteredLeads = useMemo(() => {
-  return leads.filter((l) => {
-    const search = normalize(filters.search);
-
-    // if no search, keep all
-    if (!search) return true;
-
-    const match =
-      normalize(l.id).includes(search) ||
-      normalize(l.full_name).includes(search) ||
-      normalize(l.phone).includes(search);
-
-    return match;
-  });
-}, [leads, filters.search]);
 
   // ✅ SINGLE SOURCE OF TRUTH: KPI DATA
 const kpiStats = useMemo(() => {
@@ -496,21 +528,14 @@ const kpiStats = useMemo(() => {
 
 const handleStatusChange = async (leadId: number, newStatus: string) => {
   try {
-    await apiPut(`/api/leads/${leadId}`, {
-      lead_status: newStatus,
-    });
-
+    const now = new Date().toISOString();
+    await apiPut(`/api/leads/${leadId}`, { lead_status: newStatus });
+    
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, lead_status: newStatus, updated_at: now } : l));
     toast.success("Status updated");
-
-    // reset UI state first
-    setCurrentPage(1);
-
-    // force full reload (no stale cache)
-    await loadData(true);
-
+    loadData(true);
   } catch (err) {
     toast.error("Failed to update");
-    console.error(err); // Good to keep for debugging
   }
 };
 
@@ -628,94 +653,52 @@ const whatsappSame = Boolean(fd.get("whatsapp_same"));
  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   if (!editingLead) return;
-
   const fd = new FormData(e.currentTarget);
   const raw = Object.fromEntries(fd.entries()) as Record<string, any>;
+  const now = new Date().toISOString();
 
   try {
-    // Construct a CLEAN object
-const payload = {
-  ...raw,
-
-  lead_status: editStatus,
-
-  status_updated_at:
-    editStatus !== editingLead.lead_status
-      ? new Date().toISOString()
-      : editingLead.status_updated_at,
-
-  urgency: editUrgency,
-
-  whatsapp_same: Boolean(fd.get("whatsapp_same")) ? 1 : 0,
-
-  next_follow_up_date:
-    editStatus.toLowerCase().includes("follow")
-      ? (followUpDate || null)
-      : null,
-
-  age: raw.age ? Number(raw.age) : null,
-
-  year_of_passing:
-    raw.year_of_passing
-      ? Number(raw.year_of_passing)
-      : null
+    const payload: any = {
+  full_name:           raw.full_name,
+  phone:               raw.phone,
+  email:               raw.email,
+  city:                raw.city,
+  age:                 raw.age ? Number(raw.age) : null,
+  gender:              raw.gender,
+  qualification:       raw.qualification,
+  year_of_passing:     raw.year_of_passing ? Number(raw.year_of_passing) : null,
+  parent_name:         raw.parent_name,
+  parent_contact:      raw.parent_contact,
+  lead_source_id:      raw.lead_source_id || null,
+  interested_course:   raw.interested_course,
+  counselor_remarks:   raw.counselor_remarks,
+  lead_quality:        raw.lead_quality,
+  lead_status:         editStatus,
+  urgency:             editUrgency,
+  whatsapp_same:       Boolean(fd.get("whatsapp_same")) ? 1 : 0,
+  next_follow_up_date: editStatus === "Follow-up" ? (followUpDate || null) : null,
+ 
 };
 
     await apiPut(`/api/leads/${editingLead.id}`, payload);
+
+    // Update Local State so UI changes instantly
+    setLeads((prev) => prev.map((l) => l.id === editingLead.id ? { ...l, ...payload } : l));
 
     setShowEditForm(false); 
     loadData(true);
     toast.success("Lead profile updated");
   } catch (err: any) { 
-    // This will trigger if the network is actually down
     toast.error("Network error: Failed to connect to server"); 
   }
 };
 const handleEditClick = (lead: Lead) => {
-  console.log("Full Lead Data:", lead); // Check if the date field is here
-  
   setEditingLead(lead);
-  setEditStatus(lead.lead_status || "New");
-
-  // Try every possible variation of the date key name
-const rawDate = lead.next_follow_up_date || (lead as any).follow_up_date;
-  
-  console.log("Extracted rawDate:", rawDate); // If this is null/undefined, your state will stay empty
-
-  if (rawDate) {
-    const dateObj = new Date(rawDate);
-    // Ensure the date is valid before formatting
-    if (!isNaN(dateObj.getTime())) {
-      const yyyy = dateObj.getFullYear();
-      const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-      const dd = String(dateObj.getDate()).padStart(2, '0');
-      const formatted = `${yyyy}-${mm}-${dd}`;
-      console.log("Setting State To:", formatted);
-      setFollowUpDate(formatted);
-    }
-  } else {
-    setFollowUpDate("");
-  }
-
   setShowEditForm(true);
 };
 
 // ✅ CORRECT — state declared first, effect once after
-const [followUpDate, setFollowUpDate] = useState<string>(() => {
-  // Access the primary property first
-  const raw = editingLead?.next_follow_up_date 
-           || (editingLead as any)?.next_followup_date // Use 'as any' to bypass the error
-           || (editingLead as any)?.follow_up_date 
-           || "";
-
-  if (!raw) return "";
-  
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return "";
-
-  // Return formatted YYYY-MM-DD
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-});
+const [followUpDate, setFollowUpDate] = useState<string>("");
 
 
 useEffect(() => {
@@ -1116,119 +1099,144 @@ const handleExport = async () => {
         </div>
       </div>
 
-      {/* ════════════════════════════════════
-          DESKTOP TABLE
-      ════════════════════════════════════ */}
-     <div className="hidden sm:block -mt-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[960px]">
-            <thead className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700">
-              <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                {["#", "ID", "Date", "Name", "Course", "Contact",  "Source", "Status", "Quality", "Last Update", "Assigned", "Notes", "Actions"].map((h) => (
-                  <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${h === "Actions" ? "text-right" : "text-left"}`}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {loading ? (
-                <tr><td colSpan={14} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">📡 Loading leads…</td></tr>
-              ) : leads.length === 0 ? (
-                <tr><td colSpan={14} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">📭 No leads found</td></tr>
-              ) : (
-                leads.map((lead, i) => {
-                  const fuStatus = getFollowUpStatus(lead.next_follow_up_date);
-                  return (
-                    <tr key={lead.id} className={`group transition-colors hover:bg-blue-50/30 dark:hover:bg-gray-700/20 ${
-                      fuStatus === "overdue" ? "bg-rose-50/60 dark:bg-rose-900/10"
-                      : fuStatus === "today" ? "bg-blue-50/60 dark:bg-blue-900/10" : ""
-                    }`}>
-                      <td className="px-3 py-2 text-center"><span className="text-[11px] text-gray-400 tabular-nums">{(currentPage - 1) * rowsPerPage + i + 1}</span></td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-  <span className="text-[10px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-800 tracking-wider">
-    {/* This forces the L26-0000 format regardless of what is in the UID column */}
-    {`L26-${String(lead.id).padStart(4, "0")}`}
-  </span>
-</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">
-                          {lead.created_at ? new Date(lead.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
-                        </p>
-                        {lead.status_updated_at && (
-  <p className="text-[10px] text-gray-500 dark:text-gray-400">
-    Status Updated:
-    {new Date(lead.status_updated_at).toLocaleString("en-GB")}
-  </p>
-)}
-                        <p className="text-[8px] text-gray-400 uppercase">Entry</p>
-                      </td>
-                     <td className="px-3 py-2 max-w-[140px]">
-  {/* Primary Name */}
-  <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
-    {lead.full_name || "N/A"}
-  </p>
+    {/* ════════════════════════════════════
+    DESKTOP TABLE
+    ════════════════════════════════════ */}
+<div className="hidden sm:block -mt-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+  <div className="overflow-x-auto">
+    <table className="w-full text-sm min-w-[960px]">
+      <thead className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-700">
+        <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+          {["#", "ID", "Date", "Name", "Course", "Contact", "Source", "Status", "Quality", "Last Update", "Assigned", "Notes", "Actions"].map((h) => (
+            <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${h === "Actions" ? "text-right" : "text-left"}`}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+        {loading ? (
+          <tr><td colSpan={14} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">📡 Loading leads…</td></tr>
+        ) : leads.length === 0 ? (
+          <tr><td colSpan={14} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">📭 No leads found</td></tr>
+        ) : (
+          leads.map((lead, i) => {
+            const fuStatus = getFollowUpStatus(lead.next_follow_up_date);
+            return (
+              <tr key={lead.id} className={`group transition-colors hover:bg-blue-50/30 dark:hover:bg-gray-700/20 ${
+                fuStatus === "overdue" ? "bg-rose-50/60 dark:bg-rose-900/10"
+                : fuStatus === "today" ? "bg-blue-50/60 dark:bg-blue-900/10" : ""
+              }`}>
+                <td className="px-3 py-2 text-center"><span className="text-[11px] text-gray-400 tabular-nums">{(currentPage - 1) * rowsPerPage + i + 1}</span></td>
+                
+                {/* 1. ID Column */}
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <span className="text-[10px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-800 tracking-wider">
+                    {`L26-${String(lead.id).padStart(4, "0")}`}
+                  </span>
+                </td>
 
-  {/* Sub-text: Parent Name */}
-  {lead.parent_name && (
-    <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
-      👤 {lead.parent_name}
-    </p>
-  )}
+                {/* 2. RESTORED: Entry Date Column (Strictly Created At) */}
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">
+                    {lead.created_at ? new Date(lead.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                  </p>
+                  <p className="text-[8px] text-gray-400 uppercase font-black tracking-tighter">Initial Entry</p>
+                </td>
+
+                {/* 3. Name Column */}
+                <td className="px-3 py-2 max-w-[140px]">
+                  <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">{lead.full_name || "N/A"}</p>
+                  {lead.parent_name && <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">👤 {lead.parent_name}</p>}
+                </td>
+
+                {/* 4. Course Column */}
+                <td className="px-3 py-2 max-w-[110px]"><span className="text-[10px] text-gray-600 dark:text-gray-300 truncate block">{lead.interested_course || "General"}</span></td>
+
+                {/* 5. Contact Column */}
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
+                      {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
+                    </span>
+                    <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium tracking-wider">{lead.city || "—"}</span>
+                  </div>
+                </td>
+
+                {/* 6. Source Badge */}
+                <td className="px-3 py-2 whitespace-nowrap"><SourceBadge lead={lead} sources={sourceOptions} /></td>
+
+                {/* 7. Status Badge */}
+                <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={lead.lead_status} /></td>
+
+                {/* 8. Quality Badge */}
+                <td className="px-3 py-2 whitespace-nowrap text-center"><QualityBadge quality={lead.lead_quality} /></td>
+
+                {/* 9. CORRECTED: Last Update / Follow-up Column with Red Alert */}
+               <td className="px-3 py-2 whitespace-nowrap">
+  <p className={`text-[10px] font-black ${
+    fuStatus === "overdue" ? "text-red-600" : 
+    fuStatus === "today" ? "text-blue-600" : 
+    lead.lead_status === "Converted" ? "text-green-600" : "text-gray-700 dark:text-gray-300"
+  }`}>
+    {/* 1. Priority: Follow-up Date (The future action) */}
+    {lead.next_follow_up_date ? new Date(lead.next_follow_up_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) :
+     
+     /* 2. Status Priority: Use status_updated_at ONLY if it's different from creation 
+           This prevents "New" leads from showing today's date accidentally */
+     (lead.status_updated_at && lead.lead_status !== "New") ? new Date(lead.status_updated_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) :
+     
+     /* 3. Initial Contact Fallback */
+     lead.first_contacted_at ? new Date(lead.first_contacted_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) :
+     
+     /* 4. Default for New Leads with no activity */
+     "No action"}
+  </p>
+  
+  <p className={`text-[8px] uppercase font-black tracking-tighter ${
+    fuStatus === "overdue" ? "text-red-500" : 
+    fuStatus === "today" ? "text-blue-500" : 
+    lead.lead_status === "Converted" ? "text-green-500" : "text-gray-400"
+  }`}>
+    {fuStatus === "overdue" ? "⚠️ Overdue" : 
+     fuStatus === "today" ? "📅 Due Today" : 
+     lead.lead_status === "Converted" ? "🏆 Admission" :
+     lead.lead_status === "Interested" ? "⭐ Interested" :
+     (lead.lead_status === "Lost" || lead.lead_status === "Not Interested") ? "🚫 Rejected" :
+     lead.next_follow_up_date ? "Scheduled" : 
+     lead.lead_status === "New" ? "Unprocessed" : "Activity"}
+  </p>
 </td>
-                      <td className="px-3 py-2 max-w-[110px]"><span className="text-[10px] text-gray-600 dark:text-gray-300 truncate block">{lead.interested_course || "General"}</span></td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex flex-col leading-tight">
-                          {/* Phone Number */}
-                          <span className="text-[11px] font-bold text-gray-700 dark:text-gray-200 tabular-nums">
-                            {lead.phone ? (lead.phone.startsWith("+") ? lead.phone : `+91 ${lead.phone}`) : "—"}
-                          </span>
-                          
-                          {/* City Sub-text */}
-                          <span className="text-[9px] text-gray-400 dark:text-gray-500 font-medium  tracking-wider">
-                            {lead.city || "—"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2  whitespace-nowrap"><SourceBadge lead={lead} sources={sourceOptions} /></td>
-                      <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={lead.lead_status} /></td>
-                      <td className="px-3 py-2 whitespace-nowrap text-center"><QualityBadge quality={lead.lead_quality} /></td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <p className={`text-[10px] font-black ${fuStatus === "overdue" ? "text-rose-600" : fuStatus === "today" ? "text-blue-600" : "text-gray-700 dark:text-gray-300"}`}>
-                          {lead.next_follow_up_date
-                            ? new Date(lead.next_follow_up_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
-                            : lead.first_contacted_at
-                            ? new Date(lead.first_contacted_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
-                            : "No action"}
-                        </p>
-                        <p className={`text-[8px] uppercase font-black tracking-tighter ${fuStatus === "overdue" ? "text-rose-500" : fuStatus === "today" ? "text-blue-500" : "text-gray-400"}`}>
-                          {fuStatus === "overdue" ? "⚠️ Overdue" : fuStatus === "today" ? "📅 Due Today" : fuStatus === "future" ? "Scheduled" : "—"}
-                        </p>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap"><AssignedBadge lead={lead} /></td>
-                      <td className="px-3 py-2 max-w-[100px]"><span className="text-[11px] text-gray-400 italic truncate block">{lead.counselor_remarks || "—"}</span></td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <div className="flex justify-end items-center gap-1.5">
-                          <button type="button" aria-label="Edit"
-                            onClick={() => { setEditingLead(lead); setEditStatus(lead.lead_status || "New"); setFollowUpDate(lead.next_follow_up_date || todayISO()); setShowEditForm(true); }}
-                            className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all"><Edit3 size={13} /></button>
-                          {isAdmin && (
-                            <button type="button" aria-label="Delete" onClick={() => setDeleteId(lead.id)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"><Trash2 size={13} /></button>
-                          )}
-                          <div className="flex items-center gap-1 ml-0.5 pl-1.5 border-l border-gray-200 dark:border-gray-700">
-                            <a href={`tel:${lead.phone}`} aria-label="Call" className="p-1 text-gray-400 hover:text-blue-600 transition-colors"><Phone size={12} /></a>
-                            <a href={`https://wa.me/91${lead.phone?.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" aria-label="WhatsApp" className="p-1 text-gray-400 hover:text-emerald-500 transition-colors"><MessageCircle size={12} /></a>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <PaginationFooter currentPage={currentPage} totalPages={totalPages} totalCount={totalCount} rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} setCurrentPage={setCurrentPage} />
-      </div>
+
+                {/* 10. Assigned Counselor */}
+                <td className="px-3 py-2 whitespace-nowrap"><AssignedBadge lead={lead} /></td>
+
+                {/* 11. Remarks */}
+                <td className="px-3 py-2 max-w-[100px]"><span className="text-[11px] text-gray-400 italic truncate block">{lead.counselor_remarks || "—"}</span></td>
+
+                {/* 12. Actions */}
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <div className="flex justify-end items-center gap-1.5">
+                    <button type="button" aria-label="Edit"
+                      onClick={() => handleEditClick(lead)}
+                      className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all"><Edit3 size={13} /></button>
+                    {isAdmin && (
+                      <button type="button" aria-label="Delete" onClick={() => setDeleteId(lead.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"><Trash2 size={13} /></button>
+                    )}
+                    <div className="flex items-center gap-1 ml-0.5 pl-1.5 border-l border-gray-200 dark:border-gray-700">
+                      <a href={`tel:${lead.phone}`} aria-label="Call" className="p-1 text-gray-400 hover:text-blue-600 transition-colors"><Phone size={12} /></a>
+                      <a href={`https://wa.me/91${lead.phone?.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" aria-label="WhatsApp" className="p-1 text-gray-400 hover:text-emerald-500 transition-colors"><MessageCircle size={12} /></a>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            );
+          })
+        )}
+      </tbody>
+    </table>
+  </div>
+  <PaginationFooter currentPage={currentPage} totalPages={totalPages} totalCount={totalCount} rowsPerPage={rowsPerPage} setRowsPerPage={setRowsPerPage} setCurrentPage={setCurrentPage} />
+</div>
 
       {/* ════════════════════════════════════
           MOBILE CARDS
@@ -1424,7 +1432,7 @@ const handleExport = async () => {
                   {selectedCourse === "Other" && <input required type="text" name="custom_course_name" placeholder="Type course name…" className={`${INPUT} mt-2 border-blue-400`} autoFocus />}
                 </Field>
                 <Field label="Source">
-                  <select name="lead_sourceId" className={SELECT}>
+                 <select name="lead_source_id" className={SELECT}>
                     <option value="">Select Source</option>
                     {sourceOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>

@@ -31,9 +31,30 @@ const CommunicationsTab: React.FC<CommunicationsTabProps> = ({
   Field, 
   inputCls 
 }) => {
-  const toggle = (key: keyof CommSettings) => {
-    setSettings(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+ const toggle = (
+  key:
+    | "is_call_recording_enabled"
+    | "is_sms_template_enabled"
+    | "is_whatsapp_automation_enabled"
+    | "is_email_trigger_enabled"
+) => {
+  setSettings((prev) => {
+    const updated = {
+      ...prev,
+      [key]: !prev[key],
+    };
+
+    // reset provider if recording disabled
+    if (
+      key === "is_call_recording_enabled" &&
+      prev.is_call_recording_enabled
+    ) {
+      updated.telephony_provider = "none";
+    }
+
+    return updated;
+  });
+};
 
   const ChannelRow = ({ 
     icon: Icon, 

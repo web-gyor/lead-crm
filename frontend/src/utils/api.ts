@@ -3,23 +3,15 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 export const clearAuth = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
-  // Only redirect if we aren't already on the login page to avoid loops
   if (window.location.pathname !== '/login') {
     window.location.href = '/login';
   }
 };
 
-/**
- * Helper to construct full URL
- */
 const formatUrl = (endpoint: string) => 
   `${API_BASE}/${endpoint.replace(/^\//, '')}`;
 
-/**
- * Helper to process fetch responses
- */
 const handleResponse = async (response: Response) => {
-  // Only auto-clear on 401 if it's NOT a login attempt
   if (response.status === 401 && !response.url.includes('/auth/login')) {
     clearAuth();
     return null;
@@ -35,25 +27,18 @@ const handleResponse = async (response: Response) => {
   return data;
 };
 
-/**
- * Core Header logic - Synchronized with backend routes
- */
 const getHeaders = (endpoint: string, isJson = false) => {
   const headers: any = {};
-
-  // Normalize endpoint to ensure it starts with /
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  // STRICT list of endpoints that do NOT need a token
   const publicApiEndpoints = [
-    '/api/auth/login', // Adjust if your login path is different
+    '/api/auth/login',
     '/api/users/forgot-password',
     '/api/users/reset-password'
   ];
 
   const isPublicApi = publicApiEndpoints.some(route => normalizedEndpoint.includes(route));
 
-  // If it's NOT a public API, try to attach the token
   if (!isPublicApi) {
     const token = localStorage.getItem('token');
     if (token) {
@@ -61,12 +46,14 @@ const getHeaders = (endpoint: string, isJson = false) => {
     }
   }
 
+  // Only set application/json if explicitly requested
   if (isJson) {
     headers['Content-Type'] = 'application/json';
   }
 
   return headers;
 };
+
 // --- API Methods ---
 
 export const apiGet = async (endpoint: string) => {
@@ -77,20 +64,32 @@ export const apiGet = async (endpoint: string) => {
   return handleResponse(response);
 };
 
+/**
+ * Updated apiPost to detect FormData
+ */
 export const apiPost = async (endpoint: string, data: any) => {
+  const isFormData = data instanceof FormData;
+  
   const response = await fetch(formatUrl(endpoint), {
     method: 'POST', 
-    headers: getHeaders(endpoint, true), 
-    body: JSON.stringify(data)
+    // If it's FormData, we pass false to getHeaders so Content-Type is NOT set
+    headers: getHeaders(endpoint, !isFormData), 
+    body: isFormData ? data : JSON.stringify(data)
   });
   return handleResponse(response);
 };
 
+/**
+ * Updated apiPut to detect FormData
+ */
 export const apiPut = async (endpoint: string, data: any) => {
+  const isFormData = data instanceof FormData;
+
   const response = await fetch(formatUrl(endpoint), {
     method: 'PUT', 
-    headers: getHeaders(endpoint, true), 
-    body: JSON.stringify(data)
+    // If it's FormData, we pass false so the browser sets the multipart boundary
+    headers: getHeaders(endpoint, !isFormData), 
+    body: isFormData ? data : JSON.stringify(data)
   });
   return handleResponse(response);
 };

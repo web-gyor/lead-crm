@@ -3,8 +3,10 @@ process.env.TZ = "Asia/Kolkata";
 
 // ─── Core imports ─────────────────────────────────────────────────────────────
 require("dotenv").config();
-
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
 const express    = require("express");
+const path = require('path');
 const cors       = require("cors");
 const morgan     = require("morgan");
 const helmet     = require("helmet");           
@@ -28,7 +30,7 @@ const staffPerformanceRoutes = require("./routes/staffPerformanceRoutes");
 const telephonyRoutes        = require("./routes/telephonyRoutes");
 const integrationRoutes      = require("./routes/integrationRoutes"); 
 const followupRoutes         = require("./routes/followupRoutes"); // Fix: Added missing import
-
+const settingsRoutes = require('./routes/settingsRoutes');
 // ─── Controller imports ───────────────────────────────────────────────────────
 const analyticsController = require("./controllers/analyticsController");
 
@@ -40,7 +42,11 @@ const PORT = process.env.PORT || 4000;
 // 1. SECURITY MIDDLEWARE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false
+  })
+);
 
 // --- Merged allowedOrigins logic ---
 const envOrigins = process.env.ALLOWED_ORIGINS 
@@ -95,7 +101,10 @@ app.use(apiLimiter);
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. BODY PARSERS & LOGGING
 // ═══════════════════════════════════════════════════════════════════════════════
-
+app.use(
+  "/uploads",
+  express.static(path.join(process.cwd(), "uploads"))
+);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
@@ -121,7 +130,7 @@ app.use("/api/permissions", permissionsRouter);
 app.use("/api/activity", activityRoutes);
 app.use("/api/staff-performance", staffPerformanceRoutes);
 app.use("/api/logs", logRoutes);
-
+app.use('/api/settings', settingsRoutes);
 
 // Fix: Direct Alias for Lead Sources (Frontend calls /api/lead-sources)
 app.get('/api/lead-sources', authenticateToken, async (req, res) => {
@@ -174,40 +183,118 @@ app.get("/api/settings", authenticateToken, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
     const s = rows[0] ?? {};
-    return res.json({
-      company_name: s.company_name ?? "",
-      company_phone: s.company_phone ?? "",
-      company_email: s.company_email ?? "",
-      company_address: s.company_address ?? "",
-      company_website: s.company_website ?? "",
-      logo_url: s.logo_url ?? "",
-      admin_name: s.admin_name ?? "",
-      admin_email: s.admin_email ?? "",
-      is_call_recording_enabled: !!s.is_call_recording_enabled,
-      telephony_provider: s.telephony_provider ?? "none",
-    });
+ return res.json({
+  company_name: s.company_name ?? "",
+  company_phone: s.company_phone ?? "",
+  company_email: s.company_email ?? "",
+  company_address: s.company_address ?? "",
+  company_website: s.company_website ?? "",
+  logo_url: s.logo_url ?? "",
+  admin_name: s.admin_name ?? "",
+  admin_email: s.admin_email ?? "",
+
+  is_call_recording_enabled: !!s.is_call_recording_enabled,
+  telephony_provider: s.telephony_provider ?? "none",
+
+  is_sms_template_enabled: !!s.is_sms_template_enabled,
+  is_whatsapp_automation_enabled: !!s.is_whatsapp_automation_enabled,
+  is_email_trigger_enabled: !!s.is_email_trigger_enabled
+});
   } catch (err) {
     return res.status(500).json({ success: false, message: "Settings load failed" });
   }
 });
 
-app.put("/api/settings", authenticateToken, async (req, res) => {
-  if ((req.user?.role || "").toLowerCase() !== "admin") {
-    return res.status(403).json({ success: false, message: "Admin access required" });
+app.put(
+  "/api/settings",
+  authenticateToken,
+  upload.single("logo"),
+  async (req, res) => {
+    if ((req.user?.role || "").toLowerCase() !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access required"
+      });
+    }
+
+    try {
+      const data = req.body || {};
+
+      const logo_url = req.file
+        ? `/uploads/${req.file.filename}`
+        : (data.logo_url || "");
+
+      const toBool = (v) =>
+        v === true || v === "true" || v === 1 || v === "1";
+
+      const values = [
+        data.company_name || "",
+        data.company_phone || "",
+        data.company_email || "",
+        data.company_address || "",
+        data.company_website || "",
+        logo_url,
+
+        data.admin_name || "",
+        data.admin_email || "",
+
+        toBool(data.is_call_recording_enabled) ? 1 : 0,
+        data.telephony_provider || "none",
+
+        toBool(data.is_sms_template_enabled) ? 1 : 0,
+        toBool(data.is_whatsapp_automation_enabled) ? 1 : 0,
+        toBool(data.is_email_trigger_enabled) ? 1 : 0
+      ];
+
+      await pool.query(
+        `INSERT INTO settings (
+          id,
+          company_name,
+          company_phone,
+          company_email,
+          company_address,
+          company_website,
+          logo_url,
+          admin_name,
+          admin_email,
+          is_call_recording_enabled,
+          telephony_provider,
+          is_sms_template_enabled,
+          is_whatsapp_automation_enabled,
+          is_email_trigger_enabled
+        )
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          company_name = VALUES(company_name),
+          company_phone = VALUES(company_phone),
+          company_email = VALUES(company_email),
+          company_address = VALUES(company_address),
+          company_website = VALUES(company_website),
+          logo_url = VALUES(logo_url),
+          admin_name = VALUES(admin_name),
+          admin_email = VALUES(admin_email),
+          is_call_recording_enabled = VALUES(is_call_recording_enabled),
+          telephony_provider = VALUES(telephony_provider),
+          is_sms_template_enabled = VALUES(is_sms_template_enabled),
+          is_whatsapp_automation_enabled = VALUES(is_whatsapp_automation_enabled),
+          is_email_trigger_enabled = VALUES(is_email_trigger_enabled)`,
+        values
+      );
+
+      return res.json({
+        success: true,
+        message: "Settings saved successfully"
+      });
+
+    } catch (err) {
+      console.error("Settings save failed:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Settings save failed"
+      });
+    }
   }
-  try {
-    const { company_name, company_phone, company_email, company_address, company_website, logo_url, admin_name, admin_email, is_call_recording_enabled, telephony_provider } = req.body;
-    await pool.query(
-      `INSERT INTO settings (id, company_name, company_phone, company_email, company_address, company_website, logo_url, admin_name, admin_email, is_call_recording_enabled, telephony_provider) 
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), company_phone=VALUES(company_phone), company_email=VALUES(company_email), company_address=VALUES(company_address), company_website=VALUES(company_website), logo_url=VALUES(logo_url), admin_name=VALUES(admin_name), admin_email=VALUES(admin_email), is_call_recording_enabled=VALUES(is_call_recording_enabled), telephony_provider=VALUES(telephony_provider)`,
-      [company_name, company_phone, company_email, company_address, company_website, logo_url, admin_name, admin_email, is_call_recording_enabled ? 1 : 0, telephony_provider || "none"]
-    );
-    return res.json({ success: true, message: "Settings saved" });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: "Settings save failed" });
-  }
-});
+);
 
 app.get("/health", (req, res) => res.json({ status: "ok", project: "Project Sakshi 2026", ts: new Date().toISOString() }));
 

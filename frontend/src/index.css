@@ -8,6 +8,38 @@
   --color-primary: oklch(0.7 0.2 260);
 }
 
+/* ─── Network Toast Animations ─── */
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(120%); /* Start completely off-screen to the right */
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);    /* Slide to natural position */
+    opacity: 1;
+  }
+}
+
+@keyframes toast-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* This class will be applied by react-hot-toast */
+.network-toast-error {
+  animation: 
+    toast-slide-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards,
+    toast-shake 0.5s ease-in-out 0.4s; /* Shakes slightly after landing */
+  
+  /* Styling to match your CRM aesthetic */
+  border-left: 4px solid #ef4444 !important;
+  box-shadow: -10px 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ─── Existing Styles ─── */
+
 .input {
   @apply w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all;
 }
@@ -15,6 +47,7 @@
 .label {
   @apply block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1;
 }
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
 }

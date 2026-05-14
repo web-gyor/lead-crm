@@ -77,6 +77,7 @@ function SourceBadge({ lead, sources }: { lead: any; sources: any[] }) {
   const src  = sources.find((s) => Number(s.id) === Number(lead.lead_source_id));
  const name = (
   src?.name ||
+  lead.source_name ||        // ← controller JOIN returns this
   lead.lead_source_name ||
   "UNKNOWN"
 ).toUpperCase();
@@ -229,8 +230,8 @@ const [editUrgency, setEditUrgency] = useState("");
   filters.endDate
 ]);
 
- useEffect(() => {
-  loadData(true);
+useEffect(() => {
+  loadData();
 }, [loadData]);
 
   // ── Selection ─────────────────────────────────────────────────────────────
@@ -290,9 +291,7 @@ const handleBulkUpdate = async () => {
     const payload: any = { leadIds: selectedLeads };
     if (bulkSourceId) payload.lead_source_id = Number(bulkSourceId);
     if (bulkStatus) payload.lead_status = bulkStatus;
-    if (bulkStatus) {
-  payload.status_updated_at = new Date().toISOString();
-}
+  
 
     await apiPut("/api/leads/bulk-update", payload);
     
@@ -350,18 +349,15 @@ const handleBulkUpdate = async () => {
 
   // ── Single edit ───────────────────────────────────────────────────────────
 
- const openEdit = (lead: any) => {
+const openEdit = (lead: any) => {
   setEditingLead(lead);
   setEditStatus(lead.lead_status || LEAD_STATUS);
-
+  setEditUrgency(lead.urgency || "");          // ← ADD
   setFollowUpDate(
     lead.next_follow_up_date
-      ? new Date(lead.next_follow_up_date)
-          .toISOString()
-          .split("T")[0]
+      ? String(lead.next_follow_up_date).split("T")[0]
       : ""
   );
-
   setShowEditForm(true);
 };
  
@@ -384,16 +380,13 @@ const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
 
   lead_status: editStatus,
   urgency: raw.urgency, // or editUrgency if you use state
-  whatsapp_same: fd.get("whatsapp_same") === "on" ? 1 : 0,
+  whatsapp_same: fd.get("whatsapp_same") ? 1 : 0,
 
   next_follow_up_date: editStatus.toLowerCase().includes("follow")
     ? (followUpDate || null)
     : null,
 
-  status_updated_at:
-    editStatus !== editingLead.lead_status
-      ? new Date().toISOString()
-      : editingLead.status_updated_at || null,
+  
 };
     await apiPut(`/api/leads/${editingLead.id}`, payload);
       toast.success("Lead updated");
@@ -407,20 +400,24 @@ const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
 
   // ── Export ────────────────────────────────────────────────────────────────
 const fetchAllLeadsForExport = async () => {
-  // Use the same filter logic as your other tabs
-  const params = new URLSearchParams({
-    ...filters,
-    status: 'New',      // This ensures you only get the "New" leads
-    limit: '10000',     // Get all of them (bypassing page 15-count)
-    page: '1'
-  }).toString();
+  const p: Record<string, string> = {
+    status: "New",
+    limit:  "10000",
+    page:   "1",
+    search: filters.search.trim(),
+  };
+  if (filters.sourceId)    p.source_id        = filters.sourceId;
+  if (filters.counselorId) p.assigned_user_id = filters.counselorId;
 
-  const res = await apiGet(`/api/leads?${params}`);
-  
-  // Verify in console
-  console.log("Exporting New Leads. Count:", res?.data?.length);
-  
-  return res?.data || [];
+  const dates = filters.range === "custom"
+    ? { startDate: filters.startDate, endDate: filters.endDate }
+    : getRangeDates(filters.range);
+
+  if (dates?.startDate) p.startDate = dates.startDate;
+  if (dates?.endDate)   p.endDate   = dates.endDate;
+
+  const res = await apiGet(`/api/leads?${new URLSearchParams(p)}`);
+  return res?.data ?? [];
 };
 
 const handleExport = async () => {

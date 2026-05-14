@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Eye, EyeOff, ExternalLink, CheckCircle2, ChevronRight } from "lucide-react";
+import {
+  Save, Upload, Building2, User, Image as ImageIcon,
+  Settings as SettingsIcon, Eye, EyeOff, Link2, Globe,
+  MessageSquare, Facebook, Share2, Copy, Check,
+  BookOpen, ExternalLink, ChevronRight, Zap, Phone, X,CheckCircle2,
+  type LucideIcon,
+} from "lucide-react";
 import type { IntegrationSource, IntegrationField } from "../pages/Settings";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -10,6 +16,7 @@ interface Props {
   initialValues?: Record<string, string>;
   onClose: () => void;
   onSave: (configData: Record<string, string>) => Promise<void>;
+ 
 }
 
 // ─── Docs links per source ────────────────────────────────────────────────────
@@ -78,7 +85,7 @@ function SecretInput({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export default function ConfigModal({ source, isOpen, initialValues = {}, onClose, onSave }: Props) {
+export default function ConfigModal({ source, isOpen, initialValues = {}, onClose, onSave}: Props) {
   const [form, setForm]       = useState<Record<string, string>>({});
   const [errors, setErrors]   = useState<Record<string, boolean>>({});
   const [saving, setSaving]   = useState(false);
@@ -162,32 +169,37 @@ export default function ConfigModal({ source, isOpen, initialValues = {}, onClos
         className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden"
       >
 
-        {/* ── Header ── */}
-        <div className="flex items-start justify-between p-5 pb-4 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-3">
-            {/* Source icon */}
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md"
-              style={iconBg ? { backgroundColor: iconBg } : undefined}
-            >
-              {source.icon}
-            </div>
-            <div>
-              <h2 id="cfg-modal-title" className="text-sm font-black text-gray-900 dark:text-white tracking-tight">
-                {source.name}
-              </h2>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{source.description}</p>
-            </div>
-          </div>
+       {/* ── Header ── */}
+<div className="flex items-center justify-between p-5 pb-4 border-b border-gray-100 dark:border-gray-800">
+  <div className="flex items-center gap-3">
+    
+    {/* ✅ Social Media Icon (Facebook, WhatsApp, etc.) */}
+    <div
+      className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md shrink-0"
+      style={iconBg ? { backgroundColor: iconBg } : { backgroundColor: source.bgColor }}
+    >
+      {/* We use source.Icon because that is how it is defined in your SOURCES array */}
+      <source.Icon size={20} strokeWidth={2.5} />
+    </div>
+    
+    <div>
+      <h2 id="cfg-modal-title" className="text-sm font-black text-gray-900 dark:text-white tracking-tight">
+        {source.name}
+      </h2>
+      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+        {source.description}
+      </p>
+    </div>
+  </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
+  <button
+    onClick={onClose}
+    className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+    aria-label="Close"
+  >
+    <X size={16} />
+  </button>
+</div>
 
         {/* ── Body ── */}
         <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">

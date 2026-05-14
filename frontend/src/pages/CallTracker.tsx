@@ -181,7 +181,7 @@ export default function CallTracker() {
     counselorId:  "",
     selectedDate: getLocalToday(),
   });
-
+const [searchInput, setSearchInput] = useState(filters.search);
   // ─── Fetch calls ──────────────────────────────────────────────────────────
 
   const fetchCalls = useCallback(async () => {
@@ -209,22 +209,36 @@ export default function CallTracker() {
     } finally {
       setLoading(false);
     }
-  }, [filters]); // re-runs whenever any filter changes
+}, [
+  filters.selectedDate,
+  filters.counselorId,
+  filters.search,
+  filters.page,
+]);
 
   // ─── Load staff dropdown (admin only, once) ───────────────────────────────
-
   useEffect(() => {
-    if (!isAdmin) return;
-    apiGet("/api/staff-performance/dropdown")
-      .then((res) => {
-        const data = res?.success ? res.data : Array.isArray(res) ? res : [];
-        setCounselors(data);
-      })
-      .catch(() => {
-        // Fallback to general users list
-        apiGet("/api/users").then((res) => setCounselors(res?.data ?? res ?? []));
-      });
-  }, []); // intentionally empty — run once on mount
+  const timer = setTimeout(() => {
+    setFilter("search", searchInput);
+  }, 400);
+
+  return () => clearTimeout(timer);
+}, [searchInput]);
+
+useEffect(() => {
+  if (!isAdmin) return;
+
+  apiGet("/api/staff-performance/dropdown")
+    .then((res) => {
+      const data = res?.success ? res.data : Array.isArray(res) ? res : [];
+      setCounselors(data);
+    })
+    .catch(() => {
+      apiGet("/api/users").then((res) =>
+        setCounselors(res?.data ?? res ?? [])
+      );
+    });
+}, [isAdmin]);
 
   // ─── Re-fetch when filters change ────────────────────────────────────────
 
@@ -323,12 +337,12 @@ export default function CallTracker() {
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input
-              type="text"
-              placeholder="Search lead or agent..."
-              value={filters.search}
-              onChange={(e) => setFilter("search", e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800 dark:text-white outline-none focus:border-blue-400 transition-colors"
-            />
+  type="text"
+  placeholder="Search lead or agent..."
+  value={searchInput}
+  onChange={(e) => setSearchInput(e.target.value)}
+  className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800 dark:text-white outline-none focus:border-blue-400 transition-colors"
+/>
           </div>
 
           {/* Date */}
@@ -404,7 +418,7 @@ export default function CallTracker() {
                   {call.recording_url ? (
                     <div className="flex items-center gap-2">
                       <Mic size={12} className="text-blue-400 shrink-0" />
-                      <audio controls className="w-full h-8">
+                      <audio controls preload="none" className="w-full h-8">
                         <source src={call.recording_url} type="audio/mpeg" />
                       </audio>
                     </div>
@@ -426,11 +440,13 @@ export default function CallTracker() {
                   </div>
                   <div className="flex items-center gap-1 text-[9px] text-gray-400 font-bold uppercase">
                     <Calendar size={10} />
-                    {new Date(call.created_at).toLocaleDateString(undefined, {
-                      day:   "2-digit",
-                      month: "short",
-                      year:  "numeric",
-                    })}
+                  {call.created_at
+  ? new Date(call.created_at).toLocaleDateString(undefined, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    })
+  : "-"}
                   </div>
                 </div>
               </div>

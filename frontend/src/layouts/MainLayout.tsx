@@ -242,18 +242,35 @@ export default function MainLayout() {
   }, []);
 
   // ── Branding ──────────────────────────────────────────────────────────────────
-  const fetchBranding = useCallback(async () => {
-    try {
-      const data = await apiGet("/api/settings");
-      if (data) { setLogo(data.logo_url || ""); setCompanyName(data.company_name || "CRM Alpha"); }
-    } catch {}
-  }, []);
-  useEffect(() => {
-    fetchBranding();
-    window.addEventListener("settingsUpdated", fetchBranding);
-    return () => window.removeEventListener("settingsUpdated", fetchBranding);
-  }, [fetchBranding]);
+ const fetchBranding = useCallback(async () => {
+  try {
+    const data = await apiGet("/api/settings");
 
+    if (!data) return;
+
+    const API_BASE =
+      import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4000";
+
+    setLogo(
+      data.logo_url
+        ? `${API_BASE}${data.logo_url.startsWith("/") ? "" : "/"}${data.logo_url}`
+        : ""
+    );
+
+    setCompanyName(data.company_name || "CRM Alpha");
+
+  } catch (err) {
+    console.error("Branding fetch failed:", err);
+  }
+}, []);
+useEffect(() => {
+  fetchBranding();
+
+  window.addEventListener("settingsUpdated", fetchBranding);
+
+  return () =>
+    window.removeEventListener("settingsUpdated", fetchBranding);
+}, [fetchBranding]);
 
 
 
@@ -382,6 +399,7 @@ useEffect(() => {
       ...(can("data.import")       ? [{ label: "Bulk Import",   to: "/import",      icon: <Upload size={16} /> }] : []),
       ...(can("logs.activity")     ? [{ label: "Activity Logs", to: "/audit-logs",  icon: <History size={16} /> }] : []),
       ...(can("logs.activity") ? [{ label: "Call Logs", to: "/call-tracker", icon: <Headphones size={16} /> }] : []),
+        ...(can("attendance.view") ? [{ label: "Attendance Log", to: "/attendance", icon: <Clock size={14} /> }] : []),
       
       ...((can("master.staff") || can("master.course")) ? [{
         label: "Masters", to: "masters",
@@ -391,7 +409,7 @@ useEffect(() => {
   ...(can("master.course")  ? [{ label: "Course Master", to: "/masters/courses", icon: <Package size={14} /> }] : []),
   // --- Add this line ---
   ...(can("master.country") ? [{ label: "Country Master", to: "/masters/countries", icon: <Globe size={14} /> }] : []),
-  ...(can("attendance.view") ? [{ label: "Attendance Log", to: "/attendance", icon: <Clock size={14} /> }] : []),
+
         ],
       }] : []),
     ],
