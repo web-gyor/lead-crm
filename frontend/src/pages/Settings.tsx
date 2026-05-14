@@ -569,6 +569,7 @@ const displayLogo = newLogoPreview
 
 const passwordMismatch = !!account.confirmPassword && account.newPassword !== account.confirmPassword;
 const projectSlug = (account.fullName || "").toLowerCase().trim().replace(/\s+/g, "-");
+
 const handleSave = async () => {
   if (saving) return;
   
@@ -667,16 +668,18 @@ const handleSave = async () => {
             <div className="space-y-4">
               <SectionCard title="Company Logo">
                 <div className="flex items-center gap-4">
-                  <div className="w-20 h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden border-blue-100 bg-white dark:bg-gray-800 shadow-md">
-                    {displayLogo ? <img src={displayLogo} alt="Company logo" className="w-full h-full object-contain p-2" /> : <ImageIcon size={24} className="text-gray-300" />}
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoChange} className="hidden" id="logo-up" />
-                    <label htmlFor="logo-up" className="inline-flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl cursor-pointer text-[10px] font-black uppercase tracking-widest">
-                      <Upload size={13} /> Change Logo
-                    </label>
-                    <p className="text-[9px] text-gray-400 uppercase font-black">PNG, JPG or SVG · Max 2 MB</p>
-                  </div>
+                 <div className="w-20 h-20 rounded-2xl border-2 flex items-center justify-center overflow-hidden border-blue-100 bg-white dark:bg-gray-800 shadow-md">
+  {displayLogo ? (
+    <img 
+      /* We add ?t= to force Vercel and the browser to fetch a fresh version */
+      src={`${displayLogo}${displayLogo.includes('?') ? '&' : '?'}t=${new Date().getTime()}`} 
+      alt="Company logo" 
+      className="w-full h-full object-contain p-2" 
+    />
+  ) : (
+    <ImageIcon size={24} className="text-gray-300" />
+  )}
+</div>
                 </div>
               </SectionCard>
               <SectionCard title="Company Information">
