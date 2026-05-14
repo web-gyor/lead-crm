@@ -14,7 +14,7 @@ const handleLogin = async (e: React.FormEvent) => {
   e.preventDefault();
   setLoading(true);
   try {
-    const res = await apiPost("/auth/login", { email, password });
+   const res = await apiPost("/api/auth/login", { email, password });
     
     // Smart extraction: check direct, check .data, and check .user
     const token = res?.token || res?.data?.token;

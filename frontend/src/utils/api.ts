@@ -1,5 +1,8 @@
 // 1. Sanitize the URL immediately to prevent "//auth/login"
-const rawBase = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const rawBase =
+  import.meta.env.MODE === "development"
+    ? "http://localhost:4000"
+    : "";
 const API_BASE = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
 
 export const clearAuth = () => {
@@ -40,12 +43,11 @@ const getHeaders = (endpoint: string, isJson = false) => {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
   // 3. Ensure these match your Backend routes exactly
-  const publicApiEndpoints = [
-    '/api/auth/login',
-    '/auth/login', // Added this just in case your prefix varies
-    '/api/users/forgot-password',
-    '/api/users/reset-password'
-  ];
+ const publicApiEndpoints = [
+  '/api/auth/login',
+  '/api/users/forgot-password',
+  '/api/users/reset-password'
+];
 
   const isPublicApi = publicApiEndpoints.some(route => normalizedEndpoint.includes(route));
 
