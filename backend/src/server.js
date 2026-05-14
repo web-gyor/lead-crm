@@ -39,7 +39,7 @@ const app  = express();
 const PORT = process.env.PORT || 4000;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 1. SECURITY MIDDLEWARE
+// 1. SECURITY & CORS MIDDLEWARE
 // ═══════════════════════════════════════════════════════════════════════════════
 
 app.use(
@@ -56,15 +56,14 @@ const envOrigins = process.env.ALLOWED_ORIGINS
 const allowedOrigins = [
   ...envOrigins,
   "https://lead-crm-git-main-webgyors-projects.vercel.app",
-  "https://lead-crm-kappa-tawny.vercel.app", // Added your primary production URL
+  "https://lead-crm-kappa-tawny.vercel.app", 
   "https://lead-crm-tmz8.onrender.com"
 ];
 
 if (process.env.NODE_ENV !== "production") {
-  allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
+  allowedOrigins.push("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173");
 }
 
-// --- CORS Configuration ---
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -86,23 +85,30 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
+// --- Apply CORS & Handle Pre-flight (OPTIONS) ---
 app.use(cors(corsOptions));
+
+// This manual check handles OPTIONS without using problematic regex characters
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // --- Rate Limiter ---
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 1000, 
+  // Allow more requests locally, tighter in production
+  max: process.env.NODE_ENV === "production" ? 100 : 1000, 
   message: { success: false, message: "Too many requests. Please slow down." },
   standardHeaders: true,
   legacyHeaders: false,
-  // This skip ensures the browser's "handshake" (OPTIONS) is never blocked
-  skip: (req) => req.method === 'OPTIONS',
 });
 
-// CHANGE THIS: Instead of global app.use(apiLimiter), 
-// apply it only to your data-heavy routes
-app.use("/api/", apiLimiter);
-app.use("/auth/", apiLimiter);
+// Removed trailing slashes to prevent "Missing parameter name" errors
+app.use("/api", apiLimiter);
+app.use("/auth", apiLimiter);
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. BODY PARSERS & LOGGING
 // ═══════════════════════════════════════════════════════════════════════════════
