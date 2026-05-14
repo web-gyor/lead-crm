@@ -44,26 +44,6 @@ app.use(
   })
 );
 
-const envOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
-      .map(o => o.trim())
-      .filter(Boolean)
-  : [];
-
-const allowedOrigins = [
-  ...envOrigins,
-  "https://lead-crm-git-main-webgyors-projects.vercel.app",
-  "https://lead-crm-kappa-tawny.vercel.app"
-];
-
-if (process.env.NODE_ENV !== "production") {
-  allowedOrigins.push(
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173"
-  );
-}
-
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -77,27 +57,19 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    console.error("CORS Blocked:", origin);
     return callback(new Error(`CORS: ${origin} not allowed`));
   },
 
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 200
+  allowedHeaders: ["Content-Type", "Authorization"]
 };
 
 app.use(cors(corsOptions));
 
-app.options("*", cors(corsOptions));
-
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === "production" ? 100 : 1000,
-  message: {
-    success: false,
-    message: "Too many requests. Please slow down."
-  },
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.method === "OPTIONS"
