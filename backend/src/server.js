@@ -38,30 +38,30 @@ const analyticsController = require("./controllers/analyticsController");
 const app  = express();
 const PORT = process.env.PORT || 4000;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 1. SECURITY & CORS MIDDLEWARE
-// ═══════════════════════════════════════════════════════════════════════════════
-
 app.use(
   helmet({
     crossOriginResourcePolicy: false
   })
 );
 
-// --- Merged allowedOrigins logic ---
-const envOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()).filter(Boolean) 
+const envOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+      .map(o => o.trim())
+      .filter(Boolean)
   : [];
 
 const allowedOrigins = [
   ...envOrigins,
   "https://lead-crm-git-main-webgyors-projects.vercel.app",
-  "https://lead-crm-kappa-tawny.vercel.app", 
-  "https://lead-crm-tmz8.onrender.com"
+  "https://lead-crm-kappa-tawny.vercel.app"
 ];
 
 if (process.env.NODE_ENV !== "production") {
-  allowedOrigins.push("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173");
+  allowedOrigins.push(
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173"
+  );
 }
 
 const corsOptions = {
@@ -70,7 +70,8 @@ const corsOptions = {
 
     const isAllowed =
       allowedOrigins.includes(origin) ||
-      origin.endsWith(".vercel.app");
+      (typeof origin === "string" &&
+        origin.endsWith(".vercel.app"));
 
     if (isAllowed) {
       return callback(null, true);
@@ -79,34 +80,29 @@ const corsOptions = {
     console.error("CORS Blocked:", origin);
     return callback(new Error(`CORS: ${origin} not allowed`));
   },
+
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   optionsSuccessStatus: 200
 };
 
-// --- Apply CORS & Handle Pre-flight (OPTIONS) ---
 app.use(cors(corsOptions));
 
-// This manual check handles OPTIONS without using problematic regex characters
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.options("*", cors(corsOptions));
 
-// --- Rate Limiter ---
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  // Allow more requests locally, tighter in production
-  max: process.env.NODE_ENV === "production" ? 100 : 1000, 
-  message: { success: false, message: "Too many requests. Please slow down." },
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 100 : 1000,
+  message: {
+    success: false,
+    message: "Too many requests. Please slow down."
+  },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS"
 });
 
-// Removed trailing slashes to prevent "Missing parameter name" errors
 app.use("/api", apiLimiter);
 app.use("/auth", apiLimiter);
 // ═══════════════════════════════════════════════════════════════════════════════
