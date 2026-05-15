@@ -1,5 +1,7 @@
 // src/pages/Communication.tsx
 import { useState, useEffect, useCallback } from "react";
+import { Mail, MessageCircle } from "lucide-react";
+import { parseTemplate } from "../utils/templateHelper";
 import {
   Phone, MessageSquare, Users, StickyNote,
   Zap, Search, ChevronRight, ShieldCheck,
@@ -92,7 +94,81 @@ function InteractionHub({ lead, leads, onSelectLead, onNewLog, onBack }: Interac
   const [isDeleting, setIsDeleting] = useState(false);
 const [recordingFeatureEnabled, setRecordingFeatureEnabled] = useState(false);
 const [useRecording, setUseRecording] = useState(false);
+const [templates, setTemplates] = useState<{ sms: any[], email: any[], whatsapp: any[] }>({ sms: [], email: [], whatsapp: [] });
 
+useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const [smsRes, waRes, emailRes] = await Promise.all([
+          apiGet("/api/communication-templates?type=sms"),
+          apiGet("/api/communication-templates?type=whatsapp"),
+          apiGet("/api/communication-templates?type=email")
+        ]);
+        setTemplates({
+          sms: smsRes?.data || [],
+          whatsapp: waRes?.data || [],
+          email: emailRes?.data || []
+        });
+      } catch (err) { console.error("Templates fetch failed", err); }
+    };
+    fetchTemplates();
+  }, [lead.id]);
+
+  // 2. Handler to open communication with template parsing
+ const handleCommClick = async (type: 'sms' | 'wa' | 'email') => {
+  const templateList = type === 'wa' ? templates.whatsapp : templates[type];
+  
+  // 1. Find the best template (active first, else first available)
+  const template = templateList.find((t: any) => t.is_active) || templateList[0];
+
+  let parsedMsg = "";
+  let url = "";
+
+  // 2. If a template exists, parse the variables
+  if (template) {
+    parsedMsg = parseTemplate(template.message, { 
+      name: lead.full_name, 
+      course: lead.interested_course || "Course",
+      ...lead 
+    });
+  }
+
+  // 3. Construct URLs based on type
+  const cleanPhone = lead.phone?.replace(/\D/g, "");
+  
+  if (type === 'wa') {
+    url = `https://wa.me/91${cleanPhone}${parsedMsg ? `?text=${encodeURIComponent(parsedMsg)}` : ""}`;
+  } else if (type === 'sms') {
+    // Note: iOS uses '&', Android uses '?' for body. Using both for compatibility.
+    url = `sms:${lead.phone}${parsedMsg ? `?&body=${encodeURIComponent(parsedMsg)}` : ""}`;
+  } else if (type === 'email') {
+    const subject = template?.subject 
+      ? parseTemplate(template.subject, { name: lead.full_name }) 
+      : "Follow up regarding your enquiry";
+    url = `mailto:${lead.email || ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(parsedMsg)}`;
+  }
+
+  // 4. Auto-Log the interaction (Optional but highly recommended)
+  try {
+    await apiPost("/api/communication-logs", {
+      lead_id: lead.id,
+      type: type === 'wa' ? 'WhatsApp' : type.toUpperCase(),
+      summary: template 
+        ? `Sent ${type.toUpperCase()} template: ${template.title}` 
+        : `Opened manual ${type.toUpperCase()} dialer`
+    });
+    fetchLogs(true); // Refresh the timeline instantly
+  } catch (err) {
+    console.error("Auto-log failed", err);
+  }
+
+  // 5. Execute the trigger
+  if (type === 'wa') {
+    window.open(url, "_blank");
+  } else {
+    window.location.href = url;
+  }
+};
 
   const fetchLogs = useCallback(async (silent = false) => {
     if (!lead?.id) return;
@@ -360,64 +436,65 @@ const handleBridgeCall = async (e: React.MouseEvent) => {
   </div>
 )}
 
-{/* Quick action row */}
-<div className="grid grid-cols-3 gap-2 mt-3">
+{/* Quick action row - 4 Column Layout */}
+<div className="grid grid-cols-4 gap-2 mt-3">
 
-  {/* Column 1: Call */}
+  {/* Column 1: Call/Rec */}
   <a
     href={`tel:${lead?.phone}`}
     onClick={handleBridgeCall}
-    className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-tight transition-all border shadow-sm ${
+    className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-tighter transition-all border shadow-sm ${
       useRecording
         ? "bg-blue-600 text-white border-blue-700 hover:bg-blue-700 active:scale-95"
         : "bg-blue-50 dark:bg-blue-900/10 text-blue-600 border-blue-100 dark:border-blue-800 hover:bg-blue-100"
     }`}
   >
     {useRecording ? (
-      <>
+      <div className="flex items-center gap-1">
         <span className="relative flex h-1.5 w-1.5 shrink-0">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
         </span>
-        <span className="truncate">Rec</span>
-      </>
+        <span>Rec</span>
+      </div>
     ) : (
-      <>
-        <Phone size={12} strokeWidth={3} className="shrink-0" />
-        <span>Call</span>
-      </>
+      <Phone size={12} strokeWidth={3} className="shrink-0" />
     )}
+    <span>Call</span>
   </a>
 
-  {/* Column 2: WA */}
-  <a 
-    href={`https://wa.me/91${lead?.phone?.replace(/\D/g, "")}`}
-    target="_blank" 
-    rel="noreferrer"
-    className="flex items-center justify-center gap-1.5 py-2.5 bg-emerald-50 dark:bg-emerald-900/10
-      text-emerald-600 border border-emerald-100 dark:border-emerald-800 rounded-xl text-[10px] 
-      font-black uppercase tracking-tight hover:bg-emerald-100 transition-all active:scale-95 shadow-sm"
+  {/* Column 2: WhatsApp */}
+  <button 
+    onClick={() => handleCommClick('wa')}
+    className="flex flex-col items-center justify-center gap-1 py-2.5 bg-emerald-50 dark:bg-emerald-900/10
+      text-emerald-600 border border-emerald-100 dark:border-emerald-800 rounded-xl text-[9px] 
+      font-black uppercase tracking-tighter hover:bg-emerald-100 transition-all active:scale-95 shadow-sm"
   >
     <MessageSquare size={12} strokeWidth={3} className="shrink-0" /> 
     <span>WA</span>
-  </a>
+  </button>
 
-  {/* Column 3: Staff (Placeholder if no assigned user to keep 3 cols) */}
-  <div className="flex items-center justify-center gap-1.5 py-2.5 bg-indigo-50
-    dark:bg-indigo-900/10 text-indigo-600 border border-indigo-100 dark:border-indigo-800 
-    rounded-xl text-[10px] font-black uppercase tracking-tight shadow-sm">
-    {lead?.assigned_user_name ? (
-      <>
-        <ShieldCheck size={12} strokeWidth={3} className="shrink-0" />
-        <span className="truncate">{lead.assigned_user_name.split(" ")[0]}</span>
-      </>
-    ) : (
-      <>
-        <UserCircle2 size={12} strokeWidth={3} className="shrink-0" />
-        <span>Staff</span>
-      </>
-    )}
-  </div>
+  {/* Column 3: SMS */}
+  <button 
+    onClick={() => handleCommClick('sms')}
+    className="flex flex-col items-center justify-center gap-1 py-2.5 bg-amber-50 dark:bg-amber-900/10
+      text-amber-600 border border-amber-100 dark:border-amber-800 rounded-xl text-[9px] 
+      font-black uppercase tracking-tighter hover:bg-amber-100 transition-all active:scale-95 shadow-sm"
+  >
+    <Zap size={12} strokeWidth={3} className="shrink-0" /> 
+    <span>SMS</span>
+  </button>
+
+  {/* Column 4: Email */}
+  <button 
+    onClick={() => handleCommClick('email')}
+    className="flex flex-col items-center justify-center gap-1 py-2.5 bg-purple-50 dark:bg-purple-900/10
+      text-purple-600 border border-purple-100 dark:border-purple-800 rounded-xl text-[9px] 
+      font-black uppercase tracking-tighter hover:bg-purple-100 transition-all active:scale-95 shadow-sm"
+  >
+    <Mail size={12} strokeWidth={3} className="shrink-0" /> 
+    <span>Email</span>
+  </button>
 </div></div>
 
       {/* ── Log form ── */}

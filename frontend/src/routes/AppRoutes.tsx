@@ -8,6 +8,7 @@ import MainLayout from "../layouts/MainLayout";
 // Pages
 import Dashboard from "../pages/Dashboard";
 import FollowUps from "../pages/FollowUps";
+import ColdStorage from "../pages/ColdStorage";
 import Leads from "../pages/Leads";
 import Pipeline from "../pages/Pipeline";
 import Permissions from "../pages/Permissions";
@@ -21,6 +22,7 @@ import Settings from "../pages/Settings";
 import Performance from "../pages/Performance";
 import BulkImport from "../pages/BulkImport";
 import CommunicationLog from "../pages/Communication";
+import AutomationManager from "../pages/AutomationManager";
 import ResetPassword from "../pages/ResetPassword";
 
 // Lead Status Pages
@@ -72,6 +74,10 @@ export default function AppRoutes() {
           <Route path="/communication" element={<ProtectedRoute permissionKey="logs.communication" />} >
               <Route index element={<CommunicationLog />} />
           </Route>
+          {/* AI Automation Engine */}
+            <Route path="/automation" element={<ProtectedRoute permissionKey="ai.intelligence" />} >
+                <Route index element={<AutomationManager />} />
+            </Route>
 
           {/* Lead Status Pages - Adding keys for security */}
           <Route path="/leads/new" element={<ProtectedRoute permissionKey="leads.view" />} >
@@ -95,6 +101,9 @@ export default function AppRoutes() {
           <Route path="/leads/lost" element={<ProtectedRoute permissionKey="leads.view" />} >
              <Route index element={<LostLeads />} />
           </Route>
+         <Route path="/leads/cold-storage" element={<ProtectedRoute permissionKey="leads.view" />}>
+        <Route index element={<ColdStorage />} />
+       </Route>
 
           {/* Advanced & Admin */}
           <Route path="/analytics" element={<ProtectedRoute permissionKey="analytics.revenue" />} >

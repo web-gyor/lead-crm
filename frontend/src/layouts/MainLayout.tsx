@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, UserPlus, Phone, Bell, Menu, Sun, Moon,
   Layers, Package, BrainCircuit, CheckCircle, XCircle, BarChart3,
   LogOut, Filter, Upload, Zap, Calendar, History, UserCheck,
-  ShieldCheck, X, Activity, AlertCircle, Globe, Headphones
+  ShieldCheck, X, Activity, AlertCircle, Globe, Headphones, Archive
 } from "lucide-react";
 import { apiGet } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
@@ -36,6 +36,7 @@ interface SectionConfig {
 // ─── Route → Page title map ───────────────────────────────────────────────────
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":        "Dashboard",
+  "/leads/cold-storage": "Cold Storage",
   "/leads":            "All Leads",
   "/leads/new":        "New Leads",
   "/leads/contacted":  "Contacted",
@@ -52,12 +53,12 @@ const PAGE_TITLES: Record<string, string> = {
   "/performance":      "Performance",
   "/reports":          "Lead Reports",
   "/import":           "Bulk Import",
-  "/distribution": "Lead Distribution",
+  "/distribution":    "Lead Distribution",
   "/audit-logs":       "Activity Logs",
-   "/call-tracker": "Call Logs",
+   "/call-tracker":    "Call Logs",
   "/masters/users":    "Staff Master",
   "/masters/courses":  "Course Master",
-  "/settings":         "System Config",
+  "/settings":         "Settings",
   "/permissions":      "Access Control",
 };
 
@@ -380,15 +381,21 @@ useEffect(() => {
       ] : []),
     ],
   },
-  {
-    title: "Operations",
-    items: [
-      ...(can("leads.kanban") ? [{ label: "Pipeline",      to: "/pipeline",       icon: <Layers size={16} /> }] : []),
-      ...(can("tasks.view")   ? [{ label: "Today's Tasks", to: "/followups",      icon: <TrendingUp size={16} />, badge: notifData.today }] : []),
-      ...(can("logs.communication") ? [{ label: "Comm. Logs",  to: "/communication",   icon: <MessageCircle size={16} /> }] : []),
-      ...(can("ai.intelligence") ? [{ label: "AI Engine",     to: "/automation",     icon: <BrainCircuit size={16} />, disabled: true }] : []),
-    ],
-  },
+{
+  title: "Operations",
+  items: [
+    ...(can("leads.kanban") ? [{ label: "Pipeline", to: "/pipeline", icon: <Layers size={16} /> }] : []),
+    ...(can("tasks.view")   ? [{ label: "Today's Tasks", to: "/followups", icon: <TrendingUp size={16} />, badge: notifData.today }] : []),
+    ...(can("logs.communication") ? [{ label: "Comm. Logs", to: "/communication", icon: <MessageCircle size={16} /> }] : []),
+    // Enabled AI Automation here
+    ...(can("ai.intelligence") ? [{ 
+      label: "AI Automation", 
+      to: "/automation", 
+      icon: <BrainCircuit size={16} />,
+      // removed disabled: true
+    }] : []),
+  ],
+},
   {
     title: "System Admin",
     items: [
@@ -417,8 +424,10 @@ useEffect(() => {
   {
     title: "System",
     items: [
-      { label: "System Config", to: "/settings",    icon: <Settings size={16} /> },
+      { label: "Settings", to: "/settings",    icon: <Settings size={16} /> },
       ...(can("system.permissions") ? [{ label: "Access Control", to: "/permissions", icon: <ShieldCheck size={16} /> }] : []),
+      ...(can("leads.view") ? [{   label: "Cold Storage",   to: "/leads/cold-storage",   icon: <Archive size={16} /> 
+}] : []),
     ],
   },
 ], [can, notifData.today, notifData.newLeads]); // Added newLeads to dependencies for badge accuracy
