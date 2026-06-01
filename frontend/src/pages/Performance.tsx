@@ -1,9 +1,9 @@
 // src/pages/StaffPerformance.tsx
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Users, TrendingUp, Calendar, Filter, BarChart3,
+  Users, Calendar, Filter, BarChart3,
   CheckCircle2, RefreshCw, Activity, X, Download,
-  ArrowUpRight, ArrowDownRight, Zap, RotateCcw, Trophy,
+  ArrowUpRight, ArrowDownRight, Zap, RotateCcw, Trophy, ChevronRight,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -17,14 +17,13 @@ type Period = "daily" | "weekly" | "monthly" | "custom";
 type SortKey = "performance_score" | "total_leads" | "conversions" | "success_rate" | "speed_score" | "consistency_score";
 
 interface RawStaff {
-  id:               number;
-  name:             string;
-  role:             string;
-  total_leads:      number;
-  conversions:      number;
-  prev_total_leads: number;
-  prev_conversions: number;
-  // Optional — present if backend sends them
+  id:                 number;
+  name:               string;
+  role:               string;
+  total_leads:        number;
+  conversions:        number;
+  prev_total_leads:   number;
+  prev_conversions:   number;
   avg_response_hours?: number | null;
   followup_count?:     number;
 }
@@ -85,77 +84,20 @@ const getInitials = (name: string) => {
     : (p[0]?.[0] || "?").toUpperCase();
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCORING ENGINE
-// All functions are pure — no side effects, no crashes on bad input.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Speed score — based on average hours between lead creation and first contact.
- * If the backend doesn't return avg_response_hours, returns 0 (no data).
- */
-function calculateSpeedScore(avgHours: number | null | undefined): number {
-  if (avgHours === null || avgHours === undefined) return 0;
-  const h = Number(avgHours);
-  if (!isFinite(h) || h < 0) return 0;
-  if (h < 2)  return 100;
-  if (h < 6)  return 80;
-  if (h < 24) return 60;
-  return 30;
-}
-
-/**
- * Consistency score — % of leads that have a follow-up date set.
- * Falls back to a proxy score if follow-up data isn't available.
- */
-function calculateConsistencyScore(
-  followupCount: number | undefined,
-  totalLeads:    number,
-  conversions:   number,
-): number {
-  if (totalLeads <= 0) return 0;
-
-  // Primary: actual follow-up coverage from backend
-  if (typeof followupCount === "number" && followupCount > 0) {
-    return Math.min(100, Math.round((followupCount / totalLeads) * 100));
-  }
-
-  // Fallback: use conversion rate as a proxy for engagement discipline
-  // Counselors who convert tend to follow up consistently
-  const convRate = (conversions / totalLeads) * 100;
-  if (convRate >= 40) return 80;
-  if (convRate >= 20) return 65;
-  if (conversions > 0) return 50;
-  return 30;
-}
-
-/**
- * Final weighted performance score (0–100).
- * Weights: Efficiency 40% | Volume 20% | Speed 20% | Consistency 20%
- */
-function calculatePerformanceScore(
-  efficiencyScore:  number,   // 0–100  (= success_rate capped at 100)
-  volumeScoreNorm:  number,   // 0–100  (normalised vs max leads in dataset)
-  speedScore:       number,   // 0–100
-  consistencyScore: number,   // 0–100
-): number {
-  const raw =
-    efficiencyScore  * 0.40 +
-    volumeScoreNorm  * 0.20 +
-    speedScore       * 0.20 +
-    consistencyScore * 0.20;
-  return Math.round(Math.min(100, Math.max(0, raw)));
-}
-
-/**
- * Process raw API rows into fully scored staff array, sorted by performance_score.
- */
 function processStaffData(raw: RawStaff[]): ScoredStaff[] {
   if (!raw.length) return [];
 
-  const maxLeads = Math.max(...raw.map(r => Number(r.total_leads) || 0), 1);
+  // 🚀 INTERCEPT 1: Drop administrative roles before math modeling run execution
+  const absoluteCleanRaw = raw.filter((r: RawStaff) => {
+    const staffRole = String(r.role || "").trim().toLowerCase();
+    return staffRole === "counselor" || staffRole === "telecaller";
+  });
 
-  const scored: ScoredStaff[] = raw.map(r => {
+  if (!absoluteCleanRaw.length) return [];
+
+  const maxLeads = Math.max(...absoluteCleanRaw.map(r => Number(r.total_leads) || 0), 1);
+
+  const scored: ScoredStaff[] = absoluteCleanRaw.map(r => {
     const total = Number(r.total_leads) || 0;
     const conv  = Number(r.conversions) || 0;
 
@@ -178,13 +120,52 @@ function processStaffData(raw: RawStaff[]): ScoredStaff[] {
       performance_score: perfScore,
     };
   });
-
+  
   return scored.sort((a, b) => b.performance_score - a.performance_score);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UI Components
-// ─────────────────────────────────────────────────────────────────────────────
+function calculateSpeedScore(avgHours: number | null | undefined): number {
+  if (avgHours === null || avgHours === undefined) return 0;
+  const h = Number(avgHours);
+  if (!isFinite(h) || h < 0) return 0;
+  if (h < 2)  return 100;
+  if (h < 6)  return 80;
+  if (h < 24) return 60;
+  return 30;
+}
+
+// ─── Score formulas ───────────────────────────────────────────────────────────
+
+function calculateConsistencyScore(followupCount: number | undefined, totalLeads: number, conversions: number): number {
+  if (totalLeads <= 0) return 0;
+  if (typeof followupCount === "number" && followupCount > 0) {
+    return Math.min(100, Math.round((followupCount / totalLeads) * 100));
+  }
+  const convRate = (conversions / totalLeads) * 100;
+  if (convRate >= 40) return 80;
+  if (convRate >= 20) return 65;
+  if (conversions > 0) return 50;
+  return 30;
+}
+
+function DeltaBadge({ curr, prev }: { curr: number; prev: number }) {
+  if (prev === 0 && curr === 0) return <span className="text-[10px] text-gray-300 dark:text-gray-600">—</span>;
+  const d = curr - prev;
+  if (d === 0) return <span className="text-[10px] text-gray-400">±0</span>;
+  const up = d > 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold ${up ? "text-emerald-600" : "text-red-500"}`}>
+      {up ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}{Math.abs(d)}
+    </span>
+  );
+}
+
+// ─── Sub-Calculations ─────────────────────────────────────────────────────────
+
+function calculatePerformanceScore(efficiencyScore: number, volumeScoreNorm: number, speedScore: number, consistencyScore: number): number {
+  const raw = efficiencyScore * 0.40 + volumeScoreNorm * 0.20 + speedScore * 0.20 + consistencyScore * 0.20;
+  return Math.round(Math.min(100, Math.max(0, raw)));
+}
 
 function RateBadge({ rate }: { rate: number }) {
   const cls =
@@ -211,207 +192,163 @@ function PerfBadge({ score }: { score: number }) {
   );
 }
 
-function ScoreBar({ value, color = "bg-blue-500" }: { value: number; color?: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden min-w-[48px]">
-        <div className={`h-full rounded-full transition-all duration-700 ${color}`}
-          style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-      </div>
-      <span className="text-[10px] font-bold tabular-nums text-gray-400 w-6 text-right shrink-0">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function DeltaBadge({ curr, prev }: { curr: number; prev: number }) {
-  if (prev === 0 && curr === 0) return <span className="text-[10px] text-gray-300 dark:text-gray-600">—</span>;
-  const d = curr - prev;
-  if (d === 0) return <span className="text-[10px] text-gray-400">±0</span>;
-  const up = d > 0;
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold ${up ? "text-emerald-600" : "text-red-500"}`}>
-      {up ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}{Math.abs(d)}
-    </span>
-  );
-}
-
-function SortTh({ label, sortKey, active, onSort }: {
-  label: string; sortKey: SortKey; active: boolean; onSort: (k: SortKey) => void;
-}) {
-  return (
-    <th onClick={() => onSort(sortKey)}
-      className={`px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider cursor-pointer select-none transition-colors hover:text-blue-600 ${active ? "text-blue-600" : "text-gray-400"}`}>
-      <span className="inline-flex items-center justify-center gap-0.5">
-        {label}{active && <ArrowUpRight size={9} />}
-      </span>
-    </th>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
-// Main Component
+// MAIN COMPONENT EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
-
 export default function StaffPerformance() {
   const [loading,         setLoading]         = useState(false);
   const [rawData,         setRawData]         = useState<RawStaff[]>([]);
   const [counselors,      setCounselors]      = useState<{ id: number; name: string; role?: string }[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState("all");
   const [period,          setPeriod]          = useState<Period>("monthly");
-  const [customFrom,      setCustomFrom]      = useState(
-    toISO(new Date(new Date().getFullYear(), 0, 1))
-  );
-  const [customTo,    setCustomTo]    = useState(toISO(new Date()));
-  const [sortKey,     setSortKey]     = useState<SortKey>("performance_score");
-  const [showScores,  setShowScores]  = useState(false);
+  const [customFrom,      setCustomFrom]      = useState(toISO(new Date(new Date().getFullYear(), 0, 1)));
+  const [customTo,        setCustomTo]        = useState(toISO(new Date()));
+  const [sortKey,         setSortKey]         = useState<SortKey>("performance_score");
+  const [showScores,      setShowScores]      = useState(false);
 
-  const activeDates = period === "custom"
-    ? { from: customFrom, to: customTo }
-    : getPeriodDates(period);
+  const activeDates = period === "custom" ? { from: customFrom, to: customTo } : getPeriodDates(period);
+  const periodLabel = period === "custom" ? `${customFrom} → ${customTo}` : PERIODS.find(p => p.id === period)?.label ?? "";
 
-  const periodLabel = period === "custom"
-    ? `${customFrom} → ${customTo}`
-    : PERIODS.find(p => p.id === period)?.label ?? "";
-
-  // ── Staff dropdown ─────────────────────────────────────────────────────────
-// ── Staff dropdown ─────────────────────────────────────────────────────────
+  // 🚀 FIXED: Clears dropdown box from holding onto admin users
   useEffect(() => {
-    // Updated to the new specialized performance path
     apiGet("/api/staff-performance/dropdown")
       .then(res => {
         const list = Array.isArray(res) ? res : (res?.data ?? []);
-        // Since the backend now filters for 'Counselor', 
-        // we mainly check for existence, but extra safety doesn't hurt.
-        setCounselors(list);
+        const clearList = list.filter((c: any) => {
+          const r = String(c.role || "").trim().toLowerCase();
+          return r === "counselor" || r === "telecaller";
+        });
+        setCounselors(clearList);
       })
-      .catch((err) => {
-        console.error("Dropdown fetch error:", err);
-      });
+      .catch(() => {});
   }, []);
 
-  // ── Performance data ───────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setRawData([]);
     try {
-      // Updated to the new comparison path
-      const res = await apiGet(
-        `/api/staff-performance/comparison?from=${activeDates.from}&to=${activeDates.to}&staffId=${selectedStaffId}`
-      );
-      
+      const res = await apiGet(`/api/staff-performance/comparison?from=${activeDates.from}&to=${activeDates.to}&staffId=${selectedStaffId}`);
       const rows: RawStaff[] = Array.isArray(res) ? res : (res?.data ?? []);
       
-      // We keep the filter here as a secondary safeguard to ensure
-      // only counselors appear in the charts/table.
-      const filteredRows = rows.filter((r: RawStaff) =>
-        !["admin", "superadmin", "manager"].includes((r.role || "").toLowerCase())
-      );
-      
+      const filteredRows = rows.filter((r: RawStaff) => {
+        const staffRole = String(r.role || "").trim().toLowerCase();
+        return staffRole === "counselor" || staffRole === "telecaller";
+      });
+
       setRawData(filteredRows);
-    } catch (err) {
-      console.error("Comparison fetch error:", err);
+    } catch (error) {
+      console.error("Critical error syncing performance array:", error);
       setRawData([]);
     } finally {
       setLoading(false);
     }
   }, [activeDates.from, activeDates.to, selectedStaffId]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── Score + sort ──────────────────────────────────────────────────────────
+  // 🚀 FIXED: Strict operational fallback wrapper filter
   const data: ScoredStaff[] = useMemo(() => {
     const scored = processStaffData(rawData);
-    if (sortKey === "performance_score") return scored; // already sorted
-    return [...scored].sort((a, b) => (Number(b[sortKey]) || 0) - (Number(a[sortKey]) || 0));
+    const whitelist = scored.filter(s => {
+      const r = String(s.role || "").trim().toLowerCase();
+      return r === "counselor" || r === "telecaller";
+    });
+    if (sortKey === "performance_score") return whitelist;
+    return [...whitelist].sort((a, b) => (Number(b[sortKey]) || 0) - (Number(a[sortKey]) || 0));
   }, [rawData, sortKey]);
 
-  // ── KPI totals ────────────────────────────────────────────────────────────
+  // 🚀 FIXED: Aggregated KPI Cards calculate values based exclusively on whitelisted users
   const { totalLeads, totalConverted, avgPerfScore } = useMemo(() => {
-    const tl = data.reduce((s, r) => s + r.total_leads, 0);
-    const tc = data.reduce((s, r) => s + r.conversions, 0);
-    const ap = data.length > 0
-      ? Math.round(data.reduce((s, r) => s + r.performance_score, 0) / data.length)
-      : 0;
-    return { totalLeads: tl, totalConverted: tc, avgPerfScore: ap };
+    return {
+      totalLeads: data.reduce((s, r) => s + r.total_leads, 0),
+      totalConverted: data.reduce((s, r) => s + r.conversions, 0),
+      avgPerfScore: data.length > 0 ? Math.round(data.reduce((s, r) => s + r.performance_score, 0) / data.length) : 0
+    };
   }, [data]);
 
-  const globalRate = totalLeads > 0
-    ? ((totalConverted / totalLeads) * 100).toFixed(1)
-    : "0.0";
-
+  const globalRate = totalLeads > 0 ? ((totalConverted / totalLeads) * 100).toFixed(1) : "0.0";
   const hasFilter = selectedStaffId !== "all";
 
-  // ── Export CSV ────────────────────────────────────────────────────────────
+  // 🚀 FIXED: Excludes administrators from generated download report arrays
   const exportCSV = () => {
     if (!data.length) return;
-    const rows = [
-      ["Rank", "Name", "Leads", "Conversions", "Rate%", "Speed", "Consistency", "Score"],
-      ...data.map((s, i) => [
-        i + 1, s.name, s.total_leads, s.conversions,
-        `${s.success_rate.toFixed(1)}%`,
-        s.speed_score, s.consistency_score, s.performance_score,
-      ]),
-    ];
+    const rows = [["Rank", "Name", "Leads", "Conversions", "Rate%", "Speed", "Consistency", "Score"], ...data.map((s, i) => [i + 1, s.name, s.total_leads, s.conversions, `${s.success_rate.toFixed(1)}%`, s.speed_score, s.consistency_score, s.performance_score])];
     const blob = new Blob([rows.map(r => r.join(",")).join("\n")], { type: "text/csv" });
-    const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(blob),
-      download: `performance_${period}_${toISO(new Date())}.csv`,
-    });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `performance_${period}_${toISO(new Date())}.csv` });
     a.click(); URL.revokeObjectURL(a.href);
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-
   return (
-    <div className="space-y-3 px-1 pb-8">
+    <div className="space-y-4 pb-12 text-sm text-slate-900 dark:text-slate-100 font-normal antialiased">
 
-      {/* ── PAGE HEADER ── */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center shadow-md shadow-blue-600/20">
-              <Activity size={14} className="text-white" />
-            </div>
-            Staff Performance
-          </h1>
-          <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-[0.18em] mt-0.5">
-            4-Dimension Analytics · {periodLabel}
-            {loading && (
-              <span className="ml-1.5 inline-flex items-center gap-1 text-blue-500">
-                <RefreshCw size={9} className="animate-spin" /> Syncing
-              </span>
-            )}
-          </p>
+      {/* FIXED HEADER DECK */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-4 select-none w-full shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
+            <Activity size={14} className="text-white" />
+          </div>
+          <div>
+            <nav className="flex items-center gap-1 text-[10px] text-slate-400 font-black uppercase tracking-wider mb-0.5">
+              <span>CRM Hub</span>
+              <ChevronRight size={10} strokeWidth={3} className="text-slate-300" />
+              <span className="text-slate-600 dark:text-slate-400">Performance</span>
+            </nav>
+            <h1 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wide leading-none">
+              Staff Performance Matrix
+            </h1>
+            <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mt-1.5 leading-none flex items-center gap-1.5">
+              <span>4-Dimension Analytics</span>
+              <span className="inline-block w-1 h-1 rounded-full bg-blue-500 animate-pulse" />
+              <span>{periodLabel}</span>
+              {loading && <span className="text-slate-400 animate-pulse">· Syncing…</span>}
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowScores(v => !v)}
-            className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-xs font-semibold transition-all shadow-sm ${
+
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={fetchData}
+            disabled={loading}
+            className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50"
+            title="Refresh Ingestion Matrices"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          </button>
+
+          <button 
+            type="button"
+            onClick={exportCSV}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 transition-all cursor-pointer"
+          >
+            <Download size={12} strokeWidth={3} />
+            <span>Export</span>
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => setShowScores(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
               showScores
-                ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50"
-            }`}>
-            <Trophy size={14} /> Scores
-          </button>
-          <button onClick={exportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded-lg text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 transition-all shadow-sm">
-            <Download size={14} /> Export
-          </button>
-          <button onClick={fetchData} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded-lg text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 transition-all shadow-sm">
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                ? "bg-slate-900 border-slate-900 text-white dark:bg-white dark:border-white dark:text-slate-950 shadow-xs"
+                : "bg-white border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 hover:bg-slate-50"
+            }`}
+          >
+            <Trophy size={12} strokeWidth={3} />
+            <span>Scores</span>
           </button>
         </div>
       </div>
 
-      {/* ── KPI STRIP ── */}
+      {/* KPI STRIP */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Staff Shown",    val: data.length,      color: "text-slate-700 dark:text-slate-200",    bg: "bg-white dark:bg-gray-800",           icon: <Users size={16} className="text-slate-400" />        },
+          { label: "Staff Shown",    val: data.length,      color: "text-slate-700 dark:text-slate-200",    bg: "bg-white dark:bg-gray-900",           icon: <Users size={16} className="text-slate-400" />        },
           { label: "Total Leads",    val: totalLeads,       color: "text-blue-600 dark:text-blue-400",       bg: "bg-blue-50 dark:bg-blue-900/20",       icon: <BarChart3 size={16} className="text-blue-400" />      },
           { label: "Conversions",    val: totalConverted,   color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-900/20", icon: <CheckCircle2 size={16} className="text-emerald-400" /> },
-          { label: "Avg Perf Score", val: avgPerfScore,     color: "text-violet-600 dark:text-violet-400",   bg: "bg-violet-50 dark:bg-violet-900/20",   icon: <Trophy size={16} className="text-violet-400" />       },
+          { label: "Avg Perf Score", val: avgPerfScore,     color: "text-violet-600 dark:text-violet-400",   bg: "bg-violet-50 dark:bg-violet-900/20",   icon: <Trophy size={16} className="text-violet-400" />        },
         ].map((s, i) => (
-          <div key={i} className={`${s.bg} border border-gray-100 dark:border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between shadow-sm`}>
+          <div key={i} className={`${s.bg} border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between shadow-sm`}>
             <div>
               <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{s.label}</p>
               <p className={`text-2xl font-black ${s.color} leading-tight mt-0.5 tabular-nums`}>
@@ -423,18 +360,18 @@ export default function StaffPerformance() {
         ))}
       </div>
 
-      {/* ── Score formula legend (toggleable) ── */}
+      {/* FORMULA STRIP */}
       {showScores && (
-        <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/40 rounded-xl px-4 py-3">
+        <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/40 rounded-xl px-4 py-3 animate-in fade-in duration-150">
           <p className="text-[9px] font-black text-blue-700 dark:text-blue-400 uppercase tracking-widest mb-2.5">
             Performance Score = Efficiency×40% + Volume×20% + Speed×20% + Consistency×20%
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { icon: <CheckCircle2 size={11} />, label: "Efficiency", weight: "40%", color: "text-emerald-600", desc: "Conversion rate" },
-              { icon: <Users size={11} />,        label: "Volume",     weight: "20%", color: "text-blue-600",    desc: "Leads (normalised)" },
-              { icon: <Zap size={11} />,          label: "Speed",      weight: "20%", color: "text-amber-600",   desc: "First-contact time" },
-              { icon: <RotateCcw size={11} />,    label: "Consistency",weight: "20%", color: "text-violet-600",  desc: "Follow-up discipline" },
+              { icon: <Users size={11} />,        label: "Volume",      weight: "20%", color: "text-blue-600",    desc: "Leads (normalised)" },
+              { icon: <Zap size={11} />,          label: "Speed",       weight: "20%", color: "text-amber-600",   desc: "First-contact time" },
+              { icon: <RotateCcw size={11} />,    label: "Consistency", weight: "20%", color: "text-violet-600",  desc: "Follow-up discipline" },
             ].map(f => (
               <div key={f.label} className="flex items-start gap-2 bg-white dark:bg-gray-900 rounded-lg px-3 py-2 border border-blue-100 dark:border-blue-800/40">
                 <span className={`mt-0.5 shrink-0 ${f.color}`}>{f.icon}</span>
@@ -448,10 +385,9 @@ export default function StaffPerformance() {
         </div>
       )}
 
-      {/* ── FILTER BAR ── */}
+      {/* FILTER BAR MENU TRACKS */}
       <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl shadow-sm">
         <div className="px-3 py-2.5 flex flex-wrap items-center gap-2">
-
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <Filter size={13} className="text-gray-400" />
             <select value={selectedStaffId} onChange={e => setSelectedStaffId(e.target.value)}
@@ -500,7 +436,7 @@ export default function StaffPerformance() {
         </div>
       </div>
 
-      {/* ── BAR CHART ── */}
+      {/* 🚀 FIXED: RECHARTS BAR CHART VISUAL GRID MAPPING */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-2">
@@ -544,7 +480,7 @@ export default function StaffPerformance() {
         </div>
       </div>
 
-      {/* ── EFFICIENCY TABLE ── */}
+      {/* EFFICIENCY RANKING TABLE */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
           <h3 className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Efficiency Ranking</h3>
@@ -562,7 +498,7 @@ export default function StaffPerformance() {
           </div>
         ) : (
           <>
-            {/* Mobile cards */}
+            {/* Mobile Table View */}
             <div className="md:hidden divide-y divide-gray-50 dark:divide-gray-800">
               {data.map((s, idx) => (
                 <div key={s.id} className="px-4 py-3.5 space-y-2">
@@ -583,43 +519,23 @@ export default function StaffPerformance() {
                     </div>
                     <PerfBadge score={s.performance_score} />
                   </div>
-                  {showScores && (
-                    <div className="grid grid-cols-3 gap-2 pl-12">
-                      <div>
-                        <p className="text-[8px] font-black text-gray-400 uppercase mb-1">⚡ Speed</p>
-                        <ScoreBar value={s.speed_score} color="bg-amber-400" />
-                      </div>
-                      <div>
-                        <p className="text-[8px] font-black text-gray-400 uppercase mb-1">🔁 Consist.</p>
-                        <ScoreBar value={s.consistency_score} color="bg-violet-500" />
-                      </div>
-                      <div>
-                        <p className="text-[8px] font-black text-gray-400 uppercase mb-1">✅ Rate</p>
-                        <ScoreBar value={Math.round(s.success_rate)} color="bg-emerald-500" />
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
 
-            {/* Desktop table */}
+            {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-800/60">
                     <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider w-8">#</th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider min-w-[160px]">Counsellor</th>
-                    <SortTh label="Leads"     sortKey="total_leads"       active={sortKey === "total_leads"}       onSort={setSortKey} />
-                    <SortTh label="Converted" sortKey="conversions"       active={sortKey === "conversions"}       onSort={setSortKey} />
+                    <th className="px-3 py-3 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Leads</th>
+                    <th className="px-3 py-3 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Converted</th>
                     <th className="px-3 py-3 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider">vs Prev</th>
-                    <SortTh label="Rate"      sortKey="success_rate"      active={sortKey === "success_rate"}      onSort={setSortKey} />
-                    {showScores && <>
-                      <SortTh label="⚡ Speed"   sortKey="speed_score"       active={sortKey === "speed_score"}       onSort={setSortKey} />
-                      <SortTh label="🔁 Consist" sortKey="consistency_score" active={sortKey === "consistency_score"} onSort={setSortKey} />
-                    </>}
+                    <th className="px-3 py-3 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Rate</th>
                     <th className="px-3 py-3 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider min-w-[80px]">Pending</th>
-                    <SortTh label="🏆 Score"  sortKey="performance_score" active={sortKey === "performance_score"} onSort={setSortKey} />
+                    <th className="px-3 py-3 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider">🏆 Score</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
@@ -627,9 +543,9 @@ export default function StaffPerformance() {
                     const pending = Math.max(0, s.total_leads - s.conversions);
                     return (
                       <tr key={s.id} className="group transition-colors hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
-                       <td className="px-4 py-3 text-[11px] font-bold text-gray-400 tabular-nums">
-  {idx === 0 ? "🏆" : idx === 1 ? "⭐" : idx === 2 ? "🥉" : idx + 1}
-</td>
+                        <td className="px-4 py-3 text-[11px] font-bold text-gray-400 tabular-nums">
+                          {idx === 0 ? "🏆" : idx === 1 ? "⭐" : idx === 2 ? "🥉" : idx + 1}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className={`w-7 h-7 rounded-lg ${avatarColor(s.name)} flex items-center justify-center text-white font-bold text-[11px] shrink-0`}>
@@ -646,10 +562,6 @@ export default function StaffPerformance() {
                           <DeltaBadge curr={s.conversions} prev={s.prev_conversions} />
                         </td>
                         <td className="px-3 py-3 text-center"><RateBadge rate={s.success_rate} /></td>
-                        {showScores && <>
-                          <td className="px-3 py-3 min-w-[90px]"><ScoreBar value={s.speed_score} color="bg-amber-400" /></td>
-                          <td className="px-3 py-3 min-w-[90px]"><ScoreBar value={s.consistency_score} color="bg-violet-500" /></td>
-                        </>}
                         <td className="px-3 py-3 text-center">
                           <span className={`text-[12px] font-semibold tabular-nums ${pending > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-300 dark:text-gray-600"}`}>
                             {pending > 0 ? pending : "—"}

@@ -3,17 +3,17 @@ process.env.TZ = "Asia/Kolkata";
 require("dotenv").config();
 
 // ─── Core Imports ─────────────────────────────────────────────────────────────
-const express    = require("express");
-const path       = require('path');
-const cors       = require("cors");
-const morgan     = require("morgan");
-const helmet     = require("helmet");
-const rateLimit  = require("express-rate-limit");
-const cron       = require("node-cron");
-const multer     = require("multer");
+const express     = require("express");
+const path        = require('path');
+const cors        = require("cors");
+const morgan      = require("morgan");
+const helmet      = require("helmet");
+const rateLimit   = require("express-rate-limit");
+const cron        = require("node-cron");
+const multer      = require("multer");
 
 const { pool, testConnection } = require("./config/db");
-const { authenticateToken }    = require("./middleware/auth");
+const { authenticateToken }     = require("./middleware/auth");
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 const app  = express();
@@ -21,41 +21,50 @@ const PORT = process.env.PORT || 5000;
 const upload = multer({ dest: "uploads/" });
 
 // ─── Route Imports ────────────────────────────────────────────────────────────
-const webhookRoutes          = require("./routes/webhookRoutes");
-const archiveRoutes          = require("./routes/archiveRoutes");
-const leadRoutes             = require("./routes/leadRoutes");
-const userRoutes             = require("./routes/userRoutes");
-const logRoutes              = require("./routes/logRoutes");
-const permissionsRouter      = require("./routes/permissionRoutes");
-const activityRoutes         = require("./routes/activityRoutes");
-const countryRoutes          = require("./routes/countryRoutes");
-const courseRoutes           = require("./routes/courseRoutes");
-const distributionRoutes     = require("./routes/distributionRoutes");
-const attendanceRoutes       = require("./routes/attendanceRoutes");
+const webhookRoutes       = require("./routes/webhookRoutes");
+const archiveRoutes       = require("./routes/archiveRoutes");
+const leadRoutes          = require("./routes/leadRoutes");
+const dashboardRoutes     = require("./routes/dashboardRoutes");
+const userRoutes          = require("./routes/userRoutes");
+const logRoutes           = require("./routes/logRoutes");
+const permissionsRouter   = require("./routes/permissionRoutes");
+const activityRoutes      = require("./routes/activityRoutes");
+const countryRoutes       = require("./routes/countryRoutes");
+const courseRoutes        = require("./routes/courseRoutes");
+const distributionRoutes  = require("./routes/distributionRoutes");
+const attendanceRoutes    = require("./routes/attendanceRoutes");
 const staffPerformanceRoutes = require("./routes/staffPerformanceRoutes");
-const telephonyRoutes         = require("./routes/telephonyRoutes");
-const integrationRoutes      = require("./routes/integrationRoutes"); 
-const followupRoutes         = require("./routes/followupRoutes");
+const telephonyRoutes     = require("./routes/telephonyRoutes");
+const integrationRoutes   = require("./routes/integrationRoutes"); 
+const followupRoutes      = require("./routes/followupRoutes");
 const communicationRoutes = require("./routes/communicationRoutes");
-const automationRoutes = require("./routes/automationRoutes");
-const analyticsController    = require("./controllers/analyticsController");
+const automationRoutes    = require("./routes/automationRoutes");
+const analyticsRoutes     = require("./routes/analyticsRoutes");
+const { runDatabaseBackup } = require('./utils/backupScheduler');
 
-// ─── Security & Middleware ────────────────────────────────────────────────────
+// ─── Global Body Parsers ──────────────────────────────────────────────────────
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+// ─── Security & Middleware (PRODUCTION OPTIMIZED CORS) ────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
 const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()).filter(Boolean) : [];
-const allowedOrigins = [...envOrigins, "https://lead-crm-git-main-webgyors-projects.vercel.app", "https://lead-crm-kappa-tawny.vercel.app"];
-
-if (process.env.NODE_ENV !== "production") {
-  allowedOrigins.push("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173");
-}
+const allowedOrigins = [
+  ...envOrigins, 
+  "https://lead-crm-git-main-webgyors-projects.vercel.app", 
+  "https://lead-crm-git-main-webgyors-projects.vercel.app/",
+  "https://lead-crm-kappa-tawny.vercel.app",
+  "https://lead-crm-kappa-tawny.vercel.app/"
+];
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || (typeof origin === "string" && origin.endsWith(".vercel.app"))) {
+    if (!origin || allowedOrigins.includes(origin) || (typeof origin === "string" && origin.includes(".vercel.app"))) {
       return callback(null, true);
     }
-    return callback(new Error(`CORS: ${origin} not allowed`));
+    console.error(`[CORS REJECTION]: Request from origin ${origin} blocked.`);
+    return callback(new Error(`CORS Error: Origin ${origin} not permitted.`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -73,32 +82,53 @@ const apiLimiter = rateLimit({
 app.use("/api", apiLimiter);
 app.use("/auth", apiLimiter);
 
-// ─── Body Parsers & Static Files ──────────────────────────────────────────────
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
+// ─── Static Uploads Route ─────────────────────────────────────────────────────
+app.use('/uploads', (req, res) => {
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  const filePath   = path.join(uploadsDir, req.path);
+
+  if (!filePath.startsWith(uploadsDir)) return res.status(403).end();
+
+  const fs = require('fs');
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+
+  const fd  = fs.openSync(filePath, 'r');
+  const buf = Buffer.alloc(8);
+  fs.readSync(fd, buf, 0, 8, 0);
+  fs.closeSync(fd);
+
+  let contentType = 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50) contentType = 'image/png';
+  else if (buf[0] === 0x47 && buf[1] === 0x49) contentType = 'image/gif';
+  else if (buf[0] === 0x52 && buf[1] === 0x49) contentType = 'image/webp';
+
+  res.setHeader('Content-Type', contentType);
+  res.sendFile(filePath);
+});
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
-// ─── 5. SETTINGS (Restored from Previous Version) ─────────────────────────────
-
+// ─── Settings Routes ──────────────────────────────────────────────────────────
 app.get("/api/settings", authenticateToken, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
     const s = rows[0] ?? {};
     return res.json({
-      company_name: s.company_name ?? "",
-      company_phone: s.company_phone ?? "",
-      company_email: s.company_email ?? "",
-      company_address: s.company_address ?? "",
-      company_website: s.company_website ?? "",
-      logo_url: s.logo_url ?? "",
-      admin_name: s.admin_name ?? "",
-      admin_email: s.admin_email ?? "",
-      is_call_recording_enabled: !!s.is_call_recording_enabled,
-      telephony_provider: s.telephony_provider ?? "none",
-      is_sms_template_enabled: !!s.is_sms_template_enabled,
-      is_whatsapp_automation_enabled: !!s.is_whatsapp_automation_enabled,
-      is_email_trigger_enabled: !!s.is_email_trigger_enabled
+      success: true, 
+      data: {
+        company_name: s.company_name ?? "",
+        company_phone: s.company_phone ?? "",
+        company_email: s.company_email ?? "",
+        company_address: s.company_address ?? "",
+        company_website: s.company_website ?? "",
+        logo_url: s.logo_url ?? "",
+        agency_contact_name: s.agency_contact_name ?? "",
+        agency_contact_email: s.agency_contact_email ?? "",
+        is_call_recording_enabled: !!s.is_call_recording_enabled,
+        telephony_provider: s.telephony_provider ?? "none",
+        is_sms_template_enabled: !!s.is_sms_template_enabled,
+        is_whatsapp_automation_enabled: !!s.is_whatsapp_automation_enabled,
+        is_email_trigger_enabled: !!s.is_email_trigger_enabled
+      }
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Settings load failed" });
@@ -106,33 +136,79 @@ app.get("/api/settings", authenticateToken, async (req, res) => {
 });
 
 app.put("/api/settings", authenticateToken, upload.single("logo"), async (req, res) => {
-  if ((req.user?.role || "").toLowerCase() !== "admin") {
-    return res.status(403).json({ success: false, message: "Admin access required" });
+  const userRole = String(req.user?.role || "").toLowerCase().replace(/\s+|-/g, "");
+  if (userRole !== "admin" && userRole !== "superadmin") {
+    return res.status(403).json({ success: false, message: "Admin authorization access required" });
   }
+
   try {
     const data = req.body || {};
-    const logo_url = req.file ? `/uploads/${req.file.filename}` : (data.logo_url || "");
-    const toBool = (v) => v === true || v === "true" || v === 1 || v === "1";
+    const [currentRows] = await pool.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
+    const current = currentRows[0] || {};
+
+    let logo_url = current.logo_url || "";
+    if (req.file) logo_url = `/uploads/${req.file.filename}`;
+
+    const parseToggleValue = (key) => {
+      if (data[key] === undefined) return current[key] !== undefined ? current[key] : 0;
+      return (data[key] === true || data[key] === "true" || data[key] === 1 || data[key] === "1") ? 1 : 0;
+    };
+
     const values = [
-      data.company_name || "", data.company_phone || "", data.company_email || "",
-      data.company_address || "", data.company_website || "", logo_url,
-      data.admin_name || "", data.admin_email || "",
-      toBool(data.is_call_recording_enabled) ? 1 : 0, data.telephony_provider || "none",
-      toBool(data.is_sms_template_enabled) ? 1 : 0,
-      toBool(data.is_whatsapp_automation_enabled) ? 1 : 0,
-      toBool(data.is_email_trigger_enabled) ? 1 : 0
+      data.company_name !== undefined ? String(data.company_name).trim() : (current.company_name || ""),
+      data.company_phone !== undefined ? String(data.company_phone).trim() : (current.company_phone || ""),
+      data.company_email !== undefined ? String(data.company_email).trim() : (current.company_email || ""),
+      data.company_address !== undefined ? String(data.company_address).trim() : (current.company_address || ""),
+      data.company_website !== undefined ? String(data.company_website).trim() : (current.company_website || ""),
+      logo_url,
+      data.agency_contact_name !== undefined ? String(data.agency_contact_name).trim() : (current.agency_contact_name || ""),
+      data.agency_contact_email !== undefined ? String(data.agency_contact_email).trim() : (current.agency_contact_email || ""),
+      parseToggleValue("is_call_recording_enabled"),
+      data.telephony_provider !== undefined ? String(data.telephony_provider) : (current.telephony_provider || "none"),
+      parseToggleValue("is_sms_template_enabled"),
+      parseToggleValue("is_whatsapp_automation_enabled"),
+      parseToggleValue("is_email_trigger_enabled")
     ];
+
     await pool.query(
-      `INSERT INTO settings (id, company_name, company_phone, company_email, company_address, company_website, logo_url, admin_name, admin_email, is_call_recording_enabled, telephony_provider, is_sms_template_enabled, is_whatsapp_automation_enabled, is_email_trigger_enabled)
+      `INSERT INTO settings (id, company_name, company_phone, company_email, company_address, company_website, logo_url, agency_contact_name, agency_contact_email, is_call_recording_enabled, telephony_provider, is_sms_template_enabled, is_whatsapp_automation_enabled, is_email_trigger_enabled)
        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), company_phone=VALUES(company_phone), company_email=VALUES(company_email), company_address=VALUES(company_address), company_website=VALUES(company_website), logo_url=VALUES(logo_url), admin_name=VALUES(admin_name), admin_email=VALUES(admin_email), is_call_recording_enabled=VALUES(is_call_recording_enabled), telephony_provider=VALUES(telephony_provider), is_sms_template_enabled=VALUES(is_sms_template_enabled), is_whatsapp_automation_enabled=VALUES(is_whatsapp_automation_enabled), is_email_trigger_enabled=VALUES(is_email_trigger_enabled)`,
+       ON DUPLICATE KEY UPDATE 
+         company_name=VALUES(company_name), company_phone=VALUES(company_phone), company_email=VALUES(company_email), 
+         company_address=VALUES(company_address), company_website=VALUES(company_website), logo_url=VALUES(logo_url), 
+         agency_contact_name=VALUES(agency_contact_name), agency_contact_email=VALUES(agency_contact_email), is_call_recording_enabled=VALUES(is_call_recording_enabled), 
+         telephony_provider=VALUES(telephony_provider), is_sms_template_enabled=VALUES(is_sms_template_enabled), 
+         is_whatsapp_automation_enabled=VALUES(is_whatsapp_automation_enabled), is_email_trigger_enabled=VALUES(is_email_trigger_enabled)`,
       values
     );
+
     return res.json({ success: true, message: "Settings saved successfully" });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Settings save failed" });
   }
 });
+
+app.get('/api/test-my-backup-now', async (req, res) => {
+  try {
+    const outcome = await runDatabaseBackup();
+    return res.status(200).json({ success: true, message: "Local system pass!", outcome });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+const directBackupHandler = async (req, res) => {
+  try {
+    const outcome = await runDatabaseBackup();
+    return res.status(200).json({ success: true, message: "Backup complete!", outcome });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+app.put('/api/settings/backup/trigger', authenticateToken, directBackupHandler);
+app.put('/api/v1/settings/backup/trigger', authenticateToken, directBackupHandler);
+app.put('/settings/backup/trigger', authenticateToken, directBackupHandler);
 
 // ─── Route Mapping ────────────────────────────────────────────────────────────
 app.use("/api/auth", userRoutes);
@@ -140,6 +216,7 @@ app.use("/api/users", userRoutes);
 app.use("/webhooks", webhookRoutes);
 app.use("/api/leads/archive", archiveRoutes);
 app.use("/api/leads", leadRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/followups", followupRoutes);
 app.use("/api/communication-templates", communicationRoutes);
 app.use("/api/automation-rules", automationRoutes);
@@ -154,9 +231,6 @@ app.use("/api/permissions", permissionsRouter);
 app.use("/api/activity", activityRoutes);
 app.use("/api/staff-performance", staffPerformanceRoutes);
 app.use("/api/logs", logRoutes);
-
-// Analytics Integration
-const analyticsRoutes = require("./routes/analyticsRoutes");
 app.use("/api/analytics", analyticsRoutes);
 
 // Pipeline Alias
@@ -164,15 +238,23 @@ app.get("/api/pipeline", authenticateToken, async (req, res) => {
   try {
     const role = (req.user?.role || "").toLowerCase();
     const userId = req.user?.id;
-    const where = ["l.lead_status IN ('New', 'Contacted', 'Interested', 'Follow-up')"];
+    const where = ["deleted_at IS NULL", "lead_status IN ('New', 'Contacted', 'Interested', 'Follow-up')"];
     const params = [];
-    if (role !== "admin" && userId) { where.push("l.assigned_user_id = ?"); params.push(userId); }
-    const [rows] = await pool.query(`SELECT l.*, u.name AS assigned_user_name FROM leads l LEFT JOIN users u ON l.assigned_user_id = u.id WHERE ${where.join(" AND ")} ORDER BY l.updated_at DESC LIMIT 500`, params);
+    
+    if (role !== "admin" && role !== "super-admin" && role !== "super admin" && userId) { 
+      where.push("(assigned_user_id = ? OR assigned_to = ?)"); 
+      params.push(userId, userId); 
+    }
+    
+    const sql = `SELECT * FROM leads WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT 500`;
+    const [rows] = await pool.query(sql, params);
     return res.json({ success: true, leads: rows });
-  } catch (err) { return res.status(500).json({ success: false, error: "Pipeline failed" }); }
+  } catch (err) { 
+    return res.status(500).json({ success: false, error: "Pipeline data load failed" }); 
+  }
 });
 
-// ─── Archive Lifecycle Task (Cron) ────────────────────────────────────────────
+// ─── Archive Lifecycle Task ────────────────────────────────────────────────────
 cron.schedule("0 0 * * *", async () => {
   const connection = await pool.getConnection();
   try {
@@ -192,8 +274,6 @@ async function start() {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`✅ CRM Server Active on Port ${PORT}`);
     });
-  } catch (err) {
-    process.exit(1);
-  }
+  } catch (err) { process.exit(1); }
 }
 start();

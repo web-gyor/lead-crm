@@ -3,9 +3,8 @@ import { AuthProvider } from "./context/AuthContext";
 import AppRoutes from "./routes/AppRoutes";
 import ToastProvider from "./components/ToastProvider";
 import { useState, useEffect } from "react";
-import toast, { Toaster } from "react-hot-toast"; // Ensure this import is here
+import toast from "react-hot-toast";
 import "./App.css";
-
 function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
 
@@ -26,16 +25,15 @@ function App() {
       toast.error(
         "We couldn’t connect to the server. Please check your network connection and try again.",
         {
-          id: "network-error",           // Prevents duplicate toasts
-          className: "network-toast-error", // Matches your CSS animation
-          duration: Infinity,             // Stay visible until back online
+          id: "network-error",
+          duration: Infinity,
           position: "top-right",
         }
       );
     };
 
     const handleOnline = () => {
-      toast.dismiss("network-error"); // Clear the red error
+      toast.dismiss("network-error");
       toast.success("Connection restored!", { 
         position: "top-right",
         duration: 3000 
@@ -45,7 +43,6 @@ function App() {
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
 
-    // Cleanup all listeners
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
@@ -63,9 +60,10 @@ function App() {
 
   return (
     <AuthProvider>
+      <BranchProvider>
       <Router>
-        {/* Global Toaster for the network alerts */}
-        <Toaster position="top-right" reverseOrder={false} />
+        {/* ✅ DELETED DUPLICATE TOASTER MAPPING: 
+            ToastProvider now handles the global configuration cleanly without layout conflicts */}
         <ToastProvider />
         
         <div className="min-h-screen bg-gray-50 dark:bg-[#0f172a]">
@@ -83,6 +81,7 @@ function App() {
           <AppRoutes />
         </div>
       </Router>
+  </BranchProvider>
     </AuthProvider>
   );
 }

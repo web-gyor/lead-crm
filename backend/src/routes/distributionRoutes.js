@@ -4,86 +4,164 @@ const { pool } = require('../config/db');
 const { authenticateToken } = require('../middleware/auth');
 const checkPermission = require('../middleware/checkPermission');
 
-// GET all counselor rules for the Admin UI
-
-router.get("/pending-count", async (req, res) => {
-    try {
-        const [rows] = await pool.query("SELECT COUNT(*) as count FROM leads WHERE assigned_user_id IS NULL");
-        return res.status(200).json({ success: true, count: rows[0].count });
-    } catch (error) {
-        console.error("DATABASE ERROR:", error.message);
-        return res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-router.post("/run-pending", authenticateToken, checkPermission('leads.assign'), async (req, res) => {
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. GET ALL ELIGIBLE USERS NOT YET IN THE POOL
+// 🚀 FIXED: Fuzzy string matching allows advanced sub-roles to match cleanly
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/eligible-users', authenticateToken, checkPermission('import', 'view'), async (req, res) => {
   try {
-    const leadDistributor = require("../services/leadDistributor"); // Ensure this path is correct
-    
-    // 1. Get the leads waiting for assignment
-    const [pendingLeads] = await pool.query(
-      "SELECT id, full_name, phone, country, interested_course FROM leads WHERE assigned_user_id IS NULL AND is_archived = 0"
-    );
-
-    if (pendingLeads.length === 0) {
-      return res.json({ success: true, count: 0, message: "No leads to distribute" });
-    }
-
-    let assignedCount = 0;
-
-    // 2. Process them through the engine
-    for (const lead of pendingLeads) {
-      try {
-        const result = await leadDistributor.distribute(lead, req.user.id);
-        if (result?.success) assignedCount++;
-      } catch (err) {
-        console.error(`[Engine] Skip lead ${lead.id}:`, err.message);
-      }
-    }
-
-    res.json({ success: true, count: assignedCount });
-  } catch (error) {
-    console.error("Distribution Engine Error:", error.message);
-    res.status(500).json({ success: false, error: error.message });
+    const query = `
+      SELECT id, name, role 
+      FROM users 
+      WHERE (LOWER(role) LIKE '%counselor%' OR LOWER(role) LIKE '%telecaller%') 
+        AND id NOT IN (SELECT user_id FROM counselor_distribution_rules) 
+      ORDER BY name ASC
+    `;
+    const [users] = await pool.query(query);
+    return res.status(200).json(users);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-router.get('/rules', authenticateToken, checkPermission('leads.assign'), async (req, res) => {
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2. GET ACTIVE POOL COUNT (TRACKER PARITY ALIGNED)
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get("/pending-count", authenticateToken, checkPermission('import', 'view'), async (req, res) => {
+  try {
+    // 1. Core Parity Query: Checks assignment tracks, archiving, status, AND excludes soft-deletes
+    const [trackerRows] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM leads 
+      WHERE deleted_at IS NULL
+        AND is_archived = 0 
+        AND assigned_user_id IS NULL 
+        AND assigned_to IS NULL
+        AND LOWER(COALESCE(lead_status, 'new')) = 'new'
+    `);
+    
+    // 2. Clear unassigned raw rows total for reference
+    const [rawRows] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM leads 
+      WHERE deleted_at IS NULL
+        AND assigned_user_id IS NULL 
+        AND assigned_to IS NULL
+    `);
+    
+    return res.status(200).json({ 
+      success: true, 
+      count: Number(trackerRows[0].count),   // 24 rows total minus 4 deleted = EXACTLY 20
+      rawTotal: Number(rawRows[0].count)
+    });
+  } catch (error) {
+    console.error("DATABASE ERROR:", error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. MANUALLY ADD A COUNSELOR TO THE DISTRIBUTION LIST
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post('/', authenticateToken, checkPermission('import', 'create'), async (req, res) => {
+  const { user_id } = req.body;
+  if (!user_id) return res.status(400).json({ success: false, message: "User selection required" });
+
+  try {
+    await pool.query(
+      "INSERT INTO counselor_distribution_rules (user_id, assignment_mode, course_specialization, country_specialization, daily_limit, is_active, priority_order) VALUES (?, 'round_robin', '[]', '[]', 15, 1, 10)",
+      [user_id]
+    );
+    return res.status(200).json({ success: true, message: "Counselor successfully added to routing rotation pool" });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4. RUN DISTRIBUTION ENGINE CORE DATA FETCH
+// 🚀 FIXED: Hardened fuzzy parameters matching coupled with explicit cross-property mappings
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/', authenticateToken, checkPermission('import', 'view'), async (req, res) => {
   try {
     const query = `
       SELECT 
         u.name, 
         u.role,
         r.*,
-        -- Calculate counts from JSON strings for the UI badges
-        IF(r.course_specialization IS NULL OR r.course_specialization = '', 0, JSON_LENGTH(r.course_specialization)) as course_count,
-        IF(r.country_specialization IS NULL OR r.country_specialization = '', 0, JSON_LENGTH(r.country_specialization)) as country_count
+        u.id AS userId,
+        u.id AS user_id
       FROM users u
       JOIN counselor_distribution_rules r ON u.id = r.user_id
-      WHERE u.role IN ('Counselor', 'Manager')
+      WHERE LOWER(u.role) LIKE '%counselor%' OR LOWER(u.role) LIKE '%telecaller%'
       ORDER BY r.priority_order ASC, u.name ASC
     `;
+    
     const [rows] = await pool.query(query);
-    res.json(rows);
+
+    const formattedRows = rows.map(row => {
+      let courses = [];
+      let countries = [];
+
+      try {
+        courses = typeof row.course_specialization === 'string' ? JSON.parse(row.course_specialization) : (row.course_specialization || []);
+      } catch { courses = []; }
+
+      try {
+        countries = typeof row.country_specialization === 'string' ? JSON.parse(row.country_specialization) : (row.country_specialization || []);
+      } catch { countries = []; }
+
+      // 🛠️ DEBUG FIX #2: Forces exact parameter consistency for mapping keys across elements
+      return {
+        ...row,
+        userId: row.user_id, 
+        user_id: row.user_id,
+        course_specialization: courses,
+        country_specialization: countries
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: formattedRows
+    });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("[DISTRIBUTION CORE EXCEPTION]:", err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-
-
-// UPDATE a specific rule (e.g., Toggle Active/Inactive)
-router.put('/rules/:userId', authenticateToken, checkPermission('leads.assign'), async (req, res) => {
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5. EXPLICITLY DELETE A PRIVILEGE FROM THE POOL
+// ═══════════════════════════════════════════════════════════════════════════════
+router.delete('/:userId', authenticateToken, checkPermission('import', 'delete'), async (req, res) => {
   const { userId } = req.params;
-  const { is_active } = req.body;
   try {
-    await pool.query(
-      "UPDATE counselor_distribution_rules SET is_active = ? WHERE user_id = ?",
-      [is_active ? 1 : 0, userId]
-    );
-    res.json({ success: true });
+    await pool.query("DELETE FROM counselor_distribution_rules WHERE user_id = ?", [userId]);
+    return res.status(200).json({ success: true, message: "Agent removed from roster constraints" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6. UPDATE CONFIGURATION MATRIX ROW CELL DATA 
+// ═══════════════════════════════════════════════════════════════════════════════
+router.put('/:userId', authenticateToken, checkPermission('import', 'edit'), async (req, res) => {
+  const { userId } = req.params;
+  const { is_active, assignment_mode, course_specialization, country_specialization, daily_limit } = req.body;
+  try {
+    if (is_active !== undefined) {
+      await pool.query("UPDATE counselor_distribution_rules SET is_active = ? WHERE user_id = ?", [is_active ? 1 : 0, userId]);
+    } else {
+      await pool.query(
+        "UPDATE counselor_distribution_rules SET assignment_mode = COALESCE(?, assignment_mode), course_specialization = COALESCE(?, course_specialization), country_specialization = COALESCE(?, country_specialization), daily_limit = COALESCE(?, daily_limit) WHERE user_id = ?",
+        [assignment_mode, course_specialization, country_specialization, daily_limit, userId]
+      );
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

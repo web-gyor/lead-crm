@@ -3,7 +3,9 @@ const { pool } = require("../config/db");
 // 1. Fetch Templates (Filtered by type: 'whatsapp', 'email', or 'sms')
 const getTemplates = async (req, res) => {
     try {
-        const { type = 'whatsapp' } = req.query; 
+        // Force lowercase to match DB ENUM structures safely
+        const type = (req.query.type || 'whatsapp').toLowerCase(); 
+        
         const [rows] = await pool.query(
             "SELECT * FROM communication_templates WHERE type = ? ORDER BY id DESC",
             [type]
@@ -21,16 +23,16 @@ const createTemplate = async (req, res) => {
         const { title, category, message, type, is_active } = req.body;
 
         if (!title || !message || !type) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Title, Message, and Type are required" 
-            });
+            return res.status(400).json({ success: false, message: "Title, Message, and Type are required fields" });
         }
+
+        // Added explicit handling for boolean properties to align cleanly with TiDB / MySQL bits
+        const activeValue = is_active === undefined ? 1 : (is_active ? 1 : 0);
 
         const [result] = await pool.query(
             `INSERT INTO communication_templates (title, category, message, type, is_active) 
              VALUES (?, ?, ?, ?, ?)`,
-            [title, category || 'General', message, type, is_active ?? true]
+            [title, category || 'General', message, type.toLowerCase(), activeValue]
         );
 
         res.status(201).json({ 
@@ -40,7 +42,7 @@ const createTemplate = async (req, res) => {
         });
     } catch (err) {
         console.error("Creation Error:", err);
-        res.status(500).json({ success: false, message: "Server error during creation" });
+        res.status(500).json({ success: false, message: err.message });
     }
 };
 
@@ -50,6 +52,9 @@ const updateTemplate = async (req, res) => {
         const { id } = req.params;
         const { title, category, message, is_active } = req.body;
 
+        // Normalize boolean updates if passed down stream
+        const activeValue = is_active === undefined ? null : (is_active ? 1 : 0);
+
         const [result] = await pool.query(
             `UPDATE communication_templates 
              SET title = IFNULL(?, title), 
@@ -57,7 +62,7 @@ const updateTemplate = async (req, res) => {
                  message = IFNULL(?, message), 
                  is_active = IFNULL(?, is_active)
              WHERE id = ?`,
-            [title, category, message, is_active, id]
+            [title, category, message, activeValue, id]
         );
 
         if (result.affectedRows === 0) {

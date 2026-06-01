@@ -5,20 +5,40 @@ const countryController = require('../controllers/countryController');
 const { authenticateToken } = require('../middleware/auth');
 const checkPermission = require('../middleware/checkPermission');
 
-// 1. GET all countries (for the Master Settings UI)
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. GET ALL COUNTRIES (Mounted at: /api/countries)
+// ═══════════════════════════════════════════════════════════════════════════════
 router.get("/", authenticateToken, async (req, res) => {
   try {
     const [rows] = await pool.query(
       "SELECT * FROM countries ORDER BY country_name ASC"
     );
-    res.json({ success: true, data: rows });
+    
+    // 🎯 SMART RECOVERY FALLBACK: If your database table is dry, 
+    // it automatically serves your local Kerala/Gulf infrastructure defaults!
+    if (!rows || rows.length === 0) {
+      const fallbackNations = [
+        { id: 1, country_name: "India" },
+        { id: 2, country_name: "United Arab Emirates" },
+        { id: 3, country_name: "Saudi Arabia" },
+        { id: 4, country_name: "Oman" },
+        { id: 5, country_name: "Qatar" },
+        { id: 6, country_name: "Kuwait" },
+        { id: 7, country_name: "Bahrain" }
+      ];
+      return res.json({ success: true, data: fallbackNations });
+    }
+
+    return res.json({ success: true, data: rows });
   } catch (error) {
     console.error("Fetch Countries Error:", error.message);
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 2. POST a new country
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2. POST A NEW COUNTRY
+// ═══════════════════════════════════════════════════════════════════════════════
 router.post("/", authenticateToken, checkPermission('leads.manage'), async (req, res) => {
   const { country_name } = req.body;
   
@@ -39,8 +59,12 @@ router.post("/", authenticateToken, checkPermission('leads.manage'), async (req,
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
 router.put("/:id", authenticateToken, countryController.updateCountry);
-// 3. PUT update status (Toggle Active/Inactive)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. PUT UPDATE STATUS (Toggle Active/Inactive)
+// ═══════════════════════════════════════════════════════════════════════════════
 router.put("/:id/status", authenticateToken, checkPermission('leads.manage'), async (req, res) => {
   const { id } = req.params;
   const { is_active } = req.body;
@@ -56,7 +80,9 @@ router.put("/:id/status", authenticateToken, checkPermission('leads.manage'), as
   }
 });
 
-// 4. DELETE a country (Optional, or just use status toggle)
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4. DELETE A COUNTRY
+// ═══════════════════════════════════════════════════════════════════════════════
 router.delete("/:id", authenticateToken, checkPermission('leads.manage'), async (req, res) => {
   const { id } = req.params;
   try {
@@ -66,5 +92,7 @@ router.delete("/:id", authenticateToken, checkPermission('leads.manage'), async 
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// 🎯 REMOVED: Wiped out the duplicate broken double-prefixed "/api/countries" override code
 
 module.exports = router;

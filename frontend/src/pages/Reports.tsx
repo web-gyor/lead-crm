@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Download, Printer, Calendar, Users, CheckCircle2,
-  AlertTriangle, Database, FileSpreadsheet,
-  Globe, TrendingUp, X, Clock, ChevronDown,
+  AlertTriangle, Database, Globe, TrendingUp, X, Clock, ChevronDown, ChevronRight
 } from "lucide-react";
 import { apiGet } from "../utils/api";
 import { toast, Toaster } from "react-hot-toast";
@@ -16,37 +15,21 @@ type Period     = "daily" | "weekly" | "monthly" | "custom";
 
 interface Lead {
   id: number;
-
   lead_uid?: string;
-
   full_name?: string;
-
   phone?: string;
-
   lead_status?: string;
-
   lead_source_id?: number | string;
-
   lead_source_name?: string;
-
   source_name?: string;
-
   interested_course?: string;
-
   assigned_user_name?: string;
-
   counselor_name?: string;
-
   created_at?: string;
-
   updated_at?: string;
-
   converted_at?: string;
-
   admission_date?: string;
-
   closed_at?: string;
-
   status_updated_at?: string;
 }
 
@@ -91,25 +74,22 @@ const PERIODS: { id: Period; label: string }[] = [
 ];
 
 const REPORT_MODULES: { id: ReportType; label: string; description: string; Icon: React.ElementType }[] = [
-  { id: "admissions",  label: "Admissions",  description: "Successful enrollments",            Icon: Users          },
+  { id: "admissions",  label: "Admissions",  description: "Successful enrollments",             Icon: Users          },
   { id: "velocity",    label: "Velocity",     description: "Entry to conversion speed",         Icon: TrendingUp     },
-  { id: "performance", label: "Performance",  description: "Individual win rates",              Icon: CheckCircle2   },
-  { id: "sources",     label: "Sources",      description: "Channel effectiveness",             Icon: Database       },
-  { id: "lost",        label: "Lost Leads",   description: "Drop-off tracking",                 Icon: AlertTriangle  },
+  { id: "performance", label: "Performance",  description: "Individual win rates",               Icon: CheckCircle2   },
+  { id: "sources",     label: "Sources",      description: "Channel effectiveness",              Icon: Database       },
+  { id: "lost",        label: "Lost Leads",   description: "Drop-off tracking",                  Icon: AlertTriangle  },
   { id: "attendance",  label: "Attendance",   description: "Monthly performance & late trends", Icon: Clock          },
 ];
 
-// Fix #5 — sources headers corrected to 6 to match SourceRow (5 data cols + header)
 const HEADERS: Record<ReportType, string[]> = {
   admissions:  ["Lead ID", "Name", "Program",       "Phone",     "Conv. Date", "Source",    "Counselor"],
   velocity:    ["Lead ID", "Name", "Course",         "Entry",     "Converted",  "Days",      "Counselor"],
   performance: ["Counselor", "Total", "New",         "Contacted", "Interested", "Won",       "Lost", "Conv %"],
-  sources:     ["Source",  "Total", "Interested",    "Won",       "Lost",       "Conv %"],   // Fix: 6 headers, 6 cells
+  sources:     ["Source",  "Total", "Interested",    "Won",       "Lost",       "Conv %"],   
   lost:        ["Lead ID", "Name", "Phone",          "Course",    "Source",     "Counselor", "Status", "Date"],
   attendance:  ["Name",    "Role", "Working Days",   "Present",   "Absent",     "Late",      "Attendance %"],
 };
-
-
 
 const SOURCE_COLORS: Record<string, string> = {
   "WhatsApp":        "green",
@@ -125,7 +105,6 @@ const SOURCE_COLORS: Record<string, string> = {
   "Direct":          "gray",
 };
 
-const LOST = new Set(["lost", "rejected", "not interested"]);
 // ═══════════════════════════════════════════════════════════════════════════════
 // Utility helpers
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -133,14 +112,10 @@ const LOST = new Set(["lost", "rejected", "not interested"]);
 function normalizeStatus(status?: string) {
   return (status || "").trim().toLowerCase();
 }
-function cleanRows<T>(rows: (T | null | undefined)[]): T[] {
-  return rows.filter(Boolean) as T[];
-}
 
 function getPeriodRange(period: Period): DateRange {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-  // FIX: Force the end of the day to the very last millisecond
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
   switch (period) {
@@ -156,24 +131,18 @@ function getPeriodRange(period: Period): DateRange {
       return { from: todayStart, to: todayEnd };
   }
 }
-// Fix #4 — parse ISO string safely using local date constructor, not new Date(string)
+
 function parseDateStr(value?: string): Date | null {
-
   if (!value) return null;
-
   try {
-
     const dt = new Date(value);
-
     if (isNaN(dt.getTime())) return null;
-
     return dt;
-
   } catch {
-
     return null;
   }
 }
+
 function inRange(dateStr: string | undefined, range: DateRange): boolean {
   if (!dateStr) return false;
   const dt = parseDateStr(dateStr);
@@ -216,7 +185,6 @@ function resolveSourceName(l: any, sMap: Record<string, string>): string {
   return "Direct";
 }
 
-// Fix #1 — robust leads array extraction from any API response shape
 function extractArray(res: any): any[] {
   if (Array.isArray(res))          return res;
   if (Array.isArray(res?.data))    return res.data;
@@ -226,80 +194,27 @@ function extractArray(res: any): any[] {
   return [];
 }
 
-
-
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Transform functions
 // ═══════════════════════════════════════════════════════════════════════════════
 
-
-function getRelevantDate(
-  l: Lead,
-  type: ReportType
-): string | undefined {
-
+function getRelevantDate(l: Lead, type: ReportType): string | undefined {
   switch (type) {
-
-    // ✅ Admission / Conversion Reports
     case "admissions":
-      return (
-        l.converted_at ||
-        l.admission_date ||
-        l.closed_at ||
-        l.status_updated_at ||
-        l.updated_at
-      );
-
-    // ✅ Velocity = date converted
     case "velocity":
-      return (
-        l.converted_at ||
-        l.admission_date ||
-        l.closed_at ||
-        l.status_updated_at ||
-        l.updated_at
-      );
-
-    // ✅ Counselor Performance
+      return l.converted_at || l.admission_date || l.closed_at || l.status_updated_at || l.updated_at;
     case "performance":
-      return (
-        l.converted_at ||
-        l.updated_at ||
-        l.created_at
-      );
-
-    // ✅ Source analytics = when lead entered CRM
+      return l.converted_at || l.updated_at || l.created_at;
     case "sources":
       return l.created_at;
-
-    // ✅ Lost lead date
     case "lost":
-      return (
-        l.status_updated_at ||
-        l.updated_at ||
-        l.created_at
-      );
-
-    // ✅ Attendance
-    case "attendance":
-      return l.created_at;
-
+      return l.status_updated_at || l.updated_at || l.created_at;
     default:
       return l.created_at;
   }
 }
 
-// Fix #2 & #3 — allStaff is now a required parameter
-function transformAttendance(
-  logs: any[],
-  range: DateRange,
-  allStaff: StaffMember[] = []
-): AttendanceRow[] {
-
-  // ───────────────────────────────
-  // 1. Count working days (Mon–Sat)
-  // ───────────────────────────────
+function transformAttendance(logs: any[], range: DateRange, allStaff: StaffMember[] = []): AttendanceRow[] {
   let expectedDays = 0;
   let curr = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate());
   const end = new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate());
@@ -308,60 +223,21 @@ function transformAttendance(
     if (curr.getDay() !== 0) expectedDays++;
     curr.setDate(curr.getDate() + 1);
   }
-
   if (expectedDays === 0) expectedDays = 1;
 
-  // ───────────────────────────────
-  // 2. MAIN MAP (use staff.id ONLY)
-  // ───────────────────────────────
-  const map = new Map<string, {
-    name: string;
-    role: string;
-    totalDays: number;
-    present: number;
-    lateArrivals: number;
-    logDates: Set<string>;
-  }>();
+  const map = new Map<string, { name: string; role: string; totalDays: number; present: number; lateArrivals: number; logDates: Set<string>; }>();
 
-  // ───────────────────────────────
-  // 3. SEED STAFF
-  // ───────────────────────────────
   allStaff.forEach(staff => {
-    const key = String(staff.id);
-
-    map.set(key, {
-      name: staff.name,
-      role: staff.role,
-      totalDays: expectedDays,
-      present: 0,
-      lateArrivals: 0,
-      logDates: new Set(),
-    });
+    map.set(String(staff.id), { name: staff.name, role: staff.role, totalDays: expectedDays, present: 0, lateArrivals: 0, logDates: new Set() });
   });
 
-  // ───────────────────────────────
-  // 4. PROCESS LOGS (FIXED KEY LOGIC)
-  // ───────────────────────────────
   logs.forEach(log => {
-
     const key = String(log.user_id || log.staff_id || log.id);
-
-    const name = safeStr(log.user_name || log.name, "Unknown");
-
-    // ensure entry exists
     if (!map.has(key)) {
-      map.set(key, {
-        name,
-        role: safeStr(log.role || log.user_role, "Staff"),
-        totalDays: expectedDays,
-        present: 0,
-        lateArrivals: 0,
-        logDates: new Set(),
-      });
+      map.set(key, { name: safeStr(log.user_name || log.name, "Unknown"), role: safeStr(log.role || log.user_role, "Staff"), totalDays: expectedDays, present: 0, lateArrivals: 0, logDates: new Set() });
     }
 
     const row = map.get(key)!;
-
     const logDate = String(log.date || log.check_in || "").split("T")[0];
 
     if (logDate && !row.logDates.has(logDate)) {
@@ -369,23 +245,13 @@ function transformAttendance(
       row.logDates.add(logDate);
     }
 
-    // late check
     if (log.check_in) {
-      const timePart = log.check_in.includes("T")
-        ? log.check_in.split("T")[1]
-        : log.check_in;
-
+      const timePart = log.check_in.includes("T") ? log.check_in.split("T")[1] : log.check_in;
       const [hour, min] = timePart.split(":").map(Number);
-
-      if (hour > 9 || (hour === 9 && min > 15)) {
-        row.lateArrivals++;
-      }
+      if (hour > 9 || (hour === 9 && min > 15)) row.lateArrivals++;
     }
   });
 
-  // ───────────────────────────────
-  // 5. RESULT
-  // ───────────────────────────────
   return Array.from(map.values())
     .map(r => ({
       name: r.name,
@@ -398,94 +264,38 @@ function transformAttendance(
     }))
     .sort((a, b) => parseFloat(b.percentage) - parseFloat(a.percentage));
 }
-function transformAdmissions(
-  leads: Lead[],
-  sMap: Record<string, string>,
-  range: DateRange
-): AdmissionRow[] {
-  // 1. More inclusive set (added capital versions just in case)
-  const CONVERTED_STATUSES = new Set(["converted", "closed", "admission", "success"]);
 
+function transformAdmissions(leads: Lead[], sMap: Record<string, string>, range: DateRange): AdmissionRow[] {
+  const CONVERTED_STATUSES = new Set(["converted", "closed", "admission", "success"]);
   return leads
-    .filter((l) => {
-      const status = normalizeStatus(l.lead_status);
-      // 2. ONLY check the status here. 
-      // The date filtering is already handled by 'filteredLeads' useMemo
-      return CONVERTED_STATUSES.has(status);
-    })
-    .map((l) => {
-      const conversionDate = getRelevantDate(l, "admissions");
-      return {
-        id: leadId(l),
-        name: safeStr(l.full_name, "N/A"),
-        program: safeStr(l.interested_course, "General"),
-        phone: safeStr(l.phone, "—"),
-        date: fmtDate(conversionDate),
-        source: resolveSourceName(l, sMap),
-        counselor: getCounselor(l),
-      };
-    })
-    .sort((a, b) => {
-      const da = parseDateStr(a.date)?.getTime() || 0;
-      const db = parseDateStr(b.date)?.getTime() || 0;
-      return db - da;
-    });
+    .filter((l) => CONVERTED_STATUSES.has(normalizeStatus(l.lead_status)))
+    .map((l) => ({
+      id: leadId(l),
+      name: safeStr(l.full_name, "N/A"),
+      program: safeStr(l.interested_course, "General"),
+      phone: safeStr(l.phone, "—"),
+      date: fmtDate(getRelevantDate(l, "admissions")),
+      source: resolveSourceName(l, sMap),
+      counselor: getCounselor(l),
+    }))
+    .sort((a, b) => (parseDateStr(b.date)?.getTime() || 0) - (parseDateStr(a.date)?.getTime() || 0));
 }
 
-function transformVelocity(
-  leads: Lead[],
-  sMap: Record<string, string>,
-  range: DateRange
-): VelocityRow[] {
-
-  const SUCCESS = new Set([
-    "converted",
-    "closed",
-    "admission",
-    "success",
-    "won"
-  ]);
-
+function transformVelocity(leads: Lead[], sMap: Record<string, string>, range: DateRange): VelocityRow[] {
+  const SUCCESS = new Set(["converted", "closed", "admission", "success", "won"]);
   return leads
-    .filter((l) => {
-
-      const status = normalizeStatus(l.lead_status);
-
-      if (!SUCCESS.has(status)) return false;
-
-      const conversionDate = getRelevantDate(l, "velocity");
-
-      return !!conversionDate;
-    })
-
+    .filter((l) => SUCCESS.has(normalizeStatus(l.lead_status)) && !!getRelevantDate(l, "velocity"))
     .map((l) => {
-
-      const entryDateRaw =
-        l.created_at;
-
-      const conversionDateRaw =
-        getRelevantDate(l, "velocity");
-
-      const entryDate =
-        parseDateStr(entryDateRaw);
-
-      const conversionDate =
-        parseDateStr(conversionDateRaw);
-
+      const entryDateRaw = l.created_at;
+      const conversionDateRaw = getRelevantDate(l, "velocity");
+      const entryDate = parseDateStr(entryDateRaw);
+      const conversionDate = parseDateStr(conversionDateRaw);
       let days = 1;
 
       if (entryDate && conversionDate) {
-
-        const ms =
-          conversionDate.getTime() -
-          entryDate.getTime();
-
-        days =
-          ms > 0
-            ? Math.ceil(ms / 86400000)
-            : 1;
+        const ms = conversionDate.getTime() - entryDate.getTime();
+        days = ms > 0 ? Math.ceil(ms / 86400000) : 1;
       }
-
       return {
         id: leadId(l),
         name: safeStr(l.full_name, "N/A"),
@@ -496,65 +306,24 @@ function transformVelocity(
         counselor: getCounselor(l),
       };
     })
-
-    .sort((a, b) => {
-      const da =
-        parseDateStr(a.convertedDate)?.getTime() || 0;
-
-      const db =
-        parseDateStr(b.convertedDate)?.getTime() || 0;
-
-      return db - da;
-    });
+    .sort((a, b) => (parseDateStr(b.convertedDate)?.getTime() || 0) - (parseDateStr(a.convertedDate)?.getTime() || 0));
 }
 
-function transformPerformance(
-  leads: Lead[],
-  range: DateRange,
-  allStaff: StaffMember[] = []
-): PerformRow[] {
-  // 1. Create a set of normalized names and IDs for anyone with a "Manager" role
-  const managerExclusions = new Set(
-    allStaff
-      .filter(s => s.role.toLowerCase() === "manager")
-      .map(s => s.name.trim().toLowerCase())
-  );
-
-  const filtered = leads.filter(l => {
-    return (
-      inRange(l.converted_at || l.updated_at, range) ||
-      inRange(l.created_at, range) ||
-      inRange(l.updated_at, range)
-    );
-  });
-
+function transformPerformance(leads: Lead[], range: DateRange, allStaff: StaffMember[] = []): PerformRow[] {
+  const managerExclusions = new Set(allStaff.filter(s => s.role.toLowerCase() === "manager").map(s => s.name.trim().toLowerCase()));
+  const filtered = leads.filter(l => inRange(l.converted_at || l.updated_at, range) || inRange(l.created_at, range) || inRange(l.updated_at, range));
   const map = new Map<string, PerformRow>();
 
   filtered.forEach(l => {
     const name = getCounselor(l);
     const normalizedName = name.trim().toLowerCase();
-
-    // 2. EXCLUSION: Skip if name is in Manager list, or is specifically "shaji" or ID "1"
-    if (managerExclusions.has(normalizedName) || normalizedName === "shaji" || name === "1") {
-      return;
-    }
+    if (managerExclusions.has(normalizedName) || normalizedName === "shaji" || name === "1") return;
 
     if (!map.has(name)) {
-      map.set(name, {
-        counselor: name,
-        total: 0,
-        new_: 0,
-        contacted: 0,
-        interested: 0,
-        won: 0,
-        lost: 0,
-        convRate: "0%",
-      });
+      map.set(name, { counselor: name, total: 0, new_: 0, contacted: 0, interested: 0, won: 0, lost: 0, convRate: "0%" });
     }
-
     const row = map.get(name)!;
     row.total++;
-
     const s = l.lead_status || "";
     if (s === "New") row.new_++;
     else if (s === "Contacted") row.contacted++;
@@ -564,95 +333,41 @@ function transformPerformance(
   });
 
   return Array.from(map.values())
-    .map(r => ({
-      ...r,
-      convRate: r.total > 0 ? `${((r.won / r.total) * 100).toFixed(1)}%` : "0%",
-    }))
+    .map(r => ({ ...r, convRate: r.total > 0 ? `${((r.won / r.total) * 100).toFixed(1)}%` : "0%" }))
     .sort((a, b) => b.won - a.won);
 }
-function transformSources(
-  leads: Lead[],
-  sMap: Record<string, string>,
-  range: DateRange,
-  allStaff: StaffMember[] = []
-): SourceRow[] {
+
+function transformSources(leads: Lead[], sMap: Record<string, string>, range: DateRange, allStaff: StaffMember[] = []): SourceRow[] {
   const LOST_STATUSES = new Set(["lost", "rejected", "not interested"]);
-
-  // 1. Create a set of Manager names to exclude
-  const managerExclusions = new Set(
-    allStaff
-      .filter(s => s.role.toLowerCase() === "manager")
-      .map(s => s.name.trim().toLowerCase())
-  );
-
-  const filtered = leads.filter(l => {
-    const dateValue = l.created_at || l.updated_at;
-    if (!dateValue) return false;
-    return inRange(dateValue, range);
-  });
-
+  const managerExclusions = new Set(allStaff.filter(s => s.role.toLowerCase() === "manager").map(s => s.name.trim().toLowerCase()));
+  const filtered = leads.filter(l => l.created_at && inRange(l.created_at, range));
   const map = new Map<string, SourceRow>();
 
   filtered.forEach(l => {
     const name = getCounselor(l);
-    const normalizedName = name.trim().toLowerCase();
-
-    // 2. EXCLUSION: Skip Manager leads so we only assess Counselor performance per source
-    if (managerExclusions.has(normalizedName) || normalizedName === "shaji" || name === "1") {
-      return;
-    }
+    if (managerExclusions.has(name.trim().toLowerCase()) || name.trim().toLowerCase() === "shaji" || name === "1") return;
 
     const src = resolveSourceName(l, sMap);
     const key = src.toLowerCase();
 
     if (!map.has(key)) {
-      map.set(key, {
-        source: src,
-        total: 0,
-        interested: 0,
-        won: 0,
-        lost: 0,
-        convRate: "0%",
-      });
+      map.set(key, { source: src, total: 0, interested: 0, won: 0, lost: 0, convRate: "0%" });
     }
-
     const row = map.get(key)!;
     row.total++;
-
     const s = normalizeStatus(l.lead_status);
     if (s === "interested") row.interested++;
     if (s === "converted" || s === "closed") row.won++;
     if (LOST_STATUSES.has(s)) row.lost++;
   });
 
-  return Array.from(map.values()).map(r => ({
-    ...r,
-    convRate: r.total ? `${((r.won / r.total) * 100).toFixed(1)}%` : "0%",
-  }));
+  return Array.from(map.values()).map(r => ({ ...r, convRate: r.total ? `${((r.won / r.total) * 100).toFixed(1)}%` : "0%" }));
 }
 
-function transformLost(
-  leads: Lead[],
-  sMap: Record<string, string>,
-  range: DateRange
-): LostRow[] {
-
-  const LOST = new Set(["lost", "rejected", "not interested"]);
-
+function transformLost(leads: Lead[], sMap: Record<string, string>, range: DateRange): LostRow[] {
+  const LOST_SET = new Set(["lost", "rejected", "not interested"]);
   return leads
-    .filter(l => {
-      const status = normalizeStatus(l.lead_status);
-
-      if (!LOST.has(status)) return false;
-
-      const dateValue = getRelevantDate(l, "lost");
-      if (!dateValue) return false;
-
-      const dt = parseDateStr(dateValue);
-      if (!dt) return false;
-
-      return inRange(dateValue, range);
-    })
+    .filter(l => LOST_SET.has(normalizeStatus(l.lead_status)) && l.status_updated_at && inRange(l.status_updated_at, range))
     .map(l => ({
       id: leadId(l),
       name: safeStr(l.full_name, "N/A"),
@@ -664,83 +379,39 @@ function transformLost(
       date: fmtDate(getRelevantDate(l, "lost")),
     }));
 }
-// ═══════════════════════════════════════════════════════════════════════════════
-// Filter & dispatch
-// ═══════════════════════════════════════════════════════════════════════════════
 
-
-function transformLeads(
-  type: ReportType,
-  data: any[],
-  sMap: Record<string, string>,
-  range: DateRange,
-  allStaff: StaffMember[] = [],
-): AnyRow[] {
-
+function transformLeads(type: ReportType, data: any[], sMap: Record<string, string>, range: DateRange, allStaff: StaffMember[] = []): AnyRow[] {
   const safeData = Array.isArray(data) ? data : [];
-
   switch (type) {
-    case "attendance":
-      return transformAttendance(safeData, range, allStaff);
-
-    case "admissions":
-      return transformAdmissions(safeData, sMap, range);
-
-    case "velocity":
-  return transformVelocity(safeData, sMap, range);
-
-    case "performance":
-      return transformPerformance(safeData, range);
-
-    case "sources":
-      return transformSources(safeData, sMap, range);
-
-    case "lost":
-      return transformLost(safeData, sMap, range);
-
-    default:
-      return [];
+    case "attendance": return transformAttendance(safeData, range, allStaff);
+    case "admissions": return transformAdmissions(safeData, sMap, range);
+    case "velocity":   return transformVelocity(safeData, sMap, range);
+    case "performance":return transformPerformance(safeData, range, allStaff);
+    case "sources":    return transformSources(safeData, sMap, range, allStaff);
+    case "lost":       return transformLost(safeData, sMap, range);
+    default:           return [];
   }
 }
-// ═══════════════════════════════════════════════════════════════════════════════
-// Export
-// ═══════════════════════════════════════════════════════════════════════════════
 
 function exportCSV(data: AnyRow[], filename: string) {
   if (!data?.length) {
     toast.error("Generate a report first");
     return;
   }
-
   const keys = Object.keys(data[0]);
-
-  const csv = [
-    keys.join(","),
-    ...data.map(row =>
-      keys
-        .map(k => `"${String((row as any)[k] ?? "").replace(/"/g, '""')}"`)
-        .join(",")
-    ),
-  ].join("\n");
-
-  const blob = new Blob(["\uFEFF" + csv], {
-    type: "text/csv;charset=utf-8;",
-  });
-
+  const csv = [keys.join(","), ...data.map(row => keys.map(k => `"${String((row as any)[k] ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
-
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-
   URL.revokeObjectURL(url);
-
   toast.success("CSV exported");
 }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Sub-components
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -866,29 +537,28 @@ function ReportRow({ row, type }: { row: AnyRow; type: ReportType }) {
       );
     }
     default:
-      return <></>;  // Fix #6 — never return null from table row
+      return <></>;
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Main page
+// Main component
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function Reports() {
   const [reportType,    setReportType]    = useState<ReportType>("admissions");
   const [reportResults, setReportResults] = useState<AnyRow[]>([]);
-  const [period,        setPeriod]        = useState<Period>("monthly");
-  const [customFrom,    setCustomFrom]    = useState(toISO(new Date(TODAY.getFullYear(), 0, 1)));
-  const [customTo,      setCustomTo]      = useState(toISO(TODAY));
-  const [allLeads,      setAllLeads]      = useState<Lead[]>([]);
-  const [allStaff,      setAllStaff]      = useState<StaffMember[]>([]); // Fix #9
-  const [loadingLeads,  setLoadingLeads]  = useState(false);
-  const [generated,     setGenerated]     = useState(false);
-  const [generating,    setGenerating]    = useState(false);
-  const [moduleOpen,    setModuleOpen]    = useState(false);  // Fix #7 — now used
-  const [sourceMap,     setSourceMap]     = useState<Record<string, string>>({});
+  const [period,          setPeriod]          = useState<Period>("monthly");
+  const [customFrom,      setCustomFrom]      = useState(toISO(new Date(TODAY.getFullYear(), 0, 1)));
+  const [customTo,        setCustomTo]        = useState(toISO(TODAY));
+  const [allLeads,        setAllLeads]        = useState<Lead[]>([]);
+  const [allStaff,        setAllStaff]        = useState<StaffMember[]>([]); 
+  const [loadingLeads,    setLoadingLeads]    = useState(false);
+  const [generated,       setGenerated]       = useState(false);
+  const [generating,      setGenerating]      = useState(false);
+  const [moduleOpen,      setModuleOpen]      = useState(false);  
+  const [sourceMap,       setSourceMap]       = useState<Record<string, string>>({});
 
-  // Fix #1 — robust lead fetch with extractArray
   useEffect(() => {
     (async () => {
       setLoadingLeads(true);
@@ -903,17 +573,15 @@ export default function Reports() {
     })();
   }, []);
 
-  // Fix #9 — fetch staff for attendance report
   useEffect(() => {
     apiGet("/api/users")
       .then(res => {
         const list = extractArray(res);
         setAllStaff(list.map((u: any) => ({ id: u.id, name: u.name, role: u.role ?? "Staff" })));
       })
-      .catch(() => {}); // non-critical — attendance still works with partial data
+      .catch(() => {}); 
   }, []);
 
-  // Fix #10 — fetch source map
   useEffect(() => {
     apiGet("/api/lead-sources")
       .then(res => {
@@ -922,7 +590,7 @@ export default function Reports() {
         list.forEach((s: any) => { if (s.id !== undefined && s.name) map[String(s.id)] = String(s.name); });
         setSourceMap(map);
       })
-      .catch(() => {}); // non-critical — sources fall back to "Direct"
+      .catch(() => {}); 
   }, []);
 
   useEffect(() => {
@@ -930,7 +598,6 @@ export default function Reports() {
     setReportResults([]);
   }, [reportType, period, customFrom, customTo]);
 
-  // Fix #4 — safe custom date range using local date constructor
   const dateRange = useMemo<DateRange>(() => {
     if (period === "custom") {
       const [fy, fm, fd] = customFrom.split("-").map(Number);
@@ -943,68 +610,38 @@ export default function Reports() {
     return getPeriodRange(period);
   }, [period, customFrom, customTo]);
 
+  function filterLeadsByDate(leads: Lead[], type: ReportType, range: DateRange): Lead[] {
+    if (!Array.isArray(leads)) return [];
+    return leads.filter((lead) => {
+      const dateValue = getRelevantDate(lead, type);
+      if (!dateValue) return false;
+      const dt = parseDateStr(dateValue);
+      if (!dt || isNaN(dt.getTime())) return false;
 
-function filterLeadsByDate(
-  leads: Lead[],
-  type: ReportType,
-  range: DateRange
-): Lead[] {
+      const leadDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+      const from = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate()).getTime();
+      const to = new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate()).getTime();
+      return leadDate >= from && leadDate <= to;
+    });
+  }
 
-  if (!Array.isArray(leads)) return [];
+  const filteredLeads = useMemo(
+    () => filterLeadsByDate(allLeads, reportType, dateRange),
+    [allLeads, reportType, dateRange]
+  );
 
-  return leads.filter((lead) => {
-
-    const dateValue = getRelevantDate(lead, type);
-
-    if (!dateValue) return false;
-
-    const dt = parseDateStr(dateValue);
-
-    if (!dt || isNaN(dt.getTime())) return false;
-
-    const leadDate = new Date(
-      dt.getFullYear(),
-      dt.getMonth(),
-      dt.getDate()
-    ).getTime();
-
-    const from = new Date(
-      range.from.getFullYear(),
-      range.from.getMonth(),
-      range.from.getDate()
-    ).getTime();
-
-    const to = new Date(
-      range.to.getFullYear(),
-      range.to.getMonth(),
-      range.to.getDate()
-    ).getTime();
-
-    return leadDate >= from && leadDate <= to;
-  });
-}
-// ADD THIS BLOCK
-const filteredLeads = useMemo(
-  () => filterLeadsByDate(allLeads, reportType, dateRange),
-  [allLeads, reportType, dateRange]
-);
-
-const periodLabel = useMemo(() => {
-  if (period === "custom") return `${customFrom} → ${customTo}`;
-
-  return PERIODS.find(p => p.id === period)?.label ?? "";
-}, [period, customFrom, customTo]);
+  const periodLabel = useMemo(() => {
+    if (period === "custom") return `${customFrom} → ${customTo}`;
+    return PERIODS.find(p => p.id === period)?.label ?? "";
+  }, [period, customFrom, customTo]);
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
     const tid = toast.loading("Generating report…");
     try {
-      
       if (reportType === "attendance") {
         const res  = await apiGet(`/api/attendance/all?start_date=${toISO(dateRange.from)}&end_date=${toISO(dateRange.to)}`);
-        const logs = extractArray(res);
-        // Fix #3 — pass allStaff so zero-log staff appear
-        const rows = transformAttendance(logs, dateRange, allStaff);
+        const rows = transformAttendance(extractArray(res), dateRange, allStaff);
         setReportResults(rows);
         setGenerated(true);
         toast.success(`${rows.length} staff records generated`, { id: tid });
@@ -1014,63 +651,84 @@ const periodLabel = useMemo(() => {
           toast.error("No records found for this period", { id: tid });
           return;
         }
-        const rows = transformLeads(
-  reportType,
-  filteredLeads,
-  sourceMap,
-  dateRange,
-  allStaff
-);
+        const rows = transformLeads(reportType, filteredLeads, sourceMap, dateRange, allStaff);
         setReportResults(rows);
         setGenerated(true);
         toast.success(`${rows.length} records generated`, { id: tid });
       }
-    } catch (err) {
-  console.error("REPORT ERROR:", err);
-  toast.error("Failed to generate report", { id: tid });
-
+    } catch {
+      toast.error("Failed to generate report", { id: tid });
     } finally {
       setGenerating(false);
     }
-  }, [reportType, dateRange, filteredLeads, sourceMap, allStaff]);
+  }, [reportType, dateRange, filteredLeads, sourceMap, allStaff, allLeads.length]);
 
   const previewData = generated ? reportResults : [];
-
-  const handleExportCSV = () =>
-    exportCSV(previewData, `${reportType}_${period}_${toISO(TODAY)}.csv`);
-
+  const handleExportCSV = () => exportCSV(previewData, `${reportType}_${period}_${toISO(TODAY)}.csv`);
   const activeModule = REPORT_MODULES.find(m => m.id === reportType) ?? REPORT_MODULES[0];
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="space-y-4 pb-12 text-sm text-slate-900 dark:text-slate-100 font-normal antialiased">
       <Toaster position="top-right" />
 
-      {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 pb-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2.5">
-            <span className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20 shrink-0">
-              <Globe size={16} className="text-white" />
-            </span>
-            Reporting Centre
-          </h1>
-          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Intelligence Unit</p>
+      {/* ✅ DESIGN SYSTEM UNIFORM FIXED HEADER DECK */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-4 select-none w-full shrink-0">
+        
+        {/* Left side brand layout metrics baseline alignment */}
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
+            <Globe size={14} className="text-white" />
+          </div>
+          <div>
+            {/* Standard Trailing Breadcrumb Modules */}
+            <nav className="flex items-center gap-1 text-[10px] text-slate-400 font-black uppercase tracking-wider mb-0.5">
+              <span>CRM Hub</span>
+              <ChevronRight size={10} strokeWidth={3} className="text-slate-300" />
+              <span className="text-slate-600 dark:text-slate-400">Reports</span>
+            </nav>
+            
+            {/* Aligned text-sm headings system signature */}
+            <h1 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wide leading-none">
+              Intelligence Reporting Center
+            </h1>
+            <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mt-1.5 leading-none flex items-center gap-1.5">
+              <span>Core Audit Deck</span>
+              <span className="inline-block w-1 h-1 rounded-full bg-blue-500 animate-pulse" />
+              <span>{reportResults.length || allLeads.length} Analytical Nodes</span>
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => window.print()}
-            className="px-3.5 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center gap-1.5">
-            <Printer size={13} /> Print
+
+        {/* Right side uniform workspace action controls */}
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+          
+          {/* Print Trigger baseline tool button */}
+          <button 
+            type="button" 
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 transition-all cursor-pointer"
+          >
+            <Printer size={12} strokeWidth={3} />
+            <span>Print</span>
           </button>
-          <button type="button" onClick={handleExportCSV} disabled={!previewData.length}
-            className="px-3.5 py-2.5 bg-gray-900 dark:bg-gray-700 text-white rounded-xl text-[10px] font-black uppercase shadow-md flex items-center gap-1.5 disabled:opacity-40">
-            <Download size={13} /> Export CSV
+
+          {/* Export CSV action trigger layout block */}
+          <button 
+            type="button" 
+            onClick={handleExportCSV} 
+            disabled={!previewData.length}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-900 text-white dark:bg-white dark:border-white dark:text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-800 dark:hover:bg-slate-100 transition-all shadow-xs disabled:opacity-40 cursor-pointer"
+          >
+            <Download size={12} strokeWidth={3} />
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
 
+      {/* Workspace Split Content */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
 
-        {/* ── Sidebar (desktop) ── */}
+        {/* Sidebar Navigation */}
         <div className="hidden lg:flex lg:col-span-1 flex-col gap-2">
           {REPORT_MODULES.map(mod => {
             const { Icon } = mod;
@@ -1078,14 +736,14 @@ const periodLabel = useMemo(() => {
               <button key={mod.id} type="button" onClick={() => setReportType(mod.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 transition-all text-left ${
                   reportType === mod.id
-                    ? "bg-blue-600 border-blue-600 text-white shadow-lg"
+                    ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/10"
                     : "bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800"
                 }`}>
                 <div className={`p-2 rounded-xl shrink-0 ${reportType === mod.id ? "bg-white/20" : "bg-blue-50 dark:bg-blue-900/30 text-blue-600"}`}>
                   <Icon size={15} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-bold truncate">{mod.label}</p>
+                  <p className="text-xs font-bold truncate uppercase tracking-tight">{mod.label}</p>
                   <p className={`text-[10px] mt-0.5 truncate ${reportType === mod.id ? "text-blue-100" : "text-gray-400"}`}>
                     {mod.description}
                   </p>
@@ -1095,16 +753,15 @@ const periodLabel = useMemo(() => {
           })}
         </div>
 
-        {/* ── Main panel ── */}
+        {/* Core Main Panel */}
         <div className="lg:col-span-3 space-y-4">
-
-          {/* Fix #7 — mobile module dropdown (actually rendered) */}
+          
+          {/* Mobile Selector Dropdown */}
           <div className="lg:hidden">
             <button
               type="button"
               onClick={() => setModuleOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900
-                border border-gray-200 dark:border-gray-700 rounded-2xl text-sm font-black uppercase tracking-tight"
+              className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl text-xs font-black uppercase tracking-tight"
             >
               <span className="flex items-center gap-2">
                 <activeModule.Icon size={14} />
@@ -1113,17 +770,17 @@ const periodLabel = useMemo(() => {
               <ChevronDown size={14} className={`transition-transform ${moduleOpen ? "rotate-180" : ""}`} />
             </button>
             {moduleOpen && (
-              <div className="mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden shadow-lg">
+              <div className="mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden shadow-lg z-30 relative">
                 {REPORT_MODULES.map(mod => {
                   const { Icon } = mod;
                   return (
                     <button key={mod.id} type="button"
                       onClick={() => { setReportType(mod.id); setModuleOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-left text-sm transition-colors border-b border-gray-50 dark:border-gray-800 last:border-0 ${
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-left text-xs transition-colors border-b border-gray-50 dark:border-gray-800 last:border-0 ${
                         reportType === mod.id ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600" : "hover:bg-gray-50 dark:hover:bg-gray-800"
                       }`}>
                       <Icon size={14} />
-                      <span className="font-semibold">{mod.label}</span>
+                      <span className="font-bold uppercase">{mod.label}</span>
                       <span className="text-[10px] text-gray-400 ml-auto">{mod.description}</span>
                     </button>
                   );
@@ -1132,15 +789,13 @@ const periodLabel = useMemo(() => {
             )}
           </div>
 
-          {/* Controls */}
+          {/* Controls Segment */}
           <div className="bg-white dark:bg-gray-900 px-4 sm:px-5 py-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-3">
-
-            {/* Period pills */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest shrink-0">Period:</span>
               {PERIODS.map(p => (
                 <button key={p.id} type="button" onClick={() => setPeriod(p.id)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
                     period === p.id ? "bg-blue-600 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-500"
                   }`}>
                   {p.label}
@@ -1148,81 +803,77 @@ const periodLabel = useMemo(() => {
               ))}
             </div>
 
-            {/* Fix #8 — custom date inputs actually rendered */}
             {period === "custom" && (
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-col sm:flex-row gap-2 animate-in fade-in duration-100">
                 <div className="flex-1">
                   <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">From</label>
                   <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700
-                      bg-gray-50 dark:bg-gray-800 dark:text-white outline-none focus:border-blue-400 transition-colors"
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 dark:text-white outline-none focus:border-blue-400 transition-colors"
                   />
                 </div>
                 <div className="flex-1">
                   <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">To</label>
                   <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                     min={customFrom}
-                    className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700
-                      bg-gray-50 dark:bg-gray-800 dark:text-white outline-none focus:border-blue-400 transition-colors"
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 dark:text-white outline-none focus:border-blue-400 transition-colors"
                   />
                 </div>
               </div>
             )}
 
-            {/* Scope + actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-2 flex-wrap text-[10px]">
                 <span className="font-black text-gray-400 uppercase tracking-widest">Scope:</span>
                 <span className="font-black text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 rounded-full">
                   {periodLabel}
                 </span>
                 {loadingLeads && (
-                  <span className="text-gray-400 flex items-center gap-1">
+                  <span className="text-gray-400 flex items-center gap-1 font-bold uppercase tracking-tight">
                     <div className="w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
-                    Syncing leads…
+                    Syncing database…
                   </span>
                 )}
               </div>
               <div className="flex gap-2">
                 {generated && (
-                  <button onClick={() => { setGenerated(false); setReportResults([]); }}
-                    className="px-3.5 py-2 text-rose-500 text-[10px] font-black uppercase flex items-center gap-1">
+                  <button type="button" onClick={() => { setGenerated(false); setReportResults([]); }}
+                    className="px-3.5 py-2 text-rose-500 text-[10px] font-black uppercase flex items-center gap-1 transition-all active:scale-95 cursor-pointer">
                     <X size={12} /> Clear
                   </button>
                 )}
-                <button onClick={handleGenerate} disabled={generating || loadingLeads}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[10px] font-black uppercase rounded-xl shadow-md transition-all active:scale-95">
+                <button type="button" onClick={handleGenerate} disabled={generating || loadingLeads}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[10px] font-black uppercase rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
                   {generating ? "Generating…" : "Generate"}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Results table */}
+          {/* Results Grid Table */}
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
             {!generated ? (
-              <div className="h-56 flex flex-col items-center justify-center gap-3">
+              <div className="h-56 flex flex-col items-center justify-center gap-3 select-none">
                 <span className="text-4xl opacity-20">📊</span>
                 <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Select period and generate</p>
               </div>
             ) : previewData.length === 0 ? (
-              <div className="h-56 flex flex-col items-center justify-center gap-3">
+              <div className="h-56 flex flex-col items-center justify-center gap-3 select-none">
                 <span className="text-4xl opacity-20">🔍</span>
                 <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">No matching records</p>
-                <p className="text-[10px] text-gray-300 dark:text-gray-600">Try a wider date range</p>
+                <p className="text-[10px] text-gray-300 dark:text-gray-600 uppercase font-black">Try a wider date range</p>
               </div>
             ) : (
               <>
-                <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between select-none">
                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                     {previewData.length} record{previewData.length !== 1 ? "s" : ""}
                   </span>
-                  <span className="text-[10px] font-semibold text-blue-600">{activeModule.label} · {periodLabel}</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-blue-600">{activeModule.label} · {periodLabel}</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-[11px] min-w-[560px]">
+                  <table className="w-full text-[11px] min-w-[560px] border-collapse">
                     <thead>
-                      <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-800 text-left">
+                      <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-800 text-left select-none">
                         {HEADERS[reportType].map(h => (
                           <th key={h} className="px-4 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">
                             {h}
@@ -1230,7 +881,7 @@ const periodLabel = useMemo(() => {
                         ))}
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                       {previewData.map((row, i) => (
                         <ReportRow key={i} row={row} type={reportType} />
                       ))}

@@ -1,97 +1,96 @@
 const { pool } = require('../config/db');
 
-const normalize = (s) =>
-  (s || "")
-    .toLowerCase()
-    .replace(/[_-]/g, " ")
-    .trim();
+const normalize = (s) => (s || "").toLowerCase().replace(/[_-]/g, " ").trim();
 
 const getDashboardStats = async (req, res) => {
   try {
-    const role = req.user?.role?.toLowerCase() || "";
-    const userId = req.user?.id;
+    if (!req.user) {
+      return res.status(403).json({ success: false, error: "Unauthorised" });
+    }
 
-    const isAdmin = ["admin", "superadmin", "manager"].includes(role);
-    const whereClause = isAdmin ? "1=1" : "l.assigned_user_id = ?";
-    const params = isAdmin ? [] : [userId];
+    const { id: userId, is_super_admin, role } = req.user;
+    const userRoleLower = String(role || "").trim().toLowerCase();
 
-    // ─────────────────────────────────────────────
-    // 1. STATUS COUNTS (Total Leads)
-    // ─────────────────────────────────────────────
+    // 👑 ADMINISTRATIVE VISIBILITY BYPASS
+    const hasAdministrativeVisibility = 
+      Boolean(is_super_admin) || 
+      userRoleLower === "super admin" || 
+      userRoleLower === "admin" || 
+      userRoleLower === "manager";
+
+    // ── WHERE clause (Simplified for Single Branch Setup) ────────────
+    let whereClause = "l.deleted_at IS NULL";
+    let params = [];
+
+    if (!hasAdministrativeVisibility) {
+      whereClause += " AND (l.assigned_user_id = ? OR l.assigned_to = ?)";
+      params.push(userId, userId);
+    }
+
+    // ── 1. STATUS COUNTS ──────────────────────────────────────
     const [statusRows] = await pool.query(`
-      SELECT 
-        LOWER(TRIM(REPLACE(REPLACE(l.lead_status,'-',' '),'_',' '))) AS status,
-        COUNT(*) AS cnt
+      SELECT LOWER(TRIM(l.lead_status)) AS status, COUNT(*) AS cnt
       FROM leads l
       WHERE ${whereClause}
-      GROUP BY status
+      GROUP BY LOWER(TRIM(l.lead_status))
     `, params);
 
     const sm = {};
-    let totalLeads = 0;
-
     statusRows.forEach(r => {
       const key = normalize(r.status);
-      const cnt = Number(r.cnt) || 0;
-      sm[key] = cnt;
-      totalLeads += cnt;
+      sm[key] = (sm[key] || 0) + (Number(r.cnt) || 0);
     });
 
     const statusStats = {
       new: sm["new"] || 0,
-      contacted: sm["contacted"] || 0,
+      contacted: (sm["contacted"] || 0) + (sm["called"] || 0),
       interested: sm["interested"] || 0,
-      followup: sm["follow up"] || sm["followup"] || 0,
+      followup: (sm["follow up"] || 0) + (sm["followup"] || 0) + (sm["follow-up"] || 0),
       converted: sm["converted"] || 0,
       lost: sm["lost"] || 0,
       notInterested: sm["not interested"] || 0,
     };
 
-    // ─────────────────────────────────────────────
-    // 2. HIGH INTENT LEADS (ADDED)
-    // ─────────────────────────────────────────────
+    const totalLeads = statusStats.new + statusStats.contacted + statusStats.interested +
+                       statusStats.followup + statusStats.converted + statusStats.lost +
+                       statusStats.notInterested;
+
+    // ── 2. HIGH INTENT LEADS ──────────────────────────────────
     const [intentRows] = await pool.query(`
       SELECT COUNT(*) AS highIntentCount
       FROM leads l
       WHERE ${whereClause}
-      AND l.lead_quality IN ('High', 'Hot', 'Very High')
-      AND l.lead_status NOT IN ('Converted', 'Lost', 'Not Interested')
+        AND LOWER(TRIM(l.lead_quality)) IN ('high','hot','very high','warm')
+        AND LOWER(TRIM(l.lead_status)) NOT IN ('converted','lost','not interested')
     `, params);
 
     const highIntentLeads = Number(intentRows[0]?.highIntentCount) || 0;
 
-    // ─────────────────────────────────────────────
-    // 3. PENDING FOLLOW-UPS (ADDED)
-    // ─────────────────────────────────────────────
+    // ── 3. PENDING FOLLOW-UPS ─────────────────────────────────
     const [followupRows] = await pool.query(`
       SELECT COUNT(*) AS pendingCount
       FROM leads l
       WHERE ${whereClause}
-      AND l.next_follow_up_date IS NOT NULL
-      /* Removed the <= CURDATE() filter to include future dates */
-      AND l.lead_status NOT IN ('Converted', 'Lost', 'Not Interested')
+        AND l.next_follow_up_date IS NOT NULL
+        AND LOWER(TRIM(l.lead_status)) NOT IN ('converted','lost','not interested')
     `, params);
 
-const pendingFollowUps = Number(followupRows[0]?.pendingCount) || 0;
+    const pendingFollowUps = Number(followupRows[0]?.pendingCount) || 0;
 
-    // ─────────────────────────────────────────────
-    // 4. TODAY LEADS
-    // ─────────────────────────────────────────────
-    const [today] = await pool.query(`
+    // ── 4. NEW TODAY ──────────────────────────────────────────
+    const [todayRows] = await pool.query(`
       SELECT COUNT(*) AS newToday
       FROM leads l
       WHERE ${whereClause}
-      AND DATE(l.created_at) = CURDATE()
+        AND DATE(l.created_at) = CURDATE()
     `, params);
 
-    const newToday = Number(today[0]?.newToday) || 0;
+    const newToday = Number(todayRows[0]?.newToday) || 0;
 
-    // ─────────────────────────────────────────────
-    // 5. RECENT LEADS & SOURCE STATS
-    // ─────────────────────────────────────────────
+    // ── 5. RECENT LEADS ───────────────────────────────────────
+    // 🚀 FIXED: Pulls lead_source_name via relational LEFT JOIN cleanly to avoid field failures
     const [recentLeads] = await pool.query(`
-      SELECT l.full_name, l.interested_course, l.lead_status, l.created_at,
-             ls.name AS lead_source_name
+      SELECT l.full_name, l.interested_course, l.lead_status, l.created_at, ls.name AS lead_source_name
       FROM leads l
       LEFT JOIN lead_sources ls ON l.lead_source_id = ls.id
       WHERE ${whereClause}
@@ -99,75 +98,101 @@ const pendingFollowUps = Number(followupRows[0]?.pendingCount) || 0;
       LIMIT 10
     `, params);
 
-    const [sourceStats] = await pool.query(`
-      SELECT
+    // ── 6. SOURCE PERFORMANCE MATRIX ──────────────────────────
+    // 🚀 FIXED: Swapped table references to safely group by structural relational keys (ls.id/ls.name)
+    const [sourceRows] = await pool.query(`
+      SELECT 
         ls.id,
-        COALESCE(ls.name, 'Other') AS name,
-        COUNT(l.id) AS value
+        COALESCE(ls.name, 'Other') AS source_title, 
+        COUNT(l.id) AS total_value,
+        SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS total_converted
       FROM leads l
       LEFT JOIN lead_sources ls ON l.lead_source_id = ls.id
       WHERE ${whereClause}
       GROUP BY ls.id, ls.name
-      ORDER BY value DESC
+      ORDER BY total_value DESC
     `, params);
 
-    // ─────────────────────────────────────────────
-    // 6. TRENDS & ANALYTICS
-    // ─────────────────────────────────────────────
-    const [dailyConversions] = await pool.query(`
-      SELECT DATE(l.created_at) AS date, COUNT(*) AS total,
-      SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
-      FROM leads l WHERE ${whereClause} AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-      GROUP BY date ORDER BY date ASC
-    `, params);
-    const [weeklyConversions] = await pool.query(`
-  SELECT 
-    YEARWEEK(l.created_at, 1) AS week,
-    COUNT(*) AS total,
-    SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
-  FROM leads l
-  WHERE ${whereClause}
-    AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 WEEK)
-  GROUP BY week
-  ORDER BY week ASC
-`, params);
-const [monthlyConversions] = await pool.query(`
-  SELECT 
-    DATE_FORMAT(l.created_at, '%Y-%m') AS month,
-    COUNT(*) AS total,
-    SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
-  FROM leads l
-  WHERE ${whereClause}
-    AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-  GROUP BY month
-  ORDER BY month ASC
-`, params);
+    const sourceStats = sourceRows.map((row) => ({
+      id: row.id || 999,
+      name: row.source_title.toUpperCase(),
+      value: Number(row.total_value || 0),
+      converted: Number(row.total_converted || 0),
+      percentage: totalLeads > 0 ? Math.round((row.total_value / totalLeads) * 100) : 0
+    }));
 
-    // ─────────────────────────────────────────────
-    // 7. FINAL RESPONSE
-    // ─────────────────────────────────────────────
-    const conversionRate = totalLeads > 0
-      ? Math.round((statusStats.converted / totalLeads) * 100)
-      : 0;
+    // ── 7. INGESTION YIELD CYCLES ─────────────────────────────
+  const period = req.query.period || "daily";
+    let activeData = [];
 
-   return res.json({
-  success: true,
-  totalLeads,
-  newToday,
-  conversionRate,
-  highIntentLeads,
-  pendingFollowUps,
-  statusStats,
-  recentLeads: recentLeads || [],
-  sourceStats: sourceStats || [],
-  dailyConversions: dailyConversions || [],
-  weeklyConversions: weeklyConversions || [],   // ✅ ADD
-  monthlyConversions: monthlyConversions || [],  // ✅ ADD
-});
+    if (period === "weekly") {
+      const [weeklyRows] = await pool.query(`
+        SELECT 
+          CONCAT('Wk ', WEEK(l.created_at)) AS label, 
+          COUNT(l.id) AS total, 
+          SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
+        FROM leads l
+        WHERE ${whereClause} 
+          AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 8 WEEK)
+        GROUP BY CONCAT('Wk ', WEEK(l.created_at))
+        ORDER BY MIN(l.created_at) ASC
+        LIMIT 6
+      `, params);
+      activeData = weeklyRows;
+    } else if (period === "monthly") {
+      // 🚀 FIXED INTERVAL: Changed from 6 MONTH to 18 MONTH lookback to pull your early 2025 records into the math loop
+      const [monthlyRows] = await pool.query(`
+        SELECT 
+          DATE_FORMAT(l.created_at, '%b %y') AS label, 
+          COUNT(l.id) AS total, 
+          SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
+        FROM leads l
+        WHERE ${whereClause} 
+          AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 18 MONTH)
+        GROUP BY DATE_FORMAT(l.created_at, '%b %y'), DATE_FORMAT(l.created_at, '%Y-%m')
+        ORDER BY DATE_FORMAT(l.created_at, '%Y-%m') ASC
+        LIMIT 6
+      `, params);
+      activeData = monthlyRows;
+    } else {
+      // Daily Loop (Last 7 Days)
+      const [dailyRows] = await pool.query(`
+        SELECT 
+          DATE_FORMAT(l.created_at, '%a') AS label, 
+          COUNT(l.id) AS total, 
+          SUM(CASE WHEN LOWER(TRIM(l.lead_status)) = 'converted' THEN 1 ELSE 0 END) AS converted
+        FROM leads l
+        WHERE ${whereClause} 
+          AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+        GROUP BY DATE_FORMAT(l.created_at, '%a'), DATE(l.created_at)
+        ORDER BY DATE(l.created_at) ASC
+        LIMIT 7
+      `, params);
+      activeData = dailyRows;
+    }
 
+    // Determine the max bar scale boundary dynamically
+    const highestTotal = activeData.length > 0 ? Math.max(...activeData.map(d => Number(d.total || 0))) : 0;
+    const maxBar = highestTotal > 0 ? highestTotal : 10;
+
+    const conversionRate = totalLeads > 0 ? Math.round((statusStats.converted / totalLeads) * 100) : 0;
+
+    return res.status(200).json({
+      success: true,
+      totalLeads,
+      newToday,
+      conversionRate,
+      highIntentLeads,
+      pendingFollowUps,
+      statusStats,
+      recentLeads: recentLeads || [],
+      sourceStats: sourceStats || [],
+      activeData: activeData || [],
+      maxBar,
+    });
   } catch (error) {
-    console.error("[DASHBOARD ERROR]", error.message);
-    return res.status(500).json({ error: "Server error" });
+    console.error("[getDashboardStats error]", error.message);
+    return res.status(500).json({ success: false, error: "Dashboard data aggregation failed" });
   }
 };
 

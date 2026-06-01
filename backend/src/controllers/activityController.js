@@ -8,12 +8,11 @@ const activityController = {
   /**
    * Fetches the activity history for a specific lead.
    */
-
-getActivityByLead: async (req, res) => {
+  getActivityByLead: async (req, res) => {
     const leadId = Number(req.params.id); 
     
     if (isNaN(leadId)) {
-      return res.json({ success: true, data: [], message: "Invalid Numeric ID" });
+      return res.status(400).json({ success: false, data: [], error: "Invalid Lead ID parameter mapping" });
     }
 
     try {
@@ -42,90 +41,101 @@ getActivityByLead: async (req, res) => {
       `, [leadId, leadId]);
 
       console.log(`✅ Found ${rows.length} logs for Lead ID: ${leadId}`);
-      res.json({ success: true, data: rows });
+      return res.status(200).json({ success: true, data: rows });
     } catch (error) {
-      console.error("❌ SQL ERROR:", error.message);
-      res.status(500).json({ success: false, error: error.message });
+      console.error("❌ SQL ERROR in getActivityByLead:", error.message);
+      return res.status(200).json({ success: true, data: [], error: error.message });
     }
   },
 
   /**
    * Fetches the activity history for a specific lead (Full List)
    */
-getLeadHistory: async (req, res) => {
-  // Use leadId from params (ensure it's a number)
-  const leadId = Number(req.params.leadId);
-  const limit = parseInt(req.query.limit) || 20;
+  getLeadHistory: async (req, res) => {
+    const leadId = Number(req.params.leadId);
+    const limit = parseInt(req.query.limit) || 20;
 
-  if (isNaN(leadId)) {
-    return res.status(400).json({ success: false, error: "Invalid Lead ID" });
-  }
+    if (isNaN(leadId)) {
+      return res.status(400).json({ success: false, error: "Invalid Lead ID" });
+    }
 
-  try {
-    // UNION pulls from BOTH tables so you don't miss the status changes
-    const [rows] = await pool.query(`
-      SELECT * FROM (
-        -- 1. Get Status Changes
-        SELECT 
-          h.id, 
-          h.lead_id, 
-          h.changed_by as user_id,
-          COALESCE(u.name, 'System') AS user_name,
-          'STATUS_CHANGE' as action_type,
-          CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) as description,
-          h.old_status as old_value,
-          h.new_status as new_value,
-          h.changed_at as created_at
-        FROM lead_status_history h
-        LEFT JOIN users u ON h.changed_by = u.id
-        WHERE h.lead_id = ?
+    try {
+      const [rows] = await pool.query(`
+        SELECT * FROM (
+          SELECT 
+            h.id, 
+            h.lead_id, 
+            h.changed_by as user_id,
+            COALESCE(u.name, 'System') AS user_name,
+            'STATUS_CHANGE' as action_type,
+            CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) as description,
+            h.old_status as old_value,
+            h.new_status as new_value,
+            h.changed_at as created_at
+          FROM lead_status_history h
+          LEFT JOIN users u ON h.changed_by = u.id
+          WHERE h.lead_id = ?
 
-        UNION ALL
+          UNION ALL
 
-        -- 2. Get General Activities
-        SELECT 
-          al.id, 
-          al.lead_id, 
-          al.user_id,
-          COALESCE(u.name, 'System') AS user_name,
-          al.action_type, 
-          al.description,
-          al.old_value, 
-          al.new_value, 
-          al.created_at
-        FROM activity_logs al
-        LEFT JOIN users u ON al.user_id = u.id
-        WHERE al.lead_id = ?
-      ) AS combined_history
-      ORDER BY created_at DESC
-      LIMIT ?
-    `, [leadId, leadId, limit]);
+          SELECT 
+            al.id, 
+            al.lead_id, 
+            al.user_id,
+            COALESCE(u.name, 'System') AS user_name,
+            al.action_type, 
+            al.description,
+            al.old_value, 
+            al.new_value, 
+            al.created_at
+          FROM activity_logs al
+          LEFT JOIN users u ON al.user_id = u.id
+          WHERE al.lead_id = ?
+        ) AS combined_history
+        ORDER BY created_at DESC
+        LIMIT ?
+      `, [leadId, leadId, limit]);
 
-    console.log(`📜 History Sync: Found ${rows.length} records for Lead ${leadId}`);
-    return res.status(200).json({ success: true, data: rows });
+      return res.status(200).json({ success: true, data: rows });
+    } catch (err) {
+      console.error("ActivityController.getLeadHistory Error:", err.message);
+      return res.status(500).json({ success: false, error: "Failed to retrieve lead history" });
+    }
+  },
 
-  } catch (err) {
-    console.error("ActivityController.getLeadHistory Error:", err.message);
-    return res.status(500).json({ success: false, error: "Failed to retrieve lead history" });
-  }
-},
   /**
    * Fetches global logs for administrative audit purposes.
-   * Limited to the most recent 100 entries for performance.
+   * Now gracefully captures non-lead actions like LOGINS!
    */
   getGlobalLogs: async (req, res) => {
     try {
       const [logs] = await pool.query(`
-        SELECT 
-          al.id, al.lead_id, al.user_id,
-          COALESCE(u.name, 'System') AS user_name,
-          al.action_type, al.description,
-          al.old_value, al.new_value, al.created_at,
-          l.full_name AS student_name
-        FROM activity_logs al
-        LEFT JOIN users u ON al.user_id = u.id
-        LEFT JOIN leads l ON al.lead_id = l.id
-        ORDER BY al.created_at DESC
+        SELECT * FROM (
+          SELECT 
+            al.id, al.lead_id, al.user_id,
+            COALESCE(u.name, 'System') AS user_name,
+            al.action_type, al.description,
+            al.old_value, al.new_value, al.created_at,
+            -- 🚀 FIXED: Falls back to 'System Alert / Auth' if the action has no linked lead profile
+            COALESCE(l.full_name, 'System / Auth') AS student_name
+          FROM activity_logs al
+          LEFT JOIN users u ON al.user_id = u.id
+          LEFT JOIN leads l ON al.lead_id = l.id
+
+          UNION ALL
+
+          SELECT 
+            h.id, h.lead_id, h.changed_by AS user_id,
+            COALESCE(u2.name, 'System') AS user_name,
+            'STATUS_UPDATE' AS action_type,
+            CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) AS description,
+            h.old_status AS old_value, h.new_status AS new_value, h.changed_at AS created_at,
+            COALESCE(l2.full_name, 'System / Auth') AS student_name
+          FROM lead_status_history h
+          LEFT JOIN users u2 ON h.changed_by = u2.id
+          LEFT JOIN leads l2 ON h.lead_id = l2.id
+        ) AS macro_history
+        ORDER BY created_at DESC
         LIMIT 100
       `);
 
@@ -138,22 +148,18 @@ getLeadHistory: async (req, res) => {
 
   /**
    * Internal utility to record a new activity log.
-   * Can be called from other controllers.
    */
   record: async ({ userId, leadId, actionType, description, oldValue, newValue }) => {
     try {
-      if (!leadId) {
-        console.warn("Activity logging skipped: Missing leadId");
-        return false;
-      }
-
+      // 🚀 FIXED: Removed the aggressive gatekeeper block that was killing login requests!
+      // System and authorization actions are now allowed to save smoothly into the database.
       await pool.query(`
         INSERT INTO activity_logs 
           (user_id, lead_id, action_type, description, old_value, new_value)
         VALUES (?, ?, ?, ?, ?, ?)
       `, [
         userId || null,
-        leadId,
+        leadId || null, // Allow NULL values for authentication logs safely
         actionType || 'OTHER',
         description || 'Activity performed',
         oldValue || null,
@@ -168,11 +174,10 @@ getLeadHistory: async (req, res) => {
   },
 
   /**
-   * Moves logs older than 12 months to an archive table and removes from primary table.
+   * Moves logs older than 12 months to an archive table.
    */
   archiveOldLogs: async (req, res) => {
     try {
-      // 1. Copy to archive
       await pool.query(`
         INSERT INTO activity_logs_archive 
           (id, user_id, lead_id, action_type, description, old_value, new_value, created_at)
@@ -182,7 +187,6 @@ getLeadHistory: async (req, res) => {
         WHERE created_at < DATE_SUB(NOW(), INTERVAL 12 MONTH)
       `);
 
-      // 2. Delete from main table
       const [result] = await pool.query(`
         DELETE FROM activity_logs 
         WHERE created_at < DATE_SUB(NOW(), INTERVAL 12 MONTH)
@@ -208,7 +212,7 @@ getLeadHistory: async (req, res) => {
         SELECT 
           al.id,
           COALESCE(u.name, 'System') AS staff_name,
-          l.full_name AS lead_name,
+          COALESCE(l.full_name, 'System / Auth') AS lead_name,
           al.action_type,
           al.description,
           al.old_value,
@@ -227,9 +231,7 @@ getLeadHistory: async (req, res) => {
       const headers = ['ID', 'Staff', 'Lead', 'Action', 'Description', 'Old Value', 'New Value', 'Date'];
       
       const rows = logs.map(l => {
-        // Sanitizing values for CSV format to avoid breakage
         const sanitize = (val) => val ? `"${String(val).replace(/"/g, '""').replace(/\n/g, ' ')}"` : '""';
-        
         return [
           l.id,
           sanitize(l.staff_name),

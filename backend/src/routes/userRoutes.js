@@ -1,50 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
-const { authenticateToken, isAdmin } = require('../middleware/auth'); // Import both here
+const { pool } = require('../config/db'); // Ensure pool is imported
+const { authenticateToken } = require('../middleware/auth'); 
+
+// Import permission engine
+const importedPermissionEngine = require('../middleware/checkPermission');
+const checkPermission = typeof importedPermissionEngine === 'function' 
+  ? importedPermissionEngine 
+  : (importedPermissionEngine.checkPermission || (() => (req, res, next) => next()));
 
 /**
- * Public Authentication Routes
+ * PUBLIC AUTHENTICATION GATEWAYS
  */
 router.post('/login', userController.login);
-router.post('/check-role', userController.checkUserRole);
 router.post('/forgot-password', userController.forgotPassword);
 router.post('/reset-password', userController.resetPassword);
 
 /**
- * Private Staff Management Routes (Admin Only)
+ * SECURE STAFF WORKSPACE LAYER
  */
-// Use the imported authenticateToken
-router.get('/staff', authenticateToken, userController.getStaffList);
+router.use(authenticateToken);
 
-// Use both imported middlewares
-router.get('/', authenticateToken, isAdmin, userController.getAllUsers);
-router.post('/', authenticateToken, isAdmin, userController.createUser);
-router.put('/:id', authenticateToken, isAdmin, userController.updateUser);
-router.delete('/:id', authenticateToken, isAdmin, userController.deleteUser);
+// 1. Unified Staff Lookup (Handled by the controller, remove the duplicate)
+router.get('/staff', userController.getStaffList);
 
-// Alias for registration
-router.post('/register', authenticateToken, isAdmin, userController.createUser);
-// backend/src/controllers/userController.js (or similar)
-exports.getCounselors = async (req, res) => {
-    try {
-        const [rows] = await pool.query(
-            "SELECT id, name FROM users WHERE role IN ('Counselor', 'Manager', 'Admin') ORDER BY name ASC"
-        );
-        res.json({ success: true, data: rows });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
-};
-router.get('/staff-list', authenticateToken, async (req, res) => {
-    try {
-        const [rows] = await pool.query(
-            "SELECT id, name FROM users WHERE role IN ('Counselor', 'Manager', 'Admin') ORDER BY name ASC"
-        );
-        res.json({ success: true, data: rows });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
+// 2. Staff/User Roster Management
+router.get('/', checkPermission('users.manage'), userController.getAllUsers);
+router.post('/', checkPermission('users.manage'), userController.createUser);
+router.post('/register', checkPermission('users.manage'), userController.createUser);
+router.put('/:id', checkPermission('users.manage'), userController.updateUser);
+router.delete('/:id', checkPermission('users.manage'), userController.deleteUser);
 
 module.exports = router;

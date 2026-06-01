@@ -4,7 +4,7 @@ const axios               = require("axios");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const isAdmin = (user) => (user?.role || "").toLowerCase() === "admin";
+const isAdmin = (user) => (user?.role || "").toLowerCase().includes("admin");
 
 /** Normalise to last 10 digits. Returns null if invalid. */
 const cleanPhone = (raw = "") => {
@@ -17,7 +17,6 @@ const cleanPhone = (raw = "") => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 exports.initiateCall = async (req, res) => {
-  // Fix #1 — auth guard
   if (!req.user?.id) return res.status(401).json({ success: false, message: "Unauthorized" });
 
   try {
@@ -32,13 +31,11 @@ exports.initiateCall = async (req, res) => {
       });
     }
 
-    // Fix #2 — validate lead phone before sending to Exotel
     const cleanLeadPhone = cleanPhone(leadPhone);
     if (!cleanLeadPhone) {
       return res.status(400).json({ success: false, message: "Invalid lead phone number" });
     }
 
-    // Fix #3 — storage check
     const storage = await checkVpsStorage();
     if (!storage.isSafe) {
       return res.status(507).json({
@@ -47,7 +44,6 @@ exports.initiateCall = async (req, res) => {
       });
     }
 
-    // Fix #4 — select only what you need, not SELECT *
     const [settingsRows] = await pool.query(
       `SELECT is_call_recording_enabled, telephony_provider,
               exotel_api_key, exotel_api_token, exotel_account_sid, exotel_virtual_number, exotel_subdomain
@@ -62,7 +58,6 @@ exports.initiateCall = async (req, res) => {
       });
     }
 
-    // Fix #5 — credentials from DB row (set via Settings page), fallback to ENV
     const API_KEY        = settings.exotel_api_key        || process.env.EXOTEL_API_KEY;
     const API_TOKEN      = settings.exotel_api_token      || process.env.EXOTEL_API_TOKEN;
     const ACCOUNT_SID    = settings.exotel_account_sid    || process.env.EXOTEL_ACCOUNT_SID;
@@ -76,7 +71,6 @@ exports.initiateCall = async (req, res) => {
       });
     }
 
-    // Fix #6 — StatusCallback uses ENV variable, not hardcoded domain
     const callbackUrl = `${process.env.API_BASE_URL}/api/telephony/webhook`;
 
     const params = new URLSearchParams();
@@ -84,26 +78,27 @@ exports.initiateCall = async (req, res) => {
     params.append("To",             `+91${cleanLeadPhone}`);
     params.append("CallerId",       VIRTUAL_NUMBER);
     params.append("Record",         "true");
-    params.append("StatusCallback", callbackUrl);
+    
+    // 🎯 FIX: Changed key token to exotel's real property name 'StatusCallbackUrl'
+    params.append("StatusCallbackUrl", callbackUrl);
 
     const exotelUrl = `https://${API_KEY}:${API_TOKEN}@${SUBDOMAIN}/v1/Accounts/${ACCOUNT_SID}/Calls/connect.json`;
 
     const response = await axios.post(exotelUrl, params, {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      timeout: 10000, // 10s timeout — don't hang forever if Exotel is slow
+      timeout: 10000, 
     });
 
     const callSid = response.data?.Call?.Sid;
     if (!callSid) throw new Error("Exotel did not return a Call SID");
 
-    // Create initial log — status updated later by webhook
     await pool.query(
       `INSERT INTO call_logs (lead_id, user_id, call_sid, direction, call_status)
        VALUES (?, ?, ?, 'outbound', 'in-progress')`,
       [leadId, userId, callSid]
     );
 
-    res.json({
+    return res.json({
       success: true,
       message: "Connecting… Please answer your phone first.",
       callSid,
@@ -111,13 +106,12 @@ exports.initiateCall = async (req, res) => {
 
   } catch (error) {
     console.error("initiateCall error:", error.response?.data ?? error.message);
-    res.status(500).json({ success: false, message: "Failed to connect via Exotel" });
+    return res.status(500).json({ success: false, message: "Failed to connect via Exotel" });
   }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXOTEL WEBHOOK  (POST /api/telephony/webhook)
-// Called by Exotel when a call ends — no auth middleware on this route
 // ═══════════════════════════════════════════════════════════════════════════════
 
 exports.handleCallWebhook = async (req, res) => {
@@ -125,6 +119,7 @@ exports.handleCallWebhook = async (req, res) => {
   res.status(200).send("OK");
 
   try {
+    // 🎯 NOTE: Ensure app.use(express.urlencoded({extended:true})) middleware is active in server.js
     const { CallSid, Status, RecordingUrl, CallDuration } = req.body;
 
     if (!CallSid) {
@@ -132,9 +127,6 @@ exports.handleCallWebhook = async (req, res) => {
       return;
     }
 
-    // Fix #7 — don't overwrite created_at; use a separate completed_at column
-    // If your table doesn't have completed_at yet, add it:
-    // ALTER TABLE call_logs ADD COLUMN completed_at DATETIME DEFAULT NULL;
     await pool.query(
       `UPDATE call_logs
        SET call_status   = ?,
@@ -151,11 +143,6 @@ exports.handleCallWebhook = async (req, res) => {
     );
 
     console.log(`✅ Call webhook processed: ${CallSid} | status: ${Status} | duration: ${CallDuration}s`);
-
-    // TODO: Schedule a job to download RecordingUrl to your VPS before it
-    // expires on Exotel's servers (~7 days). Use a queue (Bull, BeeQueue)
-    // or a simple setTimeout for low volume:
-    // if (RecordingUrl) scheduleRecordingDownload(CallSid, RecordingUrl);
 
   } catch (error) {
     console.error("handleCallWebhook error:", error.message);
@@ -188,8 +175,6 @@ exports.getCallLogs = async (req, res) => {
     const where  = [];
     const params = [];
 
-    // 1. Role-based filter (isAdmin check)
-    // Assuming isAdmin is a helper function available in your scope
     if (typeof isAdmin !== 'function' || !isAdmin(req.user)) {
       where.push("cl.user_id = ?");
       params.push(userId);
@@ -198,22 +183,19 @@ exports.getCallLogs = async (req, res) => {
       params.push(parseInt(counselorId));
     }
 
-    // 2. Search logic
     if (search.trim()) {
       where.push("(l.full_name LIKE ? OR l.phone LIKE ? OR u.name LIKE ?)");
       const s = `%${search.trim()}%`;
       params.push(s, s, s);
     }
 
-    // 3. Date logic
     if (startDate && endDate) {
       where.push("cl.created_at BETWEEN ? AND ?");
       params.push(`${startDate} 00:00:00`, `${endDate} 23:59:59`);
-    } else if (localDate || startDate) {
-      where.push("DATE(cl.created_at) = ?");
-      params.push(localDate || startDate);
+    } else if (localDate) {
+      where.push("cl.created_at >= ? AND cl.created_at <= ?");
+      params.push(`${localDate} 00:00:00`, `${localDate} 23:59:59`);
     }
-
     const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     const fromClause = `
@@ -223,13 +205,13 @@ exports.getCallLogs = async (req, res) => {
       ${whereClause}
     `;
 
-    // 4. Get Total Count
-    const [[{ total }]] = await pool.query(
+    const [countResult] = await pool.query(
       `SELECT COUNT(*) AS total ${fromClause}`,
       params
     );
+    const total = countResult[0]?.total || 0;
 
-    // 5. Get Rows (REMOVED cl.completed_at)
+    // 🎯 FIX: Wrapped parameters inside direct Number() typecasting wrappers to prevent driver string conversion 404 crashes
     const [rows] = await pool.query(
       `SELECT cl.id, cl.lead_id, cl.user_id, cl.direction, cl.duration,
               cl.recording_url, cl.call_status, cl.admin_feedback,
@@ -239,7 +221,7 @@ exports.getCallLogs = async (req, res) => {
        ${fromClause}
        ORDER BY cl.created_at DESC
        LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset]
+      [...params, Number(limitNum), Number(offset)]
     );
 
     return res.json({
@@ -258,6 +240,7 @@ exports.getCallLogs = async (req, res) => {
     return res.status(500).json({ success: false, error: "Failed to load call logs" });
   }
 };
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SAVE FEEDBACK  (PUT /api/telephony/feedback)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -265,7 +248,6 @@ exports.getCallLogs = async (req, res) => {
 exports.saveFeedback = async (req, res) => {
   if (!req.user?.id) return res.status(401).json({ success: false, error: "Unauthorized" });
 
-  // Fix #9 — admin only
   if (!isAdmin(req.user)) {
     return res.status(403).json({ success: false, error: "Only admins can add performance feedback" });
   }
@@ -286,13 +268,12 @@ exports.saveFeedback = async (req, res) => {
 
   } catch (err) {
     console.error("saveFeedback error:", err);
-    return res.status(500).json({ success: false, error: "Failed to save feedback" }); // Fix #8
+    return res.status(500).json({ success: false, error: "Failed to save feedback" });
   }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CREATE CALL LOG  (POST /api/telephony/logs)
-// Used for manual log entry or testing
 // ═══════════════════════════════════════════════════════════════════════════════
 
 exports.createCallLog = async (req, res) => {
@@ -310,7 +291,6 @@ exports.createCallLog = async (req, res) => {
     return res.status(400).json({ success: false, error: "lead_id is required" });
   }
 
-  // Whitelist valid values to prevent junk data
   const VALID_DIRECTIONS = ["inbound", "outbound"];
   const VALID_STATUSES   = ["completed", "missed", "busy", "no-answer", "in-progress"];
 
@@ -336,6 +316,6 @@ exports.createCallLog = async (req, res) => {
 
   } catch (err) {
     console.error("createCallLog error:", err);
-    return res.status(500).json({ success: false, error: "Failed to create call log" }); // Fix #8
+    return res.status(500).json({ success: false, error: "Failed to create call log" });
   }
 };

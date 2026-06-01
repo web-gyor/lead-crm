@@ -3,22 +3,21 @@ const { pool } = require('../config/db');
 
 const getPipeline = async (req, res) => {
   try {
-    const role = req.user?.role?.toLowerCase() || '';
-    const userId = req.user?.id;
-    const { range } = req.query; // Get 'today', 'week', 'month' from query
-
-    const isAdmin = role === 'admin' || role === 'superadmin' || role === 'manager';
-
-    let whereClause = `LOWER(TRIM(l.lead_status)) IN ('new','contacted','interested','follow-up','converted','lost','not interested')`;
-    const params = [];
-
+    const { range } = req.query; // will be 'today', 'week', 'month', 'year', or 'all'
+    
+   let whereClause = `LOWER(TRIM(l.lead_status)) IN ('new', 'contacted', 'called', 'interested', 'follow-up', 'converted', 'lost', 'not interested')`;
+    
     // --- TIME RANGE FILTERING ---
-    if (range === 'today') {
+   if (range === 'today') {
       whereClause += " AND DATE(l.created_at) = CURDATE()";
     } else if (range === 'week') {
+      // Rolling 7 days or start of week
       whereClause += " AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
     } else if (range === 'month') {
-      whereClause += " AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      // 🚀 FIXED: Enforces strict current calendar month parsing (June 1st onwards)
+      whereClause += " AND YEAR(l.created_at) = YEAR(CURDATE()) AND MONTH(l.created_at) = MONTH(CURDATE())";
+    } else if (range === 'year') {
+      whereClause += " AND YEAR(l.created_at) = YEAR(CURDATE())";
     }
 
     if (!isAdmin && userId) {

@@ -1,165 +1,138 @@
+import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import ProtectedRoute from "./ProtectedRoute";
 
-// Layout
+// Core System Frame Layout Wrapper
 import MainLayout from "../layouts/MainLayout";
 
-// Pages
-import Dashboard from "../pages/Dashboard";
-import FollowUps from "../pages/FollowUps";
+// Core Active Modular Base Pages
+import Dashboard from "../pages/dashboard/Dashboard";
+import FollowUps from "../modules/followups/FollowUps";
 import ColdStorage from "../pages/ColdStorage";
-import Leads from "../pages/Leads";
-import Pipeline from "../pages/Pipeline";
-import Permissions from "../pages/Permissions";
+import Leads from "../modules/leads/LeadsPage";
+import Pipeline from "../pages/pipeline/Pipeline";
 import Analytics from "../pages/Analytics";
 import Reports from "../pages/Reports";
-import UsersMaster from "../pages/masters/UsersMaster";
-import CoursesMaster from "../pages/masters/CoursesMaster";
-import CountryMaster from "../pages/masters/CountryMaster";
 import Login from "../pages/Login";
-import Settings from "../pages/Settings";
 import Performance from "../pages/Performance";
-import BulkImport from "../pages/BulkImport";
-import CommunicationLog from "../pages/Communication";
+import CommunicationPage from "../pages/communication/CommunicationPage";
 import AutomationManager from "../pages/AutomationManager";
 import ResetPassword from "../pages/ResetPassword";
 
-// Lead Status Pages
-import NewLeads from "../pages/leads/New";
-import ContactedLeads from "../pages/leads/Contacted";
-import InterestedLeads from "../pages/leads/Interested";
-import ConvertedLeads from "../pages/leads/Converted";
-import FollowupLeads from "../pages/leads/FollowupLeads";
-import RejectedLeads from "../pages/leads/Rejected";
-import LostLeads from "../pages/leads/Lost";
-import LeadDistribution from "../pages/LeadDistribution"; 
-import AttendanceMaster from "../pages/AttendanceMaster";
-import CallTracker from "../pages/CallTracker";
-// Components
-import ActivityLogs from "../components/ActivityLogs";
+// Lead Core Operations & Attribution
+import LeadOperationsHub from "../modules/import/LeadOperationsHub";
+
+// Master Control Data Grids
+import MastersDashboard from "../modules/master/MastersDashboard";
+import SettingsDashboardHub from "../modules/settings/SettingsDashboardHub";
+import Permissions from "../modules/permissions/index";
+
+// Tracking Audits & Operations Logs
+import OperationsLogsHub from "../modules/operations-logs/Index";
+
+// Shared Fallbacks
 import NotFound from "../components/NotFound";
 
 export default function AppRoutes() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin h-6 w-6 border-2 border-blue-600 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   return (
     <Routes>
-      {/* ─── Public Routes ─── */}
+      {/* ─── PUBLIC ACCESS LANES ─── */}
       <Route path="/login" element={!user ? <Login /> : <Navigate to="/dashboard" replace />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
 
-      {/* ─── Protected Routes + Layout ─── */}
-      <Route element={<ProtectedRoute />}> 
-        <Route element={<MainLayout />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      {/* ─── PRIVILEGED SECURE SYSTEM LAYER ─── */}
+      <Route element={!user ? <Navigate to="/login" replace /> : <MainLayout />}>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-          {/* Core Routes - Updated to Production Keys */}
-          <Route path="/dashboard" element={<ProtectedRoute permissionKey="tracker.status" />} >
-              <Route index element={<Dashboard />} />
-          </Route>
-          
-          <Route path="/leads" element={<ProtectedRoute permissionKey="leads.view" />} >
-              <Route index element={<Leads />} />
-          </Route>
-
-          <Route path="/pipeline" element={<ProtectedRoute permissionKey="leads.kanban" />} >
-              <Route index element={<Pipeline />} />
-          </Route>
-
-          <Route path="/followups" element={<ProtectedRoute permissionKey="tasks.view" />} >
-              <Route index element={<FollowUps />} />
-          </Route>
-
-          <Route path="/communication" element={<ProtectedRoute permissionKey="logs.communication" />} >
-              <Route index element={<CommunicationLog />} />
-          </Route>
-          {/* AI Automation Engine */}
-            <Route path="/automation" element={<ProtectedRoute permissionKey="ai.intelligence" />} >
-                <Route index element={<AutomationManager />} />
-            </Route>
-
-          {/* Lead Status Pages - Adding keys for security */}
-          <Route path="/leads/new" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<NewLeads />} />
-          </Route>
-          <Route path="/leads/contacted" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<ContactedLeads />} />
-          </Route>
-          <Route path="/leads/interested" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<InterestedLeads />} />
-          </Route>
-          <Route path="/leads/converted" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<ConvertedLeads />} />
-          </Route>
-          <Route path="/leads/followup-leads" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<FollowupLeads />} />
-          </Route>
-          <Route path="/leads/rejected" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<RejectedLeads />} />
-          </Route>
-          <Route path="/leads/lost" element={<ProtectedRoute permissionKey="leads.view" />} >
-             <Route index element={<LostLeads />} />
-          </Route>
-         <Route path="/leads/cold-storage" element={<ProtectedRoute permissionKey="leads.view" />}>
-        <Route index element={<ColdStorage />} />
-       </Route>
-
-          {/* Advanced & Admin */}
-          <Route path="/analytics" element={<ProtectedRoute permissionKey="analytics.revenue" />} >
-              <Route index element={<Analytics />} />
-          </Route>
-          
-          <Route path="/reports" element={<ProtectedRoute permissionKey="data.export" />} >
-              <Route index element={<Reports />} />
-          </Route>
-
-          <Route path="/performance" element={<ProtectedRoute permissionKey="analytics.staff" />} >
-              <Route index element={<Performance />} />
-          </Route>
-
-          <Route path="/import" element={<ProtectedRoute permissionKey="data.import" />} >
-              <Route index element={<BulkImport />} />
-          </Route>
-
-          {/* Intelligent Lead Distribution Route */}
-          <Route path="/distribution" element={<ProtectedRoute permissionKey="leads.assign" />} >
-              <Route index element={<LeadDistribution />} />
-          </Route>
-
-          <Route path="/permissions" element={<ProtectedRoute permissionKey="system.permissions" />} >
-              <Route index element={<Permissions />} />
-          </Route>
-
-         {/* ── Activity Logs ── */}
-<Route path="/audit-logs" element={<ProtectedRoute permissionKey="logs.activity" />} >
-    <Route index element={<ActivityLogs />} />
-</Route>
-
-{/* ── Call Tracker (Communications Audit) ── */}
-<Route path="/call-tracker" element={<ProtectedRoute permissionKey="logs.tracker" />}>
-    <Route index element={<CallTracker />} />
-</Route>
-          <Route path="/masters/users" element={<ProtectedRoute permissionKey="master.staff" />} >
-              <Route index element={<UsersMaster />} />
-          </Route>
-
-          <Route path="/masters/courses" element={<ProtectedRoute permissionKey="master.course" />} >
-              <Route index element={<CoursesMaster />} />
-          </Route>
-          <Route path="/masters/countries" element={<ProtectedRoute permissionKey="master.country" />} >
-    <Route index element={<CountryMaster />} />
-</Route>
-<Route path="/attendance" element={<ProtectedRoute permissionKey="attendance.view" />} >
-      <Route index element={<AttendanceMaster />} />
-  </Route>
-
-          <Route path="/settings" element={<ProtectedRoute permissionKey="system.settings" />} >
-              <Route index element={<Settings />} />
-          </Route>
-
-          <Route path="*" element={<NotFound />} />
+        {/* Core Overview Dashboards */}
+        <Route path="/dashboard" element={<ProtectedRoute permissionKey="dashboard" />}>
+          <Route index element={<Dashboard />} />
         </Route>
+
+        {/* Lead Management Context Scopes */}
+        <Route path="/leads" element={<ProtectedRoute permissionKey="leads" />}>
+          <Route index element={<Leads />} />
+        </Route>
+
+        <Route path="/pipeline" element={<ProtectedRoute permissionKey="pipeline" />}>
+          <Route index element={<Pipeline />} />
+        </Route>
+
+        <Route path="/followups" element={<ProtectedRoute permissionKey="tasks" />}>
+          <Route index element={<FollowUps />} />
+        </Route>
+
+        <Route path="/leads/cold-storage" element={<ProtectedRoute permissionKey="leads" />}>
+          <Route index element={<ColdStorage />} />
+        </Route>
+
+        {/* Communications Tracking and Engine Controls */}
+        <Route path="/communication" element={<ProtectedRoute permissionKey="communication" />}>
+          <Route index element={<CommunicationPage />} />
+        </Route>
+
+        <Route path="/automation" element={<ProtectedRoute permissionKey="automation" />}>
+          <Route index element={<AutomationManager />} />
+        </Route>
+
+        {/* Administrative Analytics, KPI, and Metrics Layers */}
+        <Route path="/analytics" element={<ProtectedRoute permissionKey="analytics" />}>
+          <Route index element={<Analytics />} />
+        </Route>
+
+        <Route path="/reports" element={<ProtectedRoute permissionKey="reports" />}>
+          <Route index element={<Reports />} />
+        </Route>
+
+        {/* Ingestion Pipeline Operations Center */}
+        <Route path="/leads/operations-hub" element={<ProtectedRoute permissionKey="import" />}>
+          <Route index element={<Navigate to="/leads/operations-hub/import" replace />} />
+          <Route path=":activeTab" element={<LeadOperationsHub />} />
+        </Route>
+
+        {/* Legacy Routing Aliases Compatibility Layers */}
+        <Route path="/import" element={<Navigate to="/leads/operations-hub/import" replace />} />
+        <Route path="/distribution" element={<Navigate to="/leads/operations-hub/distribution" replace />} />
+
+        {/* Governance & Access Security Management */}
+        <Route path="/permissions" element={<ProtectedRoute permissionKey="rbac" />}>
+          <Route index element={<Permissions />} />
+        </Route>
+
+        <Route path="/audit-logs" element={<ProtectedRoute permissionKey="audit" />}>
+          <Route index element={<OperationsLogsHub />} />
+        </Route>
+
+        <Route path="/performance" element={<ProtectedRoute permissionKey="performance" />}>
+          <Route index element={<Performance />} />
+        </Route>
+
+        {/* Core System Database Master References */}
+        <Route path="/masters/users" element={<Navigate to="/masters" replace />} />
+        <Route path="/masters/courses" element={<Navigate to="/masters" replace />} />
+        <Route path="/masters/countries" element={<Navigate to="/masters" replace />} />
+        <Route path="/masters" element={<ProtectedRoute permissionKey="masters" />}>
+          <Route index element={<MastersDashboard />} />
+        </Route>
+
+        {/* Base Panel Settings Context */}
+        <Route path="/settings" element={<ProtectedRoute permissionKey="settings" />}>
+          <Route index element={<SettingsDashboardHub />} />
+        </Route>
+
+        {/* Catch-all Fallback Node */}
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   );

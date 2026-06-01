@@ -73,28 +73,35 @@ exports.getAllLogs = async (req, res) => {
         whereClauses.push("a.date BETWEEN ? AND ?"); 
         params.push(start_date, end_date); 
     } else if (date) { 
-        whereClauses.push("a.date = ?"); 
+        whereClauses.push("DATE(a.date) = DATE(?)"); 
         params.push(date); 
     }
-
+    
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     try {
+        // Query with LEFT JOIN to guarantee rows are never dropped
         const [rows] = await pool.query(`
-            SELECT a.*, u.name as user_name, u.role as user_role,
-            /* FIX: Only calculate live duration if the punch is from TODAY */
+            SELECT a.*, COALESCE(u.name, 'Unknown Staff') as user_name, COALESCE(u.role, 'N/A') as user_role,
             CASE 
                 WHEN a.check_out IS NOT NULL THEN TIMESTAMPDIFF(SECOND, a.check_in, a.check_out)
                 WHEN a.date = CURDATE() THEN TIMESTAMPDIFF(SECOND, a.check_in, CONVERT_TZ(NOW(), '+00:00', '+05:30'))
                 ELSE NULL 
             END as duration_seconds
             FROM attendance a 
-            JOIN users u ON a.user_id = u.id
+            LEFT JOIN users u ON a.user_id = u.id
             ${whereSql}
             ORDER BY a.date DESC, a.check_in DESC
             LIMIT ? OFFSET ?`, [...params, parseInt(limit), offset]);
 
-        const [[{ total }]] = await pool.query(`SELECT COUNT(*) as total FROM attendance a ${whereSql}`, params);
+        // Added LEFT JOIN here so count matches the rows
+        const [countResult] = await pool.query(`
+            SELECT COUNT(*) as total 
+            FROM attendance a 
+            LEFT JOIN users u ON a.user_id = u.id 
+            ${whereSql}`, params);
+            
+        const total = countResult[0]?.total || 0;
 
         res.json({ 
             success: true, 

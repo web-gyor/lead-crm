@@ -1,45 +1,67 @@
 const jwt = require('jsonwebtoken');
+const { pool } = require('../config/db');
 
-/**
- * Middleware to verify JWT token and attach user to request
- */
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ message: "Access Denied: No Token Provided" });
+    return res.status(401).json({ success: false, message: "Access Denied: No Token Provided" });
   }
 
   const secret = process.env.JWT_SECRET;
-
   if (!secret) {
-    // Log the error but don't exit the process to keep the server alive for other requests
-    console.error("Configuration Error: JWT_SECRET is missing from .env");
-    return res.status(500).json({ message: "Internal Server Configuration Error" });
+    console.error("Configuration Error: JWT_SECRET is missing");
+    return res.status(500).json({ success: false, message: "Internal Server Configuration Error" });
   }
 
-  jwt.verify(token, secret, (err, user) => {
-    if (err) {
-      console.error("JWT Verify Error:", err.message);
-      return res.status(403).json({ message: "Invalid or Expired Token" });
+  try {
+    const decoded = jwt.verify(token, secret);
+
+    // Fetch user status only (no branch join needed)
+    const [rows] = await pool.execute(
+      "SELECT id, status FROM users WHERE id = ?",
+      [decoded.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(403).json({ success: false, message: "User session non-existent" });
     }
-    req.user = user;
+
+    if (rows[0].status !== 'active') {
+      return res.status(403).json({ success: false, message: "Access suspended. Account deactivated." });
+    }
+
+    // Mount user identity
+    req.user = {
+      id: Number(decoded.id),
+      role: decoded.role,
+      is_super_admin: Boolean(decoded.is_super_admin),
+      permissions: decoded.permissions || []
+    };
+
     next();
-  });
+  } catch (err) {
+    console.error("Auth Error:", err.message);
+    return res.status(403).json({ success: false, message: "Session expired or invalid token" });
+  }
 };
 
-/**
- * Middleware to restrict access to Admin users only
- */
 const isAdmin = (req, res, next) => {
-  const role = req.user?.role?.toLowerCase();
+  if (!req.user) {
+    return res.status(500).json({ success: false, message: "Authentication fault" });
+  }
   
-  if (role === 'admin') {
+  // Simple check for role or super admin flag
+  if (req.user.role?.toLowerCase() === 'admin' || req.user.is_super_admin) {
     next();
   } else {
-    res.status(403).json({ message: "Forbidden: Admin privileges required" });
+    res.status(403).json({ success: false, message: "Forbidden: Admin permissions required" });
   }
 };
 
-module.exports = { authenticateToken, isAdmin };
+module.exports = { 
+  authenticateToken, 
+  verifyToken: authenticateToken,
+  isAdmin 
+};

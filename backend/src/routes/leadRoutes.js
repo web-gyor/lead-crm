@@ -1,76 +1,95 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/db');
 const leadController = require('../controllers/leadController');
+const archiveController = require('../controllers/archiveController');
 const checkPermission = require('../middleware/checkPermission');
 const { authenticateToken } = require('../middleware/auth');
 const pipelineController = require('../controllers/pipelineController');
 const communicationController = require('../controllers/communicationController');
-const dashboardController = require('../controllers/dashboardController');
 const webhookController = require('../controllers/webhookController');
 
-const safe = (fn, name) => {
-  if (typeof fn === 'function') return fn;
-  console.error(`Missing Controller Function: ${name}`);
-  return (req, res) => res.status(500).json({ error: `${name} not found` });
+// ─── SAFE HANDLER RESOLVER WRAPPER ───────────────────────────────────────────
+const safe = (ctrl, method) => (req, res, next) => {
+  if (ctrl && typeof ctrl[method] === 'function') {
+    return ctrl[method](req, res, next);
+  }
+  console.error(`[Lead Route] Missing handler method reference: ${method}`);
+  return res.status(500).json({ success: false, error: `Handler "${method}" not found` });
 };
 
-// --- Webhooks ---
-router.post('/webhooks/meta/:clientId', safe(webhookController.handleMetaLead, 'handleMetaLead'));
-router.get('/webhooks/whatsapp', safe(webhookController.verifyWebhook, 'verifyWebhook'));
-router.post('/webhooks/google', safe(webhookController.handleGoogleLead, 'handleGoogleLead'));
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. WEBHOOKS — Public Entry Gateways (No Session Token Verification Required)
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post('/webhooks/meta/:clientId', safe(webhookController, 'handleMetaLead'));
+router.get('/webhooks/whatsapp',        safe(webhookController, 'verifyWebhook'));
+router.post('/webhooks/google',         safe(webhookController, 'handleGoogleLead'));
+router.post('/capture',                 safe(leadController,    'captureLead'));
 
-// --- Analytics & Dashboard ---
-router.get('/dashboard-data', authenticateToken, safe(dashboardController.getDashboardStats, 'getDashboardStats'));
-router.get('/comm-logs', authenticateToken, checkPermission('logs.communication'), safe(communicationController.getCommLogs, 'getCommLogs'));
-router.get('/pipeline', authenticateToken, checkPermission('leads.kanban'), safe(pipelineController.getPipeline, 'getPipeline'));
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2. METADATA DICTIONARIES — Dropdown Population (No Permission Restriction Locks)
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/lead-sources',      authenticateToken, safe(leadController, 'getSources'));
+router.get('/sources',           authenticateToken, safe(leadController, 'getSources'));
+router.get('/courses',           authenticateToken, safe(leadController, 'getCourses'));
+router.get('/masters/sources',   authenticateToken, safe(leadController, 'getSources'));
+router.get('/masters/courses',   authenticateToken, safe(leadController, 'getCourses'));
+router.get('/check-duplicate',   authenticateToken, safe(leadController, 'checkDuplicate'));
 
-// --- Bulk Operations ---
-router.post("/bulk", authenticateToken, checkPermission('data.import'), safe(leadController.bulkImportLeads, 'bulkImportLeads'));
-router.put('/bulk-assign', authenticateToken, checkPermission('leads.assign'), safe(leadController.bulkAssignLeads, 'bulkAssignLeads'));
-router.put('/bulk-update', authenticateToken, checkPermission('leads.edit'), safe(leadController.bulkUpdateLeads, 'bulkUpdateLeads'));
-router.post('/bulk-delete', authenticateToken, checkPermission('leads.delete'), async (req, res) => {
-  const { ids } = req.body;
-  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ success: false, message: "No IDs provided" });
-  try {
-    const [result] = await pool.query("DELETE FROM leads WHERE id IN (?)", [ids]);
-    return res.json({ success: true, affectedRows: result.affectedRows });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: "Deletion failed" });
-  }
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. ARCHIVE / COLD STORAGE — Database Matrix Slug: 'leads'
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/archive',           authenticateToken, checkPermission('leads', 'view'), safe(archiveController,  'getArchive'));
+router.get('/archive-count',     authenticateToken, safe(archiveController,  'getArchiveCount'));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4. COMMUNICATION LAYERS — Database Matrix Slug: 'communication'
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post('/comm-logs',        authenticateToken, checkPermission('communication', 'create'), communicationController.createLog);
+router.get('/comm-logs/:leadId', authenticateToken, checkPermission('communication', 'view'),   communicationController.getLogsByLead);
+router.get('/comm-feed',         authenticateToken, checkPermission('communication', 'view'),   communicationController.getCommLogs);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5. PIPELINE BOARD — Database Matrix Slug: 'pipeline'
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/pipeline',         authenticateToken, checkPermission('pipeline', 'view'), safe(pipelineController, 'getPipeline'));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6. EXPORT UTILITIES — Database Matrix Slug: 'leads' -> Action: export
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/export',           authenticateToken, checkPermission('leads', 'export'), safe(leadController, 'exportLeads'));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7. LEDGER BULK INGESTIONS — Database Matrix Slugs: 'import' / 'leads'
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post('/bulk',                authenticateToken, checkPermission('import',   'create'), safe(leadController,   'bulkImportLeads'));
+router.put('/bulk-assign',         authenticateToken, checkPermission('leads',   'edit'),   safe(leadController,   'bulkAssignLeads'));
+router.put('/bulk-update',         authenticateToken, checkPermission('leads',   'edit'),   safe(leadController,   'bulkUpdateLeads'));
+router.post('/bulk-restore',       authenticateToken, checkPermission('leads',   'edit'),   safe(archiveController, 'restoreLead'));
+router.post('/bulk-delete',         authenticateToken, checkPermission('leads',   'delete'), safe(leadController,   'bulkDeleteLeads'));
+router.post('/bulk-delete-archive', authenticateToken, checkPermission('leads',   'delete'), safe(archiveController, 'bulkDeleteArchive'));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 8. DATA CORE CRUD TRACKS — Database Matrix Slug: 'leads'
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/kpis',         authenticateToken, checkPermission('leads', 'view'), safe(require('../controllers/leadKpiController'), 'getLeadKpis'));
+router.get('/status-stats', authenticateToken, checkPermission('leads', 'view'), safe(leadController, 'getStatusStats'));
+
+// Your existing workspace data fetch engine follows right below:
+router.get('/',                 authenticateToken, checkPermission('leads',  'view'),   safe(leadController, 'getAllLeads'));
+router.post('/',                authenticateToken, checkPermission('leads',  'create'), safe(leadController, 'createLead'));
+router.put('/update-status',    authenticateToken, checkPermission('leads',  'edit'),   safe(leadController, 'updateLeadStatus'));
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9. DYNAMIC EXPRESS SPECIFIER ELEMENT PATHS (Absolute Last)
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/:id',              authenticateToken, checkPermission('leads',  'view'),   safe(leadController, 'getLeadById'));
+router.put('/:id',              authenticateToken, checkPermission('leads',  'edit'),   safe(leadController, 'updateLead'));
+
+// 🎯 UNIFIED DELETION DISPATCH MANAGER: Combines standard deletions with quick query-action toggles safely
+router.delete('/:id', authenticateToken, checkPermission('leads', 'delete'), async (req, res, next) => {
+  const action = String(req.query.action || '').toLowerCase().trim();
+  if (action === 'restore') return safe(archiveController, 'restoreLead')(req, res, next);
+  if (action === 'wipe')    return safe(archiveController, 'bulkDeleteArchive')(req, res, next);
+  return safe(leadController, 'deleteLead')(req, res, next);
 });
-
-// --- Lead CRUD ---
-router.get('/export', authenticateToken, checkPermission('data.export'), safe(leadController.exportLeads, 'exportLeads'));
-router.get('/check-duplicate', authenticateToken, safe(leadController.checkDuplicate, 'checkDuplicate'));
-router.post('/capture', leadController.captureLead);
-
-// This handles GET /api/leads
-router.get('/', authenticateToken, checkPermission('leads.view'), safe(leadController.getAllLeads, 'getAllLeads'));
-router.post('/', authenticateToken, checkPermission('leads.create'), safe(leadController.createLead, 'createLead'));
-
-router.put("/update-status", authenticateToken, checkPermission('leads.edit'), safe(leadController.updateLeadStatus, 'updateLeadStatus'));
-router.get('/:id', authenticateToken, checkPermission('leads.view'), safe(leadController.getLeadById, 'getLeadById'));
-router.put('/:id', authenticateToken, checkPermission('leads.edit'), safe(leadController.updateLead, 'updateLead'));
-router.delete('/:id', authenticateToken, checkPermission('leads.delete'), safe(leadController.deleteLead, 'deleteLead'));
-
-// --- Metadata ---
-router.get('/sources', authenticateToken, safe(leadController.getSources, 'getSources'));
-
-router.get('/permissions-list', authenticateToken, async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      "SELECT permission_key, is_enabled FROM role_permissions WHERE LOWER(role) = ?",
-      [(req.user.role || "").toLowerCase()]
-    );
-    return res.json(rows);
-  } catch (error) {
-    return res.status(500).json({ error: "Failed to fetch permission list" });
-  }
-});
-
-// Route for Sources
-router.get('/masters/sources', authenticateToken, leadController.getSources || ((req, res) => res.json({data: []})));
-router.get('/masters/courses', authenticateToken, (req, res) => res.json({data: []}));
 
 module.exports = router;

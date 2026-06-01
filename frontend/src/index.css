@@ -1,22 +1,90 @@
 @import "tailwindcss";
 
-/* 🔥 Add this for Tailwind v4 Dark Mode support */
+/* 🔥 Tailwind v4 Dark Mode support variant configuration */
 @variant dark (&:where(.dark, .dark *));
 
-/* Lead-CRM custom styles */
+/* Lead-CRM custom styles and tokens framework */
 @theme {
   --color-primary: oklch(0.7 0.2 260);
 }
 
-/* ─── Network Toast Animations ─── */
+/* ─── TAILWIND V4 COMPATIBLE UTILITY MATRIX CLASSES ─── */
+@utility surface-primary {
+  background-color: var(--color-white);
+  border-color: var(--color-slate-100);
+  
+  @variant dark {
+    background-color: var(--color-slate-900);
+    border-color: rgba(30, 41, 59, 0.8); /* border-slate-800/80 equivalent */
+  }
+}
 
+@utility surface-secondary {
+  background-color: rgba(248, 250, 252, 0.7); /* bg-slate-50/70 equivalent */
+  
+  @variant dark {
+    background-color: rgba(2, 6, 23, 0.4); /* bg-slate-950/40 equivalent */
+  }
+}
+
+@utility input-enterprise {
+  width: 100%;
+  background-color: var(--color-slate-50);
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-xl);
+  padding: 0.625rem 0.875rem; /* px-3.5 py-2.5 equivalent */
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-slate-800);
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &::placeholder {
+    color: var(--color-slate-400);
+  }
+
+  &:focus {
+    background-color: var(--color-white);
+    border-color: var(--color-blue-500);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); /* focus:ring-blue-500/10 equivalent */
+  }
+
+  @variant dark {
+    background-color: rgba(2, 6, 23, 0.4);
+    border-color: var(--color-slate-800);
+    color: var(--color-slate-100);
+
+    &:focus {
+      background-color: var(--color-slate-900);
+      border-color: var(--color-blue-400);
+      box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.05); /* focus:ring-blue-400/5 equivalent */
+    }
+  }
+}
+
+@utility transition-premium {
+  transition-property: all;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ─── Network Toast Animations ─── */
 @keyframes toast-slide-in {
   from {
-    transform: translateX(120%); /* Start completely off-screen to the right */
+    transform: translateX(120%);
     opacity: 0;
   }
   to {
-    transform: translateX(0);    /* Slide to natural position */
+    transform: translateX(0);
     opacity: 1;
   }
 }
@@ -27,25 +95,41 @@
   75% { transform: translateX(4px); }
 }
 
-/* This class will be applied by react-hot-toast */
 .network-toast-error {
   animation: 
     toast-slide-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards,
-    toast-shake 0.5s ease-in-out 0.4s; /* Shakes slightly after landing */
+    toast-shake 0.5s ease-in-out 0.4s;
   
-  /* Styling to match your CRM aesthetic */
   border-left: 4px solid #ef4444 !important;
   box-shadow: -10px 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* ─── Existing Styles ─── */
-
+/* ─── Existing Base Legacy Styles ─── */
 .input {
-  @apply w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xl);
+  transition: all 0.2s;
+
+  &:focus {
+    box-shadow: 0 0 0 2px var(--color-blue-500);
+  }
+
+  @variant dark {
+    border-color: var(--color-gray-700);
+    background-color: var(--color-gray-800);
+  }
 }
 
 .label {
-  @apply block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1;
+  display: block;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gray-400);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  margin-bottom: 0.25rem;
 }
 
 .custom-scrollbar::-webkit-scrollbar {

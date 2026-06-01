@@ -1,3 +1,4 @@
+import React from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -6,77 +7,61 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ permissionKey }: ProtectedRouteProps) => {
-  const { user, loading, token, permissions } = useAuth();
-  const role = user?.role?.toLowerCase() || "";
+  const { user, loading, permissionsLoading, token, can } = useAuth();
 
-  // ⏳ 1. AUTH LOADING STATE
+  const role = String(user?.role || "").trim().toLowerCase();
+
+  // ── 1. Session rehydrating ────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0f172a]">
         <div className="animate-pulse font-black text-blue-600 uppercase tracking-widest text-[10px]">
-          Verifying HQ...
+          Verifying access…
         </div>
       </div>
     );
   }
 
-  // 🛑 2. NO SESSION → REDIRECT TO LOGIN
+  // ── 2. Not logged in ───────────────────────────────────────────────────────
   if (!token || !user) {
     return <Navigate to="/login" replace />;
   }
 
-  // 👑 3. ADMIN / SUPERADMIN → FULL ACCESS
-  if (role === "admin" || role === "superadmin") {
+  // ── 3. Super Admin — full bypass, no DB check needed ──────────────────────
+  // Only super admin gets the bypass. Admin, Manager, Counselor, Telecaller
+  // all go through the permissions table like everyone else.
+  if (user.is_super_admin === true || user.is_super_admin === (1 as any)) {
     return <Outlet />;
   }
 
-  // 🛡️ 4. PERMISSION-BASED ACCESS CONTROL
-  if (permissionKey) {
-    const key = permissionKey.toLowerCase();
-
-    // 🔍 Find permission entry using the technical KEY column
-    const permissionEntry = (permissions || []).find(
-      (p: any) => p.permission_key === key
+  // ── 4. Permissions still loading — hold render, never redirect ────────────
+  // This is the fix for the crash: without this guard, can() returns false
+  // while permissions=[] and the user gets bounced to /dashboard immediately.
+  if (permissionsLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0f172a]">
+        <div className="animate-pulse font-black text-blue-600 uppercase tracking-widest text-[10px]">
+          Loading permissions…
+        </div>
+      </div>
     );
-
-    // 🚫 Explicitly disabled (check for number 0 or boolean false)
-    if (
-      permissionEntry &&
-      (permissionEntry.is_enabled === 0 || permissionEntry.is_enabled === false)
-    ) {
-      console.warn(`Access blocked: ${key} is disabled for this role.`);
-      return <Navigate to="/dashboard" replace />;
-    }
-
-    // ✅ Explicitly enabled (check for number 1 or boolean true)
-    if (
-      permissionEntry &&
-      (permissionEntry.is_enabled === 1 || permissionEntry.is_enabled === true)
-    ) {
-      return <Outlet />;
-    }
-
-    // 🔄 Default core access (Using technical keys)
-    const isCorePage = [
-      "dashboard.view",
-      "leads.view",
-      "leads.kanban",
-      "tracker.status",
-    ].includes(key);
-
-    const isStaff = ["manager", "counselor"].includes(role);
-
-    if (isCorePage && isStaff) {
-      return <Outlet />;
-    }
-
-    // 🛑 Access denied fallback (If no entry found and not a core page)
-    console.warn(`Access denied: No valid permission entry found for key: ${key}`);
-    return <Navigate to="/dashboard" replace />;
   }
 
-  // ✅ 5. DEFAULT AUTHORIZED (For routes without a specific permissionKey)
-  return <Outlet />;
+  // ── 5. No permission key — unguarded route, let through ───────────────────
+  if (!permissionKey) {
+    return <Outlet />;
+  }
+
+  // ── 6. Check DB permission ────────────────────────────────────────────────
+  const slug = permissionKey.trim().toLowerCase();
+
+  if (can(slug, "view")) {
+    return <Outlet />;
+  }
+
+  // ── 7. Access denied — redirect to dashboard ──────────────────────────────
+  console.warn(`[RBAC] Denied: role="${role}" slug="${slug}"`);
+  return <Navigate to="/dashboard" replace />;
 };
 
 export default ProtectedRoute;
