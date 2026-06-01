@@ -106,11 +106,10 @@ export default function MainLayout() {
     return AVATAR_COLORS[user.name.trim().charCodeAt(0) % AVATAR_COLORS.length];
   }, [user]);
 
-  // Dynamic compiler building view sections directly based on sanitized structural roles
+  // Dynamic layout architecture compilation
   const sidebarSections = useMemo(() => {
     const cleanUserRole = String(user?.role || "").toLowerCase().replace(/\s+|-/g, "");
     
-    // 🛡️ Hierarchy Definitions
     const isSuperAdmin = cleanUserRole === "superadmin";
     const isAdmin      = cleanUserRole === "admin";
     const isMaster     = isSuperAdmin || isAdmin;
@@ -118,7 +117,7 @@ export default function MainLayout() {
     const isManager    = cleanUserRole === "manager";
     const isStaff      = cleanUserRole === "counselor" || cleanUserRole === "telecaller" || cleanUserRole === "staff" || cleanUserRole === "staffmember";
 
-    const rawSections = [
+    return [
       {
         title: "Overview",
         items: [
@@ -129,12 +128,12 @@ export default function MainLayout() {
       {
         title: "Operations",
         items: [
-          // 🔓 UNLOCKED FOR EVERYONE: Core active daily workspaces
+          // 🔓 UNLOCKED FOR EVERYONE: Pipeline Board, Tasks, and Communication logs
           ...((isMaster || isManager || isStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
           ...((isMaster || isManager || isStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
+          ...((isMaster || isManager || isStaff || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
           
-          // 🛡️ MANAGEMENT & ADMINISTRATIVE PRIVILEGES: (Hidden from Counselors/Telecallers)
-          ...((isMaster || isManager || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
+          // 🔓 MANAGEMENT & MASTER CLEARANCE: Data Imports and AI rules
           ...((isMaster || isManager || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
           ...((isMaster || isManager || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
         ],
@@ -142,42 +141,31 @@ export default function MainLayout() {
       {
         title: "Admin",
         items: [
-          // 🔓 METRICS PRIVILEGES: Shared by Masters and Managers
           ...((isMaster || isManager || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
           ...((isMaster || isManager || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
           ...((isMaster || isManager || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
           
-          // 🔓 UNLOCKED FOR EVERYONE: Staff evaluation tracking
+          // Staff evaluation tracking open to everyone
           ...((isMaster || isManager || isStaff || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
 
-          // 🔒 HARD RESTRICTION: System Master internal configuration matrices (Hidden from Managers & Staff)
+          // System Masters restricted from standard field layers
           ...((isMaster || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
         ],
       },
       {
         title: "System",
         items: [
-          // 🔒 HARD RESTRICTION: Administrative setup gates (Hidden from Managers & Staff)
           ...((isMaster) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
           ...((isMaster || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
         ],
       },
-    ];
-
-    if (permissionsLoading) {
-      return rawSections.map(section => ({
-        ...section,
-        items: section.items.map(item => ({ ...item, skeleton: true })),
-      }));
-    }
-
-    return rawSections
-      .map(section => ({
-        ...section,
-        items: section.items.map(item => item.slug === "tasks" ? { ...item, badge: notifData.today } : item),
-      }))
-      .filter(section => section.items.length > 0);
-  }, [permissionsLoading, can, notifData.today, user]);
+    ]
+    .map(section => ({
+      ...section,
+      items: section.items.map(item => item.slug === "tasks" ? { ...item, badge: notifData.today } : item),
+    }))
+    .filter(section => section.items.length > 0);
+  }, [can, notifData.today, user]);
 
   const pageTitle = useMemo(() => {
     const exact  = PAGE_TITLES[location.pathname];
