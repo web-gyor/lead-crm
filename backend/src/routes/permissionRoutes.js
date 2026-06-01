@@ -1,17 +1,16 @@
-// routes/permissions.js
-const express  = require('express');
-const router   = express.Router();
+
+const express = require("express");
+const router = express.Router();
 const { pool } = require('../config/db');
-const permissionController = require("../controllers/permissionController");
-const { authenticateToken } = require('../middleware/auth');
 
-router.get('/',             authenticateToken, PermissionController.fetchAll);
-router.post('/update',      authenticateToken, PermissionController.updatePermission);
-router.post('/bulk-update', authenticateToken, PermissionController.bulkUpdatePermissions);
+const permissionController = require("../controllers/permissionController"); // Lowercase reference variable
+const { authenticateToken } = require("../middleware/auth");
 
-// BUG FIX: AuthContext calls GET /api/permissions/role/:role on page refresh
-// to re-hydrate permissions without a full re-login. This route was missing,
-// causing a 404 → empty permissions array → all sidebar items hidden on refresh.
+// 🚀 FIXED: All execution methods converted to use the correct lowercase reference variable instance
+router.get('/',               authenticateToken, permissionController.fetchAll);
+router.post('/update',        authenticateToken, permissionController.updatePermission);
+router.post('/bulk-update',   authenticateToken, permissionController.bulkUpdatePermissions);
+
 router.get('/role/:role', authenticateToken, async (req, res) => {
   const role = decodeURIComponent(req.params.role || '').trim();
   if (!role) return res.status(400).json({ error: 'role param required' });
