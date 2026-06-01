@@ -112,6 +112,14 @@ export default function MainLayout() {
 
   // Dynamic conditional compilation of section tabs using secure privileges filtering blocks
   const sidebarSections = useMemo(() => {
+    // 🚀 STEP 1: Normalize user role checks to avoid space/casing mismatches
+    const cleanUserRole = String(user?.role || "").toLowerCase().replace(/\s+|-/g, "");
+    
+    // 🚀 STEP 2: Configure structural role clearances
+    const isSuperAdmin = cleanUserRole === "superadmin";
+    const isAdmin      = cleanUserRole === "admin";
+    const isStaff      = cleanUserRole === "staff" || cleanUserRole === "staffmember" || cleanUserRole === "telecaller";
+
     const rawSections = [
       {
         title: "Overview",
@@ -123,29 +131,30 @@ export default function MainLayout() {
       {
         title: "Operations",
         items: [
-          ...(can("leads.kanban", "view") ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
-          ...(can("tasks.view", "view") ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
-          ...(can("logs.communication", "view") ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
-          ...(can("leads.import", "view") ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
-          ...(can("ai.intelligence", "view") ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
+          // Admins & Staff can view pipeline and followups. AI Automation requires admin privileges.
+          ...((isSuperAdmin || isAdmin || isStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || isStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
         ],
       },
       {
         title: "Admin",
         items: [
-          ...(can("analytics.view", "view") ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
-          ...(can("performance.view", "view") ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
-          ...(can("reports.view", "view") ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
-          ...(can("audit.view", "view") ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
-          ...(can("masters.view", "view") ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || isStaff || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
+          ...((isSuperAdmin || isAdmin || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
         ],
       },
       {
         title: "System",
         items: [
-          { label: "Settings",       to: "/settings",         slug: "settings",      icon: <Settings size={14} /> },
-          ...(can("system.permissions", "view") ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
-         
+          // Settings accessible to admins; full Access Control reserved for super admins/admins
+          ...((isSuperAdmin || isAdmin) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
+          ...((isSuperAdmin || isAdmin || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
         ],
       },
     ];
@@ -167,7 +176,7 @@ export default function MainLayout() {
           ),
       }))
       .filter(section => section.items.length > 0);
-  }, [permissionsLoading, can, notifData.today]);
+  }, [permissionsLoading, can, notifData.today, user]);
 
   const pageTitle = useMemo(() => {
     const exact  = PAGE_TITLES[location.pathname];
