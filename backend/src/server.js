@@ -19,7 +19,7 @@ const { authenticateToken }     = require("./middleware/auth");
 const app  = express();
 const PORT = process.env.PORT || 5000;
 const upload = multer({ dest: "uploads/" });
-
+app.set("trust proxy", 1);
 // ─── Route Imports ────────────────────────────────────────────────────────────
 const webhookRoutes       = require("./routes/webhookRoutes");
 const archiveRoutes       = require("./routes/archiveRoutes");
@@ -119,10 +119,17 @@ app.use('/uploads', (req, res) => {
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ─── Settings Routes ──────────────────────────────────────────────────────────
+// 🎯 UPDATE IN: backend/src/server.js
+
 app.get("/api/settings", authenticateToken, async (req, res) => {
+  let connection;
   try {
-    const [rows] = await pool.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
+    // 🚀 ACQUIRE: Manually pull a clean, dedicated connection worker thread from the pool
+    connection = await pool.getConnection();
+    
+    const [rows] = await connection.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
     const s = rows[0] ?? {};
+    
     return res.json({
       success: true, 
       data: {
@@ -142,7 +149,11 @@ app.get("/api/settings", authenticateToken, async (req, res) => {
       }
     });
   } catch (err) {
+    console.error("Settings load error:", err);
     return res.status(500).json({ success: false, message: "Settings load failed" });
+  } finally {
+    // ⚙️ RELEASE: The absolute second this data is built, force-return the thread to the cluster!
+    if (connection) connection.release();
   }
 });
 
@@ -246,6 +257,7 @@ app.use("/api/analytics", analyticsRoutes);
 
 // Pipeline Alias
 app.get("/api/pipeline", authenticateToken, async (req, res) => {
+  let connection;
   try {
     const role = (req.user?.role || "").toLowerCase();
     const userId = req.user?.id;
@@ -257,11 +269,17 @@ app.get("/api/pipeline", authenticateToken, async (req, res) => {
       params.push(userId, userId); 
     }
     
+    // 🚀 Acquire a specific thread link out of the active pool configuration
+    connection = await pool.getConnection();
     const sql = `SELECT * FROM leads WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT 500`;
-    const [rows] = await pool.query(sql, params);
+    const [rows] = await connection.query(sql, params);
+    
     return res.json({ success: true, leads: rows });
   } catch (err) { 
     return res.status(500).json({ success: false, error: "Pipeline data load failed" }); 
+  } finally {
+    // ⚙️ CRITICAL APPARATUS: Re-collates the socket thread into the pool layout instantly
+    if (connection) connection.release();
   }
 });
 
