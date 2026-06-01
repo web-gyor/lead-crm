@@ -19,28 +19,9 @@ const { authenticateToken }     = require("./middleware/auth");
 const app  = express();
 const PORT = process.env.PORT || 5000;
 const upload = multer({ dest: "uploads/" });
+
+// 🚀 PROXIES OVERRIDE: Tells Express to look past Vercel's network nodes to read real client IPs
 app.set("trust proxy", 1);
-// ─── Route Imports ────────────────────────────────────────────────────────────
-const webhookRoutes       = require("./routes/webhookRoutes");
-const archiveRoutes       = require("./routes/archiveRoutes");
-const leadRoutes          = require("./routes/leadRoutes");
-const dashboardRoutes     = require("./routes/dashboardRoutes");
-const userRoutes          = require("./routes/userRoutes");
-const logRoutes           = require("./routes/logRoutes");
-const permissionsRouter   = require("./routes/permissionRoutes");
-const activityRoutes      = require("./routes/activityRoutes");
-const countryRoutes       = require("./routes/countryRoutes");
-const courseRoutes        = require("./routes/courseRoutes");
-const distributionRoutes  = require("./routes/distributionRoutes");
-const attendanceRoutes    = require("./routes/attendanceRoutes");
-const staffPerformanceRoutes = require("./routes/staffPerformanceRoutes");
-const telephonyRoutes     = require("./routes/telephonyRoutes");
-const integrationRoutes   = require("./routes/integrationRoutes"); 
-const followupRoutes      = require("./routes/followupRoutes");
-const communicationRoutes = require("./routes/communicationRoutes");
-const automationRoutes    = require("./routes/automationRoutes");
-const analyticsRoutes     = require("./routes/analyticsRoutes");
-const { runDatabaseBackup } = require('./utils/backupScheduler');
 
 // ─── Global Body Parsers ──────────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
@@ -56,13 +37,12 @@ const allowedOrigins = [
   "https://lead-crm-git-main-webgyors-projects.vercel.app/",
   "https://lead-crm-kappa-tawny.vercel.app",
   "https://lead-crm-kappa-tawny.vercel.app/",
-  // 🚀 ADD YOUR NEW LIVE DOMAIN INTERFACES HERE:
   "https://lead-crm-sand.vercel.app",
   "https://lead-crm-sand.vercel.app/"
 ];
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Normalize string checks to neutralize trailing slash variants safely
     const cleanOrigin = origin ? origin.replace(/\/$/, "") : "";
     const cleanAllowed = allowedOrigins.map(o => o.replace(/\/$/, ""));
 
@@ -73,18 +53,16 @@ app.use(cors({
     return callback(new Error(`CORS Error: Origin ${origin} not permitted.`));
   },
   credentials: true,
-  // 🚀 FIXED: Added PATCH and OPTIONS method declarations for data edit compliance
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  // 🚀 FIXED: Expanded allowed headers to accept complex search parameters and operational tokens
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
 }));
 
-// Handle preflight operations cluster-wide completely
 app.options("*", cors());
 
+// 🛡️ ACCELERATED RATE LIMITER: Expanded windows to accommodate intense parallel multi-user logins
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "production" ? 100 : 1000,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === "production" ? 3000 : 10000, // Raised from 100 to stop 429 drops!
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.method === "OPTIONS"
@@ -119,14 +97,10 @@ app.use('/uploads', (req, res) => {
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ─── Settings Routes ──────────────────────────────────────────────────────────
-// 🎯 UPDATE IN: backend/src/server.js
-
 app.get("/api/settings", authenticateToken, async (req, res) => {
   let connection;
   try {
-    // 🚀 ACQUIRE: Manually pull a clean, dedicated connection worker thread from the pool
     connection = await pool.getConnection();
-    
     const [rows] = await connection.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
     const s = rows[0] ?? {};
     
@@ -152,7 +126,6 @@ app.get("/api/settings", authenticateToken, async (req, res) => {
     console.error("Settings load error:", err);
     return res.status(500).json({ success: false, message: "Settings load failed" });
   } finally {
-    // ⚙️ RELEASE: The absolute second this data is built, force-return the thread to the cluster!
     if (connection) connection.release();
   }
 });
@@ -163,9 +136,12 @@ app.put("/api/settings", authenticateToken, upload.single("logo"), async (req, r
     return res.status(403).json({ success: false, message: "Admin authorization access required" });
   }
 
+  let connection;
   try {
     const data = req.body || {};
-    const [currentRows] = await pool.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
+    connection = await pool.getConnection();
+    
+    const [currentRows] = await connection.query("SELECT * FROM settings WHERE id = 1 LIMIT 1");
     const current = currentRows[0] || {};
 
     let logo_url = current.logo_url || "";
@@ -192,7 +168,7 @@ app.put("/api/settings", authenticateToken, upload.single("logo"), async (req, r
       parseToggleValue("is_email_trigger_enabled")
     ];
 
-    await pool.query(
+    await connection.query(
       `INSERT INTO settings (id, company_name, company_phone, company_email, company_address, company_website, logo_url, agency_contact_name, agency_contact_email, is_call_recording_enabled, telephony_provider, is_sms_template_enabled, is_whatsapp_automation_enabled, is_email_trigger_enabled)
        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE 
@@ -207,6 +183,8 @@ app.put("/api/settings", authenticateToken, upload.single("logo"), async (req, r
     return res.json({ success: true, message: "Settings saved successfully" });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Settings save failed" });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
@@ -269,7 +247,6 @@ app.get("/api/pipeline", authenticateToken, async (req, res) => {
       params.push(userId, userId); 
     }
     
-    // 🚀 Acquire a specific thread link out of the active pool configuration
     connection = await pool.getConnection();
     const sql = `SELECT * FROM leads WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT 500`;
     const [rows] = await connection.query(sql, params);
@@ -278,20 +255,24 @@ app.get("/api/pipeline", authenticateToken, async (req, res) => {
   } catch (err) { 
     return res.status(500).json({ success: false, error: "Pipeline data load failed" }); 
   } finally {
-    // ⚙️ CRITICAL APPARATUS: Re-collates the socket thread into the pool layout instantly
     if (connection) connection.release();
   }
 });
 
 // ─── Archive Lifecycle Task ────────────────────────────────────────────────────
 cron.schedule("0 0 * * *", async () => {
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     await connection.execute(`INSERT INTO archived_leads SELECT * FROM leads WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 YEAR) AND is_archived = 0`);
     await connection.execute(`DELETE FROM leads WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 YEAR)`);
     await connection.commit();
-  } catch (error) { await connection.rollback(); } finally { connection.release(); }
+  } catch (error) { 
+    if (connection) await connection.rollback(); 
+  } finally { 
+    if (connection) connection.release(); 
+  }
 });
 
 // ─── Server Start ─────────────────────────────────────────────────────────────
