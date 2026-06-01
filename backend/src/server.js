@@ -46,7 +46,7 @@ const { runDatabaseBackup } = require('./utils/backupScheduler');
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-// ─── Security & Middleware (PRODUCTION OPTIMIZED CORS) ────────────────────────
+// ─── Security & Middleware (PRODUCTION OPTIMIZED CORS FOR EXECUTIONS) ─────────
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
 const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()).filter(Boolean) : [];
@@ -55,21 +55,32 @@ const allowedOrigins = [
   "https://lead-crm-git-main-webgyors-projects.vercel.app", 
   "https://lead-crm-git-main-webgyors-projects.vercel.app/",
   "https://lead-crm-kappa-tawny.vercel.app",
-  "https://lead-crm-kappa-tawny.vercel.app/"
+  "https://lead-crm-kappa-tawny.vercel.app/",
+  // 🚀 ADD YOUR NEW LIVE DOMAIN INTERFACES HERE:
+  "https://lead-crm-sand.vercel.app",
+  "https://lead-crm-sand.vercel.app/"
 ];
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || (typeof origin === "string" && origin.includes(".vercel.app"))) {
+    // Normalize string checks to neutralize trailing slash variants safely
+    const cleanOrigin = origin ? origin.replace(/\/$/, "") : "";
+    const cleanAllowed = allowedOrigins.map(o => o.replace(/\/$/, ""));
+
+    if (!origin || cleanAllowed.includes(cleanOrigin) || (typeof origin === "string" && origin.includes(".vercel.app"))) {
       return callback(null, true);
     }
     console.error(`[CORS REJECTION]: Request from origin ${origin} blocked.`);
     return callback(new Error(`CORS Error: Origin ${origin} not permitted.`));
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  // 🚀 FIXED: Added PATCH and OPTIONS method declarations for data edit compliance
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  // 🚀 FIXED: Expanded allowed headers to accept complex search parameters and operational tokens
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
 }));
+
+// Handle preflight operations cluster-wide completely
+app.options("*", cors());
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

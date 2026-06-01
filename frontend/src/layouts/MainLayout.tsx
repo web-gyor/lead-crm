@@ -145,7 +145,7 @@ export default function MainLayout() {
         items: [
           { label: "Settings",       to: "/settings",         slug: "settings",      icon: <Settings size={14} /> },
           ...(can("system.permissions", "view") ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
-          ...(can("leads.view", "view") ? [{ label: "Cold Storage", to: "/leads/cold-storage", slug: "cold-storage", icon: <Archive size={14} /> }] : []),
+         
         ],
       },
     ];
