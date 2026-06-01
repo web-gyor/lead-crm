@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import {
   LayoutDashboard, Users, TrendingUp, MessageCircle, FileText,
-  Settings, Database, Upload, Layers, Activity, Bot, ShieldCheck, 
-  BarChart3, Medal, Archive, BrainCircuit
+  Settings, Database, Upload, Layers, Activity, ShieldCheck, 
+  BarChart3, Medal, BrainCircuit
 } from "lucide-react";
 import { apiGet } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
@@ -40,7 +40,7 @@ const AVATAR_COLORS = [
 ];
 
 export default function MainLayout() {
-  const { user, logout, permissions, permissionsLoading, can } = useAuth();
+  const { user, logout, permissionsLoading, can } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
 
@@ -87,13 +87,9 @@ export default function MainLayout() {
     try {
       const res = await apiGet("/api/settings");
       const data = res?.success && res?.data ? res.data : res;
-
       if (data?.company_name) setCompanyName(data.company_name);
-
       const rawLogo = data?.logo_url || data?.logo || '';
-      if (rawLogo) {
-        setLogo(rawLogo);
-      }
+      if (rawLogo) setLogo(rawLogo);
     } catch (err) {
       console.error('fetchBranding error:', err);
     }
@@ -110,67 +106,63 @@ export default function MainLayout() {
     return AVATAR_COLORS[user.name.trim().charCodeAt(0) % AVATAR_COLORS.length];
   }, [user]);
 
-  // Dynamic conditional compilation of section tabs using secure privileges filtering blocks
-// 🎯 TARGET REPLACEMENT SEGMENT INSIDE: frontend/src/layouts/MainLayout.tsx
+  // Dynamic compiler building view sections directly based on sanitized structural roles
+  const sidebarSections = useMemo(() => {
+    const cleanUserRole = String(user?.role || "").toLowerCase().replace(/\s+|-/g, "");
+    
+    // 🛡️ Hierarchy Definitions
+    const isSuperAdmin = cleanUserRole === "superadmin";
+    const isAdmin      = cleanUserRole === "admin";
+    const isMaster     = isSuperAdmin || isAdmin;
+    
+    const isManager    = cleanUserRole === "manager";
+    const isStaff      = cleanUserRole === "counselor" || cleanUserRole === "telecaller" || cleanUserRole === "staff" || cleanUserRole === "staffmember";
 
-const sidebarSections = useMemo(() => {
-  // Normalize user role strings (strips spaces and hyphens)
-  const cleanUserRole = String(user?.role || "").toLowerCase().replace(/\s+|-/g, "");
-  
-  // 🔐 1. System Master Clearances
-  const isSuperAdmin = cleanUserRole === "superadmin";
-  const isAdmin      = cleanUserRole === "admin";
-  const isMaster     = isSuperAdmin || isAdmin;
-  
-  // 📊 2. Management Oversight Clearance
-  const isManager    = cleanUserRole === "manager";
-  
-  // 💼 3. Standard Field Staff Clearances
-  const isStaff      = cleanUserRole === "counselor" || cleanUserRole === "telecaller" || cleanUserRole === "staff" || cleanUserRole === "staffmember";
+    const rawSections = [
+      {
+        title: "Overview",
+        items: [
+          { label: "Dashboard",      to: "/dashboard",        slug: "dashboard",     icon: <LayoutDashboard size={14} /> },
+          { label: "Lead Workspace", to: "/leads",            slug: "leads",         icon: <Users size={14} />, end: true },
+        ],
+      },
+      {
+        title: "Operations",
+        items: [
+          // 🔓 UNLOCKED FOR EVERYONE: Core active daily workspaces
+          ...((isMaster || isManager || isStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
+          ...((isMaster || isManager || isStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
+          
+          // 🛡️ MANAGEMENT & ADMINISTRATIVE PRIVILEGES: (Hidden from Counselors/Telecallers)
+          ...((isMaster || isManager || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
+          ...((isMaster || isManager || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
+          ...((isMaster || isManager || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
+        ],
+      },
+      {
+        title: "Admin",
+        items: [
+          // 🔓 METRICS PRIVILEGES: Shared by Masters and Managers
+          ...((isMaster || isManager || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
+          ...((isMaster || isManager || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
+          ...((isMaster || isManager || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
+          
+          // 🔓 UNLOCKED FOR EVERYONE: Staff evaluation tracking
+          ...((isMaster || isManager || isStaff || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
 
-  const rawSections = [
-    {
-      title: "Overview",
-      items: [
-        { label: "Dashboard",      to: "/dashboard",        slug: "dashboard",     icon: <LayoutDashboard size={14} /> },
-        { label: "Lead Workspace", to: "/leads",            slug: "leads",         icon: <Users size={14} />, end: true },
-      ],
-    },
-    {
-      title: "Operations",
-      items: [
-        // Everyone (Masters, Managers, and Staff) can access daily operations tracking tabs
-        ...((isMaster || isManager || isStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
-        ...((isMaster || isManager || isStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
-        ...((isMaster || isManager || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
-        ...((isMaster || isManager || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
-        ...((isMaster || isManager || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
-      ],
-    },
-    {
-      title: "Admin",
-      items: [
-        // 🔓 UNLOCKED FOR MANAGERS: High-level metrics oversight panels
-        ...((isMaster || isManager || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
-        ...((isMaster || isManager || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
-        ...((isMaster || isManager || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
-        ...((isMaster || isManager || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
-        
-        // 🔒 HIDDEN FROM MANAGERS: Only Super Admin & Admin can access raw System Masters tables
-        ...((isMaster || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
-      ],
-    },
-    {
-      title: "System",
-      items: [
-        // 🔒 HIDDEN FROM MANAGERS: Critical configurations, branding settings, and RBAC tables are locked down
-        ...((isMaster) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
-        ...((isMaster || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
-      ],
-    },
-  ];
-
-  // ... rest of your useMemo compilation block remains exactly as it was
+          // 🔒 HARD RESTRICTION: System Master internal configuration matrices (Hidden from Managers & Staff)
+          ...((isMaster || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
+        ],
+      },
+      {
+        title: "System",
+        items: [
+          // 🔒 HARD RESTRICTION: Administrative setup gates (Hidden from Managers & Staff)
+          ...((isMaster) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
+          ...((isMaster || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
+        ],
+      },
+    ];
 
     if (permissionsLoading) {
       return rawSections.map(section => ({
@@ -182,11 +174,7 @@ const sidebarSections = useMemo(() => {
     return rawSections
       .map(section => ({
         ...section,
-        items: section.items
-          .map(item => item.slug === "tasks"
-            ? { ...item, badge: notifData.today }
-            : item
-          ),
+        items: section.items.map(item => item.slug === "tasks" ? { ...item, badge: notifData.today } : item),
       }))
       .filter(section => section.items.length > 0);
   }, [permissionsLoading, can, notifData.today, user]);
@@ -194,8 +182,7 @@ const sidebarSections = useMemo(() => {
   const pageTitle = useMemo(() => {
     const exact  = PAGE_TITLES[location.pathname];
     if (exact) return exact;
-    const prefix = Object.keys(PAGE_TITLES)
-      .find(k => location.pathname.startsWith(k) && k !== "/");
+    const prefix = Object.keys(PAGE_TITLES).find(k => location.pathname.startsWith(k) && k !== "/");
     return prefix ? PAGE_TITLES[prefix] : "CRM Matrix";
   }, [location.pathname]);
 
@@ -213,7 +200,6 @@ const sidebarSections = useMemo(() => {
 
   return (
     <div className="flex h-screen w-full bg-gray-50 dark:bg-[#0f172a] text-gray-900 dark:text-gray-100 font-sans antialiased overflow-hidden">
-
       <MobileSidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
