@@ -111,21 +111,22 @@ export default function MainLayout() {
   }, [user]);
 
   // Dynamic conditional compilation of section tabs using secure privileges filtering blocks
- const sidebarSections = useMemo(() => {
-  // 🚀 Normalize user role strings to strip spaces and hyphens
+// 🎯 TARGET REPLACEMENT SEGMENT INSIDE: frontend/src/layouts/MainLayout.tsx
+
+const sidebarSections = useMemo(() => {
+  // Normalize user role strings (strips spaces and hyphens)
   const cleanUserRole = String(user?.role || "").toLowerCase().replace(/\s+|-/g, "");
   
-  // ⚙️ Core Role Definitions
+  // 🔐 1. System Master Clearances
   const isSuperAdmin = cleanUserRole === "superadmin";
   const isAdmin      = cleanUserRole === "admin";
+  const isMaster     = isSuperAdmin || isAdmin;
   
-  // 💼 Expanded Operational Staff Array (Added manager, counselor, telecaller)
-  const isOperationalStaff = 
-    cleanUserRole === "staff" || 
-    cleanUserRole === "staffmember" || 
-    cleanUserRole === "telecaller" || 
-    cleanUserRole === "manager" || 
-    cleanUserRole === "counselor";
+  // 📊 2. Management Oversight Clearance
+  const isManager    = cleanUserRole === "manager";
+  
+  // 💼 3. Standard Field Staff Clearances
+  const isStaff      = cleanUserRole === "counselor" || cleanUserRole === "telecaller" || cleanUserRole === "staff" || cleanUserRole === "staffmember";
 
   const rawSections = [
     {
@@ -138,32 +139,38 @@ export default function MainLayout() {
     {
       title: "Operations",
       items: [
-        // 🔓 All operational roles now get immediate access to these workspaces:
-        ...((isSuperAdmin || isAdmin || isOperationalStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || isOperationalStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || isOperationalStaff || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
+        // Everyone (Masters, Managers, and Staff) can access daily operations tracking tabs
+        ...((isMaster || isManager || isStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
+        ...((isMaster || isManager || isStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
+        ...((isMaster || isManager || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
+        ...((isMaster || isManager || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
+        ...((isMaster || isManager || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
       ],
     },
     {
       title: "Admin",
       items: [
-        ...((isSuperAdmin || isAdmin || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || isOperationalStaff || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
-        ...((isSuperAdmin || isAdmin || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
+        // 🔓 UNLOCKED FOR MANAGERS: High-level metrics oversight panels
+        ...((isMaster || isManager || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
+        ...((isMaster || isManager || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
+        ...((isMaster || isManager || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
+        ...((isMaster || isManager || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
+        
+        // 🔒 HIDDEN FROM MANAGERS: Only Super Admin & Admin can access raw System Masters tables
+        ...((isMaster || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
       ],
     },
     {
       title: "System",
       items: [
-        ...((isSuperAdmin || isAdmin) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
-        ...((isSuperAdmin || isAdmin || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
+        // 🔒 HIDDEN FROM MANAGERS: Critical configurations, branding settings, and RBAC tables are locked down
+        ...((isMaster) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
+        ...((isMaster || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
       ],
     },
   ];
+
+  // ... rest of your useMemo compilation block remains exactly as it was
 
     if (permissionsLoading) {
       return rawSections.map(section => ({
