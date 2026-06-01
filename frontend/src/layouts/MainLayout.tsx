@@ -15,7 +15,6 @@ import { PageContainer } from "./components/PageContainer";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":                   "Dashboard",
-  "/leads/cold-storage":          "Cold Storage",
   "/leads":                       "Lead Workspace",
   "/pipeline":                    "Pipeline",
   "/followups":                   "Today's Tasks",
@@ -26,9 +25,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/reports":                     "Lead Reports",
   "/leads/operations-hub":        "Lead Operations Hub",
   "/audit-logs":                  "Activity Logs",
-  "/call-tracker":                "Call Logs",
-  "/masters/users":               "Staff Master",
-  "/masters/courses":             "Course Master",
   "/settings":                    "Settings",
   "/permissions":                 "Access Control",
   "/masters":                     "System Masters Control",
@@ -62,19 +58,14 @@ export default function MainLayout() {
       if (!res) return;
       const payload = res.success && res.data ? res.data : res;
       setNotifData({
-        overdue:  MakeNumber(payload?.overdue   ?? 0),
-        today:    MakeNumber(payload?.today     ?? 0),
-        newLeads: MakeNumber(payload?.newLeads  ?? payload?.new_leads ?? 0),
+        overdue:  Number(payload?.overdue ?? 0),
+        today:    Number(payload?.today ?? 0),
+        newLeads: Number(payload?.newLeads ?? payload?.new_leads ?? 0),
       });
     } catch (err) {
       console.error('fetchNotificationMetrics error:', err);
     }
   }, []);
-
-  const MakeNumber = (val: any): number => {
-    const num = Number(val);
-    return isNaN(num) ? 0 : num;
-  };
 
   useEffect(() => {
     if (!user) return;
@@ -101,22 +92,8 @@ export default function MainLayout() {
     return () => window.removeEventListener("settingsUpdated", fetchBranding);
   }, [fetchBranding]);
 
-  const avatarColorCalculated = useMemo(() => {
-    if (!user?.name) return "bg-blue-600";
-    return AVATAR_COLORS[user.name.trim().charCodeAt(0) % AVATAR_COLORS.length];
-  }, [user]);
-
-  // Dynamic layout architecture compilation
   const sidebarSections = useMemo(() => {
-    const cleanUserRole = String(user?.role || "").toLowerCase().replace(/\s+|-/g, "");
-    
-    const isSuperAdmin = cleanUserRole === "superadmin";
-    const isAdmin      = cleanUserRole === "admin";
-    const isMaster     = isSuperAdmin || isAdmin;
-    
-    const isManager    = cleanUserRole === "manager";
-    const isStaff      = cleanUserRole === "counselor" || cleanUserRole === "telecaller" || cleanUserRole === "staff" || cleanUserRole === "staffmember";
-
+    // 🚀 RESTORED: Completely blind layout trusting ONLY the Access Control Module settings
     return [
       {
         title: "Overview",
@@ -128,35 +105,28 @@ export default function MainLayout() {
       {
         title: "Operations",
         items: [
-          // 🔓 UNLOCKED FOR EVERYONE: Pipeline Board, Tasks, and Communication logs
-          ...((isMaster || isManager || isStaff || can("leads.kanban", "view")) ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
-          ...((isMaster || isManager || isStaff || can("tasks.view", "view")) ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
-          ...((isMaster || isManager || isStaff || can("logs.communication", "view")) ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
-          
-          // 🔓 MANAGEMENT & MASTER CLEARANCE: Data Imports and AI rules
-          ...((isMaster || isManager || can("leads.import", "view")) ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
-          ...((isMaster || isManager || can("ai.intelligence", "view")) ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
+          ...(can("leads.kanban", "view") ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
+          ...(can("tasks.view", "view") ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
+          ...(can("logs.communication", "view") ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
+          ...(can("leads.import", "view") ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
+          ...(can("ai.intelligence", "view") ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
         ],
       },
       {
         title: "Admin",
         items: [
-          ...((isMaster || isManager || can("analytics.view", "view")) ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
-          ...((isMaster || isManager || can("reports.view", "view")) ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
-          ...((isMaster || isManager || can("audit.view", "view")) ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
-          
-          // Staff evaluation tracking open to everyone
-          ...((isMaster || isManager || isStaff || can("performance.view", "view")) ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
-
-          // System Masters restricted from standard field layers
-          ...((isMaster || can("masters.view", "view")) ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
+          ...(can("analytics.view", "view") ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
+          ...(can("reports.view", "view") ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
+          ...(can("audit.view", "view") ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
+          ...(can("performance.view", "view") ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
+          ...(can("masters.view", "view") ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
         ],
       },
       {
         title: "System",
         items: [
-          ...((isMaster) ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
-          ...((isMaster || can("system.permissions", "view")) ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
+          ...(can("system.settings", "view") ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
+          ...(can("system.permissions", "view") ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
         ],
       },
     ]
@@ -165,18 +135,7 @@ export default function MainLayout() {
       items: section.items.map(item => item.slug === "tasks" ? { ...item, badge: notifData.today } : item),
     }))
     .filter(section => section.items.length > 0);
-  }, [can, notifData.today, user]);
-
-  const pageTitle = useMemo(() => {
-    const exact  = PAGE_TITLES[location.pathname];
-    if (exact) return exact;
-    const prefix = Object.keys(PAGE_TITLES).find(k => location.pathname.startsWith(k) && k !== "/");
-    return prefix ? PAGE_TITLES[prefix] : "CRM Matrix";
-  }, [location.pathname]);
-
-  const toggleGroup = useCallback((key: string) => {
-    setOpenGroups(p => ({ ...p, [key]: !p[key] }));
-  }, []);
+  }, [can, notifData.today, permissionsLoading]);
 
   if (!user) {
     return (
@@ -195,9 +154,8 @@ export default function MainLayout() {
         companyName={companyName}
         sections={sidebarSections}
         openGroups={openGroups}
-        onToggleGroup={toggleGroup}
+        onToggleGroup={() => {}}
       />
-
       <div className="hidden md:flex flex-shrink-0 h-full">
         <Sidebar
           logo={logo} 
@@ -206,17 +164,16 @@ export default function MainLayout() {
           setCollapsed={setCollapsed}
           sections={sidebarSections}
           openGroups={openGroups}
-          onToggleGroup={toggleGroup}
+          onToggleGroup={() => {}}
           closeSidebar={() => setSidebarOpen(false)}
           sidebarWidth={collapsed ? "w-[60px]" : "w-56"}
         />
       </div>
-
       <div className="flex-1 flex flex-col min-w-0 w-full overflow-hidden relative">
         <div className="relative z-40 flex-shrink-0">
           <Topbar
             setSidebarOpen={setSidebarOpen}
-            pageTitle={pageTitle}
+            pageTitle={PAGE_TITLES[location.pathname] || "CRM Matrix"}
             dark={dark}
             setDark={setDark}
             notifData={notifData}
@@ -224,7 +181,7 @@ export default function MainLayout() {
             navigate={navigate}
             clearNotifs={() => setNotifData({ overdue: 0, today: 0, newLeads: 0 })}
             user={user}
-            avatarColor={avatarColorCalculated}
+            avatarColor="bg-blue-600"
             handleLogout={logout}
             showNotif={showNotif} setShowNotif={setShowNotif}
             showUser={showUser}   setShowUser={setShowUser}
@@ -234,7 +191,6 @@ export default function MainLayout() {
           <PageContainer><Outlet /></PageContainer>
         </div>
       </div>
-
       <ToastContainer />
     </div>
   );
