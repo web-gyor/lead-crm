@@ -2,6 +2,7 @@ const { pool } = require("../config/db");
 
 /**
  * Controller for managing and auditing lead activities and system logs.
+ * Fully optimized to release connection pools instantly and handle multi-user streams cleanly.
  */
 const activityController = {
 
@@ -15,8 +16,10 @@ const activityController = {
       return res.status(400).json({ success: false, data: [], error: "Invalid Lead ID parameter mapping" });
     }
 
+    let connection;
     try {
-      const [rows] = await pool.query(`
+      connection = await pool.getConnection();
+      const [rows] = await connection.query(`
         SELECT * FROM (
           SELECT 
             id,
@@ -40,11 +43,12 @@ const activityController = {
         LIMIT 10
       `, [leadId, leadId]);
 
-      console.log(`✅ Found ${rows.length} logs for Lead ID: ${leadId}`);
       return res.status(200).json({ success: true, data: rows });
     } catch (error) {
       console.error("❌ SQL ERROR in getActivityByLead:", error.message);
       return res.status(200).json({ success: true, data: [], error: error.message });
+    } finally {
+      if (connection) connection.release();
     }
   },
 
@@ -59,8 +63,10 @@ const activityController = {
       return res.status(400).json({ success: false, error: "Invalid Lead ID" });
     }
 
+    let connection;
     try {
-      const [rows] = await pool.query(`
+      connection = await pool.getConnection();
+      const [rows] = await connection.query(`
         SELECT * FROM (
           SELECT 
             h.id, 
@@ -100,23 +106,25 @@ const activityController = {
     } catch (err) {
       console.error("ActivityController.getLeadHistory Error:", err.message);
       return res.status(500).json({ success: false, error: "Failed to retrieve lead history" });
+    } finally {
+      if (connection) connection.release();
     }
   },
 
   /**
    * Fetches global logs for administrative audit purposes.
-   * Now gracefully captures non-lead actions like LOGINS!
    */
   getGlobalLogs: async (req, res) => {
+    let connection;
     try {
-      const [logs] = await pool.query(`
+      connection = await pool.getConnection();
+      const [logs] = await connection.query(`
         SELECT * FROM (
           SELECT 
             al.id, al.lead_id, al.user_id,
             COALESCE(u.name, 'System') AS user_name,
             al.action_type, al.description,
             al.old_value, al.new_value, al.created_at,
-            -- 🚀 FIXED: Falls back to 'System Alert / Auth' if the action has no linked lead profile
             COALESCE(l.full_name, 'System / Auth') AS student_name
           FROM activity_logs al
           LEFT JOIN users u ON al.user_id = u.id
@@ -143,23 +151,25 @@ const activityController = {
     } catch (err) {
       console.error("ActivityController.getGlobalLogs Error:", err.message);
       return res.status(500).json({ success: false, error: "Failed to retrieve audit logs" });
+    } finally {
+      if (connection) connection.release();
     }
   },
 
   /**
-   * Internal utility to record a new activity log.
+   * Internal utility to record a new activity log safely.
    */
   record: async ({ userId, leadId, actionType, description, oldValue, newValue }) => {
+    let connection;
     try {
-      // 🚀 FIXED: Removed the aggressive gatekeeper block that was killing login requests!
-      // System and authorization actions are now allowed to save smoothly into the database.
-      await pool.query(`
+      connection = await pool.getConnection();
+      await connection.query(`
         INSERT INTO activity_logs 
           (user_id, lead_id, action_type, description, old_value, new_value)
         VALUES (?, ?, ?, ?, ?, ?)
       `, [
         userId || null,
-        leadId || null, // Allow NULL values for authentication logs safely
+        leadId || null, 
         actionType || 'OTHER',
         description || 'Activity performed',
         oldValue || null,
@@ -170,6 +180,8 @@ const activityController = {
     } catch (err) {
       console.error("ActivityController.record Internal Error:", err.message);
       return false;
+    } finally {
+      if (connection) connection.release();
     }
   },
 
@@ -177,8 +189,12 @@ const activityController = {
    * Moves logs older than 12 months to an archive table.
    */
   archiveOldLogs: async (req, res) => {
+    let connection;
     try {
-      await pool.query(`
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+
+      await connection.query(`
         INSERT INTO activity_logs_archive 
           (id, user_id, lead_id, action_type, description, old_value, new_value, created_at)
         SELECT 
@@ -187,10 +203,12 @@ const activityController = {
         WHERE created_at < DATE_SUB(NOW(), INTERVAL 12 MONTH)
       `);
 
-      const [result] = await pool.query(`
+      const [result] = await connection.query(`
         DELETE FROM activity_logs 
         WHERE created_at < DATE_SUB(NOW(), INTERVAL 12 MONTH)
       `);
+
+      await connection.commit();
 
       return res.status(200).json({
         success: true,
@@ -198,8 +216,11 @@ const activityController = {
         message: `${result.affectedRows} logs moved to archive successfully`
       });
     } catch (err) {
+      if (connection) await connection.rollback();
       console.error("ActivityController.archiveOldLogs Error:", err.message);
       return res.status(500).json({ success: false, error: "Maintenance task failed" });
+    } finally {
+      if (connection) connection.release();
     }
   },
 
@@ -207,8 +228,10 @@ const activityController = {
    * Generates and streams a CSV export of all activity logs.
    */
   exportLogsCSV: async (req, res) => {
+    let connection;
     try {
-      const [logs] = await pool.query(`
+      connection = await pool.getConnection();
+      const [logs] = await connection.query(`
         SELECT 
           al.id,
           COALESCE(u.name, 'System') AS staff_name,
@@ -252,6 +275,8 @@ const activityController = {
     } catch (err) {
       console.error("ActivityController.exportLogsCSV Error:", err.message);
       return res.status(500).json({ success: false, error: "Export process failed" });
+    } finally {
+      if (connection) connection.release();
     }
   },
 };

@@ -34,6 +34,7 @@ router.get('/summary-stats',  authenticateToken, checkPermission('dashboard', 'v
 // 🎯 TARGET FILE: Your Backend Dashboard Router file (e.g., src/routes/dashboard.js)
 
 router.get('/notifications', authenticateToken, async (req, res) => {
+  let connection;
   try {
     const { pool } = require('../config/db');
 
@@ -46,6 +47,7 @@ router.get('/notifications', authenticateToken, async (req, res) => {
       return `${ist.getFullYear()}-${String(ist.getMonth()+1).padStart(2,'0')}-${String(ist.getDate()).padStart(2,'0')}`;
     })();
 
+    // 🚀 FIXED CASE-INSENSITIVE EVALUATION: Perfectly mirrors database role casing strings
     const isAdmin =
       role === 'super admin' || role === 'superadmin' ||
       role === 'admin'       || role === 'branch admin' ||
@@ -55,9 +57,11 @@ router.get('/notifications', authenticateToken, async (req, res) => {
     const scopeWhere  = isAdmin ? '' : 'AND (l.assigned_user_id = ? OR l.assigned_to = ?)';
     const scopeParams = isAdmin ? [] : [userId, userId];
 
+    // 🚀 ACQUIRE: Borrow a clean, high-performance thread link from the connection pool
+    connection = await pool.getConnection();
+
     // ── Follow-up counts — reads leads.next_follow_up_date ─────────────────
-    // Same source as the follow-up tracker page so numbers always match
-    const [fuRows] = await pool.query(`
+    const [fuRows] = await connection.query(`
       SELECT DATE(l.next_follow_up_date) AS follow_date
       FROM leads l
       WHERE l.next_follow_up_date IS NOT NULL
@@ -70,26 +74,30 @@ router.get('/notifications', authenticateToken, async (req, res) => {
     let overdue = 0, today = 0, upcoming = 0;
     fuRows.forEach(row => {
       if (!row.follow_date) return;
-      const d = String(row.follow_date).split('T')[0];
+      // Safeguard conversion format transformations cleanly
+      const d = String(row.follow_date).includes('T') 
+        ? String(row.follow_date).split('T')[0] 
+        : String(row.follow_date);
+      
       if      (d < todayLocal)  overdue++;
       else if (d === todayLocal) today++;
       else                       upcoming++;
     });
 
-    // ── Unassigned new leads (admins only — not relevant to counselors) ─────
+    // ── Unassigned new leads ─────────────────────────────────────────────────
     let newLeads = 0;
     if (isAdmin) {
-      const [[row]] = await pool.query(`
+      const [[row]] = await connection.query(`
         SELECT COUNT(*) AS count FROM leads
         WHERE assigned_user_id IS NULL
           AND deleted_at  IS NULL
           AND is_archived = 0
           AND LOWER(lead_status) = 'new'
       `);
-      newLeads = Number(row.count || 0);
+      newLeads = Number(row?.count || 0);
     } else {
       // Non-admins: new leads assigned to them today
-      const [[row]] = await pool.query(`
+      const [[row]] = await connection.query(`
         SELECT COUNT(*) AS count FROM leads
         WHERE (assigned_user_id = ? OR assigned_to = ?)
           AND deleted_at  IS NULL
@@ -97,19 +105,21 @@ router.get('/notifications', authenticateToken, async (req, res) => {
           AND LOWER(lead_status) = 'new'
           AND DATE(created_at)   = ?
       `, [userId, userId, todayLocal]);
-      newLeads = Number(row.count || 0);
+      newLeads = Number(row?.count || 0);
     }
 
     return res.status(200).json({
       success: true,
       data: { overdue, today, newLeads },
-      // Also at root level so frontend works regardless of how it destructures
       overdue, today, newLeads,
     });
 
   } catch (err) {
     console.error('Dashboard notifications error:', err.message);
     return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
+  } finally {
+    // ⚙️ CRITICAL APPARATUS RELEASE: Closes the socket and releases it back to the cluster instantly
+    if (connection) connection.release();
   }
 });
 
