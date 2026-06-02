@@ -3,25 +3,24 @@ const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const crypto    = require('crypto');
 
-// 🚀 FIXED: Global import with correct relative fallback directory mapping path
-// (Adjust the path dots if activityController is in a separate sibling subdirectory)
+// 🚀 Global import with correct relative fallback directory path
 const activityController = require("./activityController");
 
 // ─── ROLE ADAPTER ─────────────────────────────────────────────────────────────
 const mapUIToDBRole = (uiRole) => {
   const rawString = String(uiRole || "").trim();
 
-  // 🚀 DYNAMIC EXCEPTION: Keeps the uppercase ADMIN intact for database logs
+  // Keep uppercase ADMIN intact if passed that way
   if (rawString === "ADMIN") {
-    return "ADMIN";
+    return "Admin";
   }
 
   const n = rawString.toLowerCase();
   
   if (n === 'super admin' || n === 'superadmin') return 'Super Admin';
   
-  // 🚀 DEFAULT ADJUSTMENT: Normal admin strings save as lowercase
-  if (n === 'admin')                             return 'admin'; 
+  // 🚀 FIXED: Map standard admins to 'Admin' (Capitalized) to perfectly match permission rows 14-26!
+  if (n === 'admin')                            return 'Admin'; 
   
   if (n.includes('manager'))                     return 'Manager';
   if (n.includes('counselor'))                   return 'Counselor';
@@ -29,6 +28,7 @@ const mapUIToDBRole = (uiRole) => {
   
   return 'Counselor';
 };
+
 // ─── LOGIN ─────────────────────────────────────────────────────────────────────
 const login = async (req, res) => {
   const { email, password } = req.body;
@@ -51,21 +51,21 @@ const login = async (req, res) => {
     if (user.status !== 'active')
       return res.status(403).json({ success: false, message: 'Account suspended.' });
 
-    // 🚀 FIXED: Isolated log insertion with structural error protection 
-    // Ensures a logging glitch never hangs the core login authentication network loop
+    const normalisedRole = mapUIToDBRole(user.role);
+
+    // 🚀 FIXED: Log the authentication directly into the audit database trail!
     try {
+      const clientIp = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
       await activityController.record({
         userId: user.id,
-        leadId: null, // No student lead attached to authentication actions
+        leadId: null, 
         actionType: "LOGIN",
-        description: `Logged into the dashboard workspace successfully as ${user.role || 'User'}`
+        description: `Logged into the dashboard workspace successfully as ${normalisedRole} from IP ${clientIp}`
       });
       console.log(`📊 Audit Tracker: Login registered for User ID ${user.id}`);
     } catch (logError) {
       console.error('⚠️ Secondary logging operation bypassed:', logError.message);
     }
-
-    const normalisedRole = mapUIToDBRole(user.role);
 
     // ── Fetch permissions ──────────────────────────────────────────────────
     let permissions = [];
@@ -100,7 +100,7 @@ const login = async (req, res) => {
     return res.status(200).json({
       success:     true,
       token,
-      permissions,                             
+      permissions,                                             
       user: {
         id:             user.id,
         name:           user.name,
