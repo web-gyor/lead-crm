@@ -55,17 +55,19 @@ const login = async (req, res) => {
 
     // 🚀 FIXED: Log the authentication directly into the audit database trail!
     try {
-      const clientIp = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
-      await activityController.record({
-        userId: user.id,
-        leadId: null, 
-        actionType: "LOGIN",
-        description: `Logged into the dashboard workspace successfully as ${normalisedRole} from IP ${clientIp}`
-      });
-      console.log(`📊 Audit Tracker: Login registered for User ID ${user.id}`);
-    } catch (logError) {
-      console.error('⚠️ Secondary logging operation bypassed:', logError.message);
-    }
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+  
+  await activityController.record({
+    userId: user.id,
+    leadId: null, 
+    actionType: "LOGIN",  // Keeps your destructuring safe
+    action_type: "LOGIN", // 🚀 FIXED: Directly feeds your database column expectation!
+    description: `Logged into the dashboard workspace successfully as ${normalisedRole} from IP ${clientIp}`
+  });
+  console.log(`📊 Audit Tracker: Login registered for User ID ${user.id}`);
+} catch (logError) {
+  console.error('⚠️ Secondary logging operation bypassed:', logError.message);
+}
 
     // ── Fetch permissions ──────────────────────────────────────────────────
     let permissions = [];
