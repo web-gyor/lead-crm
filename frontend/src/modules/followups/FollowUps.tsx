@@ -250,13 +250,16 @@ useEffect(() => {
     setSearchTerm(""); setCourseFilter(""); setUserFilter(""); setSourceFilter(""); 
   }, []);
 
-  const todayIST = useMemo(() => getISTDateString(), []);
 
-  const getBucketLeads = useCallback((sid: SectionId) => {
-    return filteredLeads.filter(
-      l => getStatusBucket(l.next_follow_up_date, todayIST) === sid
-    );
-  }, [filteredLeads, todayIST]);
+
+ const getBucketLeads = useCallback((sid: SectionId) => {
+  // Calculates the current date at the exact second the tab is clicked or viewed
+  const freshTodayIST = getISTDateString();
+
+  return filteredLeads.filter(
+    l => getStatusBucket(l.next_follow_up_date, freshTodayIST) === sid
+  );
+}, [filteredLeads]);
 
   // ── Mutational Core API Transaction Hooks ─────────────────────────────────
   const handleMarkDone = async (leadId: number) => {

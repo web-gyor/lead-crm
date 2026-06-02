@@ -1,4 +1,4 @@
-const { pool } = require("../config/db"); // 🚀 FIXED: Imported your active database pool reference instance
+const { pool } = require("../config/db");
 
 const getISTDateString = () => {
   const now    = new Date();
@@ -34,7 +34,6 @@ const getTodayTasks = async (req, res) => {
       WHERE l.next_follow_up_date IS NOT NULL
         AND l.deleted_at IS NULL
         AND l.is_archived = 0
-        -- 🚀 BOUNDARY GUARD: Only load leads strictly set to the Follow-up loop state
         AND LOWER(l.lead_status) = 'follow-up'
     `;
     const params = [];
@@ -44,11 +43,12 @@ const getTodayTasks = async (req, res) => {
       params.push(userId);
     }
 
+    // 🚀 FIXED: Pure comparison without timezone shifts warping the clean DATE boundaries
     query += `
       ORDER BY 
         CASE 
-          WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ?  THEN 1
-          WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ?  THEN 2
+          WHEN l.next_follow_up_date < ? THEN 1
+          WHEN l.next_follow_up_date = ? THEN 2
           ELSE 3
         END,
         l.next_follow_up_date ASC
@@ -57,11 +57,10 @@ const getTodayTasks = async (req, res) => {
 
     const [rows] = await connection.query(query, params);
 
+    // 🚀 FIXED: Direct extraction string mapping pass
     const leads = rows.map(r => ({
       ...r,
-      next_follow_up_date: r.next_follow_up_date
-        ? String(r.next_follow_up_date).split('T')[0]
-        : null,
+      next_follow_up_date: r.next_follow_up_date ? String(r.next_follow_up_date) : null,
     }));
 
     return res.json({ success: true, leads, count: leads.length });
@@ -74,8 +73,6 @@ const getTodayTasks = async (req, res) => {
   }
 };
 
-// 🎯 UPDATE IN: backend/src/controllers/followUpController.js -> getLeadNotifications
-
 const getLeadNotifications = async (req, res) => {
   let connection;
   try {
@@ -83,7 +80,6 @@ const getLeadNotifications = async (req, res) => {
     const role       = String(req.user?.role || '').toLowerCase().trim();
     const todayLocal = req.query.localDate || getISTDateString();
 
-    // 🚀 FIXED: Added 'manager' so Super Admins, Admins, and Managers all view the exact same global metrics
     const isAdmin =
       role === 'super admin' || role === 'superadmin' ||
       role === 'admin'       || role === 'branch admin' ||
@@ -93,19 +89,18 @@ const getLeadNotifications = async (req, res) => {
     let scopeWhere = '';
     const scopeParams = [];
     if (!isAdmin) {
-      // Counselors and Telecallers only see their own assigned leads
       scopeWhere = 'AND l.assigned_user_id = ?';
       scopeParams.push(userId);
     }
 
     connection = await pool.getConnection();
 
-    // ── 1. FOLLOW-UP COUNTS ─────────────────────────────────────────────────
+    // 🚀 FIXED: Direct conditional count maps matching raw structural criteria
     const [countsResult] = await connection.query(`
       SELECT 
-        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
-        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ? THEN l.id END) AS today,
-        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) > ? THEN l.id END) AS upcoming
+        COUNT(DISTINCT CASE WHEN l.next_follow_up_date < ? THEN l.id END) AS overdue,
+        COUNT(DISTINCT CASE WHEN l.next_follow_up_date = ? THEN l.id END) AS today,
+        COUNT(DISTINCT CASE WHEN l.next_follow_up_date > ? THEN l.id END) AS upcoming
       FROM leads l
       WHERE l.next_follow_up_date IS NOT NULL
         AND l.deleted_at IS NULL
@@ -116,7 +111,6 @@ const getLeadNotifications = async (req, res) => {
 
     const metrics = countsResult[0] || { overdue: 0, today: 0, upcoming: 0 };
 
-    // ── 2. NEW/UNASSIGNED LEADS COUNT ───────────────────────────────────────────
     let newLeads = 0;
     if (isAdmin) {
       const [[unassignedRow]] = await connection.query(`
@@ -136,6 +130,7 @@ const getLeadNotifications = async (req, res) => {
           AND deleted_at IS NULL
           AND is_archived = 0
           AND LOWER(lead_status) = 'new'
+          -- Keep CONVERT_TZ here since created_at is a native TIMESTAMP
           AND DATE(CONVERT_TZ(created_at, '+00:00', '+05:30')) = ?
       `, [userId, todayLocal]);
       newLeads = Number(myNewRow?.count || 0);
