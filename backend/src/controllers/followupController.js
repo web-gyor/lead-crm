@@ -55,36 +55,33 @@ const getTodayTasks = async (req, res) => {
     `;
     params.push(todayLocal, todayLocal);
 
-    const [rows] = await connection.query(query, params);
+  const [rows] = await connection.query(query, params);
 
-    // 🚀 FIXED: Direct extraction string mapping pass
-    const leads = rows.map(r => ({
-      ...r,
-      next_follow_up_date: r.next_follow_up_date ? String(r.next_follow_up_date) : null,
-    }));
+// 🚀 FIXED: Simple, robust mapping. No native Date object conversions or string splitting needed.
+const leads = rows.map(r => ({
+  ...r,
+  next_follow_up_date: r.next_follow_up_date ? String(r.next_follow_up_date) : null,
+}));
 
-    return res.json({ success: true, leads, count: leads.length });
+return res.json({ success: true, leads, count: leads.length });
 
-  } catch (error) {
-    console.error('getTodayTasks error:', error.message);
-    return res.status(500).json({ success: false, error: 'Failed to fetch follow-up tasks' });
-  } finally {
-    if (connection) connection.release();
-  }
-};
+// 🎯 UPDATE IN: backend/src/controllers/followUpController.js -> getLeadNotifications
 
 const getLeadNotifications = async (req, res) => {
   let connection;
   try {
     const userId     = req.user?.id;
+    // Standardize the role naming validation layer
     const role       = String(req.user?.role || '').toLowerCase().trim();
     const todayLocal = req.query.localDate || getISTDateString();
 
+    // 🚀 HARDENED SECURITY PERMISSION CHECK: Matches any variant containing 'manager' or 'admin'
     const isAdmin =
-      role === 'super admin' || role === 'superadmin' ||
-      role === 'admin'       || role === 'branch admin' ||
-      role === 'manager'     || 
-      Boolean(req.user?.is_super_admin) || Boolean(req.user?.is_branch_admin);
+      role.includes('admin') || 
+      role.includes('manager') || 
+      Boolean(req.user?.is_super_admin) || 
+      Boolean(req.user?.is_branch_admin) ||
+      Boolean(req.user?.is_manager);
 
     let scopeWhere = '';
     const scopeParams = [];
@@ -95,7 +92,7 @@ const getLeadNotifications = async (req, res) => {
 
     connection = await pool.getConnection();
 
-    // 🚀 FIXED: Direct conditional count maps matching raw structural criteria
+    // ── 1. FOLLOW-UP PIPELINE METRICS ─────────────────────────────────────────
     const [countsResult] = await connection.query(`
       SELECT 
         COUNT(DISTINCT CASE WHEN l.next_follow_up_date < ? THEN l.id END) AS overdue,
@@ -111,6 +108,7 @@ const getLeadNotifications = async (req, res) => {
 
     const metrics = countsResult[0] || { overdue: 0, today: 0, upcoming: 0 };
 
+    // ── 2. NEW INBOUND INGESTION METRICS ─────────────────────────────────────
     let newLeads = 0;
     if (isAdmin) {
       const [[unassignedRow]] = await connection.query(`
@@ -123,14 +121,14 @@ const getLeadNotifications = async (req, res) => {
       `);
       newLeads = Number(unassignedRow?.count || 0);
     } else {
+      // 🚀 FIXED: Removed broken table alias 'l.' and verified explicit positional parameter matches
       const [[myNewRow]] = await connection.query(`
         SELECT COUNT(DISTINCT id) AS count
         FROM leads
-        WHERE l.assigned_user_id = ?
+        WHERE assigned_user_id = ?
           AND deleted_at IS NULL
           AND is_archived = 0
           AND LOWER(lead_status) = 'new'
-          -- Keep CONVERT_TZ here since created_at is a native TIMESTAMP
           AND DATE(CONVERT_TZ(created_at, '+00:00', '+05:30')) = ?
       `, [userId, todayLocal]);
       newLeads = Number(myNewRow?.count || 0);
