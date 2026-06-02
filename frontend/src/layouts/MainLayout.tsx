@@ -157,7 +157,17 @@ export default function MainLayout() {
           avatarColor="bg-blue-600" handleLogout={logout} showNotif={showNotif} setShowNotif={setShowNotif}
           showUser={showUser} setShowUser={setShowUser}
         />
-        <div className="flex-1 overflow-y-auto"><PageContainer><Outlet /></PageContainer></div>
+        <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-[#0f172a]">
+  <PageContainer>
+    <React.Suspense fallback={
+      <div className="p-12 text-center text-xs text-slate-400 font-bold tracking-widest animate-pulse">
+        LOADING WORKSPACE...
+      </div>
+    }>
+      <Outlet />
+    </React.Suspense>
+  </PageContainer>
+</div>
       </div>
       <ToastContainer />
     </div>
