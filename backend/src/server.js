@@ -41,6 +41,7 @@ const allowedOrigins = [
   "https://lead-crm-sand.vercel.app/"
 ];
 
+// Configure standard global options settings
 app.use(cors({
   origin: (origin, callback) => {
     const cleanOrigin = origin ? origin.replace(/\/$/, "") : "";
@@ -57,12 +58,13 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
 }));
 
+// 🚀 SAFE PREFLIGHT MIDDLEWARE: Bypasses path-to-regexp string crashes completely
 app.use(cors());
 
 // 🛡️ ACCELERATED RATE LIMITER: Expanded windows to accommodate intense parallel multi-user logins
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === "production" ? 3000 : 10000, // Raised from 100 to stop 429 drops!
+  max: process.env.NODE_ENV === "production" ? 3000 : 10000, 
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.method === "OPTIONS"
@@ -70,6 +72,28 @@ const apiLimiter = rateLimit({
 
 app.use("/api", apiLimiter);
 app.use("/auth", apiLimiter);
+
+// ─── Route Imports (🚀 RE-ESTABLISHED MODULE REFERENCES) ──────────────────────
+const webhookRoutes         = require("./routes/webhookRoutes");
+const archiveRoutes         = require("./routes/archiveRoutes");
+const leadRoutes            = require("./routes/leadRoutes");
+const dashboardRoutes       = require("./routes/dashboardRoutes");
+const userRoutes            = require("./routes/userRoutes");
+const logRoutes             = require("./routes/logRoutes");
+const permissionsRouter     = require("./routes/permissionRoutes");
+const activityRoutes        = require("./routes/activityRoutes");
+const countryRoutes         = require("./routes/countryRoutes");
+const courseRoutes          = require("./routes/courseRoutes");
+const distributionRoutes    = require("./routes/distributionRoutes");
+const attendanceRoutes      = require("./routes/attendanceRoutes");
+const staffPerformanceRoutes = require("./routes/staffPerformanceRoutes");
+const telephonyRoutes       = require("./routes/telephonyRoutes");
+const integrationRoutes     = require("./routes/integrationRoutes"); 
+const followupRoutes        = require("./routes/followupRoutes");
+const communicationRoutes   = require("./routes/communicationRoutes");
+const automationRoutes      = require("./routes/automationRoutes");
+const analyticsRoutes       = require("./routes/analyticsRoutes");
+const { runDatabaseBackup } = require('./utils/backupScheduler');
 
 // ─── Static Uploads Route ─────────────────────────────────────────────────────
 app.use('/uploads', (req, res) => {
