@@ -71,18 +71,34 @@ router.get('/notifications', authenticateToken, async (req, res) => {
         ${scopeWhere}
     `, scopeParams);
 
-    let overdue = 0, today = 0, upcoming = 0;
-    fuRows.forEach(row => {
-      if (!row.follow_date) return;
-      // Safeguard conversion format transformations cleanly
-      const d = String(row.follow_date).includes('T') 
-        ? String(row.follow_date).split('T')[0] 
-        : String(row.follow_date);
-      
-      if      (d < todayLocal)  overdue++;
-      else if (d === todayLocal) today++;
-      else                       upcoming++;
-    });
+let overdue = 0, today = 0, upcoming = 0;
+fuRows.forEach(row => {
+  if (!row.follow_date) return;
+
+  // 🚀 FIXED: Robust conversion of the native Date object or text fallback into clear YYYY-MM-DD
+  let d;
+  if (row.follow_date instanceof Date) {
+    // Safely extracts the year, month, and day out of the database object structure
+    const yyyy = row.follow_date.getFullYear();
+    const mm = String(row.follow_date.getMonth() + 1).padStart(2, '0');
+    const dd = String(row.follow_date.getDate()).padStart(2, '0');
+    d = `${yyyy}-${mm}-${dd}`;
+  } else {
+    // Text format string pattern matching fallback
+    d = String(row.follow_date).includes('T') 
+      ? String(row.follow_date).split('T')[0] 
+      : String(row.follow_date).trim();
+  }
+  
+  // Clean alphanumeric comparison works perfectly now!
+  if (d < todayLocal) {
+    overdue++;
+  } else if (d === todayLocal) {
+    today++;
+  } else {
+    upcoming++;
+  }
+});
 
     // ── Unassigned new leads ─────────────────────────────────────────────────
     let newLeads = 0;
