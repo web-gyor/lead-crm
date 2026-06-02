@@ -68,7 +68,10 @@ const getTodayTasks = async (req, res) => {
 };
 
 
+// 🎯 UPDATE IN: backend/src/controllers/followUpController.js (or corresponding route controller)
+
 const getLeadNotifications = async (req, res) => {
+  let connection;
   try {
     const userId     = req.user?.id;
     const role       = String(req.user?.role || '').toLowerCase().trim();
@@ -79,73 +82,70 @@ const getLeadNotifications = async (req, res) => {
       role === 'admin'       || role === 'branch admin' ||
       Boolean(req.user?.is_super_admin);
 
-    // ── Scope filter (non-admins see only their own leads) ──────────────────
-    let scopeWhere  = '';
+    let scopeWhere = '';
     const scopeParams = [];
     if (!isAdmin) {
-      scopeWhere = 'AND (l.assigned_user_id = ? OR l.assigned_to = ?)';
-      scopeParams.push(userId, userId);
+      scopeWhere = 'AND l.assigned_user_id = ?';
+      scopeParams.push(userId);
     }
 
-    // ── 1. FOLLOW-UP COUNTS ─────────────────────────────────────────────────
-    const [followUpRows] = await pool.query(`
-      SELECT DATE(l.next_follow_up_date) AS follow_date
+    connection = await pool.getConnection();
+
+    // 🚀 FIXED: Run a single high-speed conditional aggregation that perfectly mirrors your workflow rules
+    const [countsResult] = await connection.query(`
+      SELECT 
+        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
+        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ? THEN l.id END) AS today,
+        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) > ? THEN l.id END) AS upcoming
       FROM leads l
       WHERE l.next_follow_up_date IS NOT NULL
         AND l.deleted_at IS NULL
         AND l.is_archived = 0
-        AND LOWER(l.lead_status) NOT IN ('converted','lost','not interested','rejected','closed')
+        AND l.lead_status NOT IN ('Converted', 'Lost', 'Not Interested', 'Rejected', 'Closed')
         ${scopeWhere}
-    `, scopeParams);
+    `, [todayLocal, todayLocal, todayLocal, ...scopeParams]);
 
-    let overdue = 0, today = 0, upcoming = 0;
-    followUpRows.forEach(row => {
-      if (!row.follow_date) return;
-      const d = String(row.follow_date).split('T')[0];
-      if      (d < todayLocal)  overdue++;
-      else if (d === todayLocal) today++;
-      else                       upcoming++;
-    });
+    const metrics = countsResult[0] || { overdue: 0, today: 0, upcoming: 0 };
 
-    // ── 2. UNASSIGNED LEADS FOR ADMINS / ASSIGNED TODAY FOR COUNSELORS ──────
+    // ── 2. UNASSIGNED LEADS COUNT ───────────────────────────────────────────
     let newLeads = 0;
     if (isAdmin) {
-      // 🚀 FIXED: Dropped 'AND LOWER(lead_status) = "new"' to capture any unassigned lead status
-      const [[unassignedRow]] = await pool.query(`
-        SELECT COUNT(*) AS count
+      const [[unassignedRow]] = await connection.query(`
+        SELECT COUNT(DISTINCT id) AS count
         FROM leads
         WHERE assigned_user_id IS NULL
           AND assigned_to IS NULL
           AND deleted_at IS NULL
           AND is_archived = 0
       `);
-      newLeads = Number(unassignedRow.count || 0);
+      newLeads = Number(unassignedRow?.count || 0);
     } else {
-      // For non-admins, keep showing new tasks explicitly routed to them today
-      const [[myNewRow]] = await pool.query(`
-        SELECT COUNT(*) AS count
+      const [[myNewRow]] = await connection.query(`
+        SELECT COUNT(DISTINCT id) AS count
         FROM leads
-        WHERE (assigned_user_id = ? OR assigned_to = ?)
+        WHERE assigned_user_id = ?
           AND deleted_at IS NULL
           AND is_archived = 0
           AND LOWER(lead_status) = 'new'
-          AND DATE(created_at) = ?
-      `, [userId, userId, todayLocal]);
-      newLeads = Number(myNewRow.count || 0);
+          AND DATE(CONVERT_TZ(created_at, '+00:00', '+05:30')) = ?
+      `, [userId, todayLocal]);
+      newLeads = Number(myNewRow?.count || 0);
     }
 
     return res.json({
       success: true,
-      overdue,
-      today,
-      upcoming,
+      overdue: Number(metrics.overdue || 0),
+      today: Number(metrics.today || 0),
+      upcoming: Number(metrics.upcoming || 0),
       newLeads,
-      total: overdue + today + newLeads,
+      total: Number(metrics.overdue || 0) + Number(metrics.today || 0) + newLeads,
     });
 
   } catch (err) {
     console.error('getLeadNotifications error:', err.message);
     return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
+  } finally {
+    if (connection) connection.release();
   }
 };
 module.exports = { getTodayTasks, getLeadNotifications };

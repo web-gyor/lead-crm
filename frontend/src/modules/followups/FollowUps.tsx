@@ -100,7 +100,7 @@ export default function FollowUps() {
       const localDate = getISTDateString();
       
       const [fuRes, staffRes, sourcesRes] = await Promise.all([
-        apiGet(`/api/leads?status=Follow-up&limit=100&localDate=${localDate}`),
+      apiGet(`/api/leads?status=Follow-up&limit=2000&localDate=${localDate}`),
         apiGet("/api/users").catch(() => ({ data: [] })),
         apiGet("/api/lead-sources").catch(() => ({ data: [] })),
       ]);
