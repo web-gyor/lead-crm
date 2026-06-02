@@ -17,17 +17,16 @@ const dbConfig = {
     minVersion: 'TLSv1.2'
   },
 
-  // 🚀 FIXED: Scale up your allocation limits to handle parallel multi-user requests smoothly
   waitForConnections: true,
-  connectionLimit: 45, // Raised from 10 to eliminate page mounting delays
+  connectionLimit: 45,
   queueLimit: 0,
   namedPlaceholders: true,
-  
   maxAllowedPacket: 64 * 1024 * 1024, 
 
-  // 🚀 FIXED: Remove 'dateStrings: true' to let the database parse binary dates instantly
-  timezone: '+05:30', 
+  // 🚀 THE CRITICAL FIX FOR RENDER: Force pure DATE columns to be returned as clean, unshifted text strings
+  dateStrings: ['DATE'], 
 
+  timezone: '+05:30', 
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000
 };
