@@ -74,6 +74,8 @@ const getTodayTasks = async (req, res) => {
   }
 };
 
+// 🎯 UPDATE IN: backend/src/controllers/followUpController.js -> getLeadNotifications
+
 const getLeadNotifications = async (req, res) => {
   let connection;
   try {
@@ -81,37 +83,40 @@ const getLeadNotifications = async (req, res) => {
     const role       = String(req.user?.role || '').toLowerCase().trim();
     const todayLocal = req.query.localDate || getISTDateString();
 
+    // 🚀 FIXED: Added 'manager' so Super Admins, Admins, and Managers all view the exact same global metrics
     const isAdmin =
       role === 'super admin' || role === 'superadmin' ||
       role === 'admin'       || role === 'branch admin' ||
-      Boolean(req.user?.is_super_admin);
+      role === 'manager'     || 
+      Boolean(req.user?.is_super_admin) || Boolean(req.user?.is_branch_admin);
 
     let scopeWhere = '';
     const scopeParams = [];
     if (!isAdmin) {
+      // Counselors and Telecallers only see their own assigned leads
       scopeWhere = 'AND l.assigned_user_id = ?';
       scopeParams.push(userId);
     }
 
     connection = await pool.getConnection();
 
-    // 🚀 BOUNDARY GUARD ALIGNED: Explicitly filter by LOWER(l.lead_status) = 'follow-up'
-   const [countsResult] = await connection.query(`
-  SELECT 
-    COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
-    COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ? THEN l.id END) AS today,
-    COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) > ? THEN l.id END) AS upcoming
-  FROM leads l
-  WHERE l.next_follow_up_date IS NOT NULL
-    AND l.deleted_at IS NULL
-    AND l.is_archived = 0
-    AND LOWER(l.lead_status) = 'follow-up'
-    ${scopeWhere}
-`, [todayLocal, todayLocal, todayLocal, ...scopeParams]);
+    // ── 1. FOLLOW-UP COUNTS ─────────────────────────────────────────────────
+    const [countsResult] = await connection.query(`
+      SELECT 
+        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
+        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ? THEN l.id END) AS today,
+        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) > ? THEN l.id END) AS upcoming
+      FROM leads l
+      WHERE l.next_follow_up_date IS NOT NULL
+        AND l.deleted_at IS NULL
+        AND l.is_archived = 0
+        AND LOWER(l.lead_status) = 'follow-up'
+        ${scopeWhere}
+    `, [todayLocal, todayLocal, todayLocal, ...scopeParams]);
 
     const metrics = countsResult[0] || { overdue: 0, today: 0, upcoming: 0 };
 
-    // ── 2. UNASSIGNED LEADS COUNT ───────────────────────────────────────────
+    // ── 2. NEW/UNASSIGNED LEADS COUNT ───────────────────────────────────────────
     let newLeads = 0;
     if (isAdmin) {
       const [[unassignedRow]] = await connection.query(`
@@ -127,7 +132,7 @@ const getLeadNotifications = async (req, res) => {
       const [[myNewRow]] = await connection.query(`
         SELECT COUNT(DISTINCT id) AS count
         FROM leads
-        WHERE assigned_user_id = ?
+        WHERE l.assigned_user_id = ?
           AND deleted_at IS NULL
           AND is_archived = 0
           AND LOWER(lead_status) = 'new'
