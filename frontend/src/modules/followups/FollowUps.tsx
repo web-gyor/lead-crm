@@ -261,32 +261,35 @@ export default function FollowUps() {
     }
   };
 
-  const handleReschedule = async (leadId: number, newDate: string) => {
-    if (!newDate || isMutatingLock.current) return;
-    const nId = Number(leadId);
-   
-    const patch = { next_follow_up_date: newDate };
-    optimisticState.current.set(nId, { patch, until: Date.now() + 30_000 });
-    setLeads(prev => prev.map(l => sameId(l.id ?? l.lead_id, nId) ? { ...l, ...patch } : l));
-   
-    isUpdating.current = true;
-    isMutatingLock.current = true;
-    try {
-      await apiPut(`/api/leads/${nId}`, patch);
-      // ⚡ UPDATED: Standardized alert trigger
-      addToast(`Rescheduled → ${newDate}`, "success");
-      setTimeout(() => fetchData(true), 800);
-    } catch {
-      // ⚡ UPDATED: Standardized alert trigger
-      addToast("Reschedule failed", "error");
-      optimisticState.current.delete(nId);
-      fetchData(true);
-    } finally {
-      isUpdating.current = false;
-      isMutatingLock.current = false;
-    }
-  };
+  // 🎯 UPDATE INSIDE: frontend/src/modules/followups/FollowUps.tsx
 
+const handleReschedule = async (leadId: number, newDate: string) => {
+  if (!newDate || isMutatingLock.current) return;
+  const nId = Number(leadId);
+ 
+  const patch = { next_follow_up_date: newDate };
+  optimisticState.current.set(nId, { patch, until: Date.now() + 30_000 });
+  
+  // 🚀 OPTIMISTIC UPDATE: Update UI state instantly for a lag-free experience
+  setLeads(prev => prev.map(l => sameId(l.id ?? l.lead_id, nId) ? { ...l, ...patch } : l));
+ 
+  isUpdating.current = true;
+  isMutatingLock.current = true;
+  try {
+    await apiPut(`/api/leads/${nId}`, patch);
+    addToast(`Rescheduled → ${newDate}`, "success");
+    
+    // 🚀 FIXED: Dropped the redundant 800ms background setTimeout call!
+    // The state is already updated optimistically, avoiding double-fetching.
+  } catch {
+    addToast("Reschedule failed", "error");
+    optimisticState.current.delete(nId);
+    fetchData(true); // Only fetch from the server if the API transaction fails
+  } finally {
+    isUpdating.current = false;
+    isMutatingLock.current = false;
+  }
+};
   const handleNoteSave = async (text: string) => {
     if (!noteLead || isMutatingLock.current) return;
     const nId = Number(noteLead.id ?? noteLead.lead_id);
