@@ -40,6 +40,8 @@ router.get('/notifications', authenticateToken, async (req, res) => {
 
     const userId     = req.user?.id;
     const role       = String(req.user?.role || '').toLowerCase().trim();
+    
+    // Generate absolute IST string date comparisons cleanly
     const todayLocal = req.query.localDate || (() => {
       const now   = new Date();
       const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
@@ -47,58 +49,59 @@ router.get('/notifications', authenticateToken, async (req, res) => {
       return `${ist.getFullYear()}-${String(ist.getMonth()+1).padStart(2,'0')}-${String(ist.getDate()).padStart(2,'0')}`;
     })();
 
-    // 🚀 FIXED CASE-INSENSITIVE EVALUATION: Perfectly mirrors database role casing strings
-    const isAdmin =
-      role === 'super admin' || role === 'superadmin' ||
-      role === 'admin'       || role === 'branch admin' ||
-      Boolean(req.user?.is_super_admin);
+    // 🚀 FIXED: Added explicit 'manager' validation here to group your management dashboards
+    const isAdminOrManager =
+      ['super admin', 'superadmin', 'admin', 'branch admin', 'manager'].includes(role) ||
+      Boolean(req.user?.is_super_admin) ||
+      Boolean(req.user?.is_branch_admin) ||
+      Boolean(req.user?.is_manager);
 
-    // ── Scope: non-admins see only their own leads ──────────────────────────
-    const scopeWhere  = isAdmin ? '' : 'AND (l.assigned_user_id = ? OR l.assigned_to = ?)';
-    const scopeParams = isAdmin ? [] : [userId, userId];
+    // ── Scope: Non-admins see only their own leads ──────────────────────────
+    const scopeWhere  = isAdminOrManager ? '' : 'AND (l.assigned_user_id = ? OR l.assigned_to = ?)';
+    const scopeParams = isAdminOrManager ? [] : [userId, userId];
 
-    // 🚀 ACQUIRE: Borrow a clean, high-performance thread link from the connection pool
     connection = await pool.getConnection();
 
     // ── Follow-up counts — reads leads.next_follow_up_date ─────────────────
-const [fuRows] = await connection.query(`
-  SELECT DISTINCT l.id, DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) AS follow_date
-  FROM leads l
-  WHERE l.next_follow_up_date IS NOT NULL
-    AND l.deleted_at   IS NULL
-    AND l.is_archived  = 0
-    AND LOWER(l.lead_status) NOT IN ('converted','lost','not interested','rejected','closed')
-    ${scopeWhere}
-`, scopeParams);
+    // 🚀 FIXED: Removed CONVERT_TZ to prevent shifting your pure database DATE values
+    const [fuRows] = await connection.query(`
+      SELECT DISTINCT l.id, l.next_follow_up_date AS follow_date
+      FROM leads l
+      WHERE l.next_follow_up_date IS NOT NULL
+        AND l.deleted_at   IS NULL
+        AND l.is_archived  = 0
+        AND LOWER(l.lead_status) = 'follow-up'
+        ${scopeWhere}
+    `, scopeParams);
 
-let overdue = 0, today = 0, upcoming = 0;
-fuRows.forEach(row => {
-  if (!row.follow_date) return;
+    let overdue = 0, today = 0, upcoming = 0;
+    fuRows.forEach(row => {
+      if (!row.follow_date) return;
 
-  let d;
-  if (row.follow_date instanceof Date) {
-    const yyyy = row.follow_date.getFullYear();
-    const mm = String(row.follow_date.getMonth() + 1).padStart(2, '0');
-    const dd = String(row.follow_date.getDate()).padStart(2, '0');
-    d = `${yyyy}-${mm}-${dd}`;
-  } else {
-    d = String(row.follow_date).includes('T') 
-      ? String(row.follow_date).split('T')[0] 
-      : String(row.follow_date).trim();
-  }
-  
-  if (d < todayLocal) {
-    overdue++;
-  } else if (d === todayLocal) {
-    today++;
-  } else {
-    upcoming++;
-  }
-});
+      let d;
+      if (row.follow_date instanceof Date) {
+        const yyyy = row.follow_date.getFullYear();
+        const mm = String(row.follow_date.getMonth() + 1).padStart(2, '0');
+        const dd = String(row.follow_date.getDate()).padStart(2, '0');
+        d = `${yyyy}-${mm}-${dd}`;
+      } else {
+        d = String(row.follow_date).includes('T') 
+          ? String(row.follow_date).split('T')[0] 
+          : String(row.follow_date).trim();
+      }
+      
+      if (d < todayLocal) {
+        overdue++;
+      } else if (d === todayLocal) {
+        today++;
+      } else {
+        upcoming++;
+      }
+    });
 
     // ── Unassigned new leads ─────────────────────────────────────────────────
     let newLeads = 0;
-    if (isAdmin) {
+    if (isAdminOrManager) {
       const [[row]] = await connection.query(`
         SELECT COUNT(*) AS count FROM leads
         WHERE assigned_user_id IS NULL
@@ -115,7 +118,7 @@ fuRows.forEach(row => {
           AND deleted_at  IS NULL
           AND is_archived = 0
           AND LOWER(lead_status) = 'new'
-          AND DATE(created_at)   = ?
+          AND DATE(CONVERT_TZ(created_at, '+00:00', '+05:30')) = ?
       `, [userId, userId, todayLocal]);
       newLeads = Number(row?.count || 0);
     }
@@ -123,18 +126,17 @@ fuRows.forEach(row => {
     return res.status(200).json({
       success: true,
       data: { overdue, today, newLeads },
-      overdue, today, newLeads,
+      overdue, today, upcoming, newLeads,
+      total: overdue + today + newLeads
     });
 
   } catch (err) {
     console.error('Dashboard notifications error:', err.message);
     return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
   } finally {
-    // ⚙️ CRITICAL APPARATUS RELEASE: Closes the socket and releases it back to the cluster instantly
     if (connection) connection.release();
   }
 });
-
 // Leave this single module statement at the absolute bottom untouched:
 module.exports = router;
 
