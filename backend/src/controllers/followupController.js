@@ -1,3 +1,5 @@
+const { pool } = require("../config/db"); // 🚀 FIXED: Imported your active database pool reference instance
+
 const getISTDateString = () => {
   const now    = new Date();
   const utcMs  = now.getTime() + now.getTimezoneOffset() * 60_000;
@@ -10,14 +12,16 @@ const getISTDateString = () => {
 };
  
 const getTodayTasks = async (req, res) => {
+  let connection;
   try {
     const role   = String(req.user?.role || '').toLowerCase().trim();
     const userId = req.user?.id;
     const todayLocal = req.query.localDate || getISTDateString();
 
-    // ✅ cover all admin role variants
     const isAdmin = role === 'admin' || role === 'super admin' || role === 'superadmin' ||
                     role === 'branch admin' || Boolean(req.user?.is_super_admin) || Boolean(req.user?.is_branch_admin);
+
+    connection = await pool.getConnection();
 
     let query = `
       SELECT 
@@ -29,7 +33,9 @@ const getTodayTasks = async (req, res) => {
       LEFT JOIN lead_sources ls ON l.lead_source_id = ls.id
       WHERE l.next_follow_up_date IS NOT NULL
         AND l.deleted_at IS NULL
-        AND l.lead_status NOT IN ('Converted', 'Lost', 'Not Interested', 'Rejected', 'Closed')
+        AND l.is_archived = 0
+        -- 🚀 BOUNDARY GUARD: Only load leads strictly set to the Follow-up loop state
+        AND LOWER(l.lead_status) = 'follow-up'
     `;
     const params = [];
 
@@ -41,17 +47,16 @@ const getTodayTasks = async (req, res) => {
     query += `
       ORDER BY 
         CASE 
-          WHEN DATE(l.next_follow_up_date) < ?  THEN 1
-          WHEN DATE(l.next_follow_up_date) = ?  THEN 2
+          WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ?  THEN 1
+          WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ?  THEN 2
           ELSE 3
         END,
         l.next_follow_up_date ASC
     `;
     params.push(todayLocal, todayLocal);
 
-    const [rows] = await pool.query(query, params);
+    const [rows] = await connection.query(query, params);
 
-    // ✅ Normalise date to YYYY-MM-DD string before sending — prevents UTC offset on frontend
     const leads = rows.map(r => ({
       ...r,
       next_follow_up_date: r.next_follow_up_date
@@ -64,11 +69,10 @@ const getTodayTasks = async (req, res) => {
   } catch (error) {
     console.error('getTodayTasks error:', error.message);
     return res.status(500).json({ success: false, error: 'Failed to fetch follow-up tasks' });
+  } finally {
+    if (connection) connection.release();
   }
 };
-
-
-// 🎯 UPDATE IN: backend/src/controllers/followUpController.js (or corresponding route controller)
 
 const getLeadNotifications = async (req, res) => {
   let connection;
@@ -91,7 +95,8 @@ const getLeadNotifications = async (req, res) => {
 
     connection = await pool.getConnection();
 
-    // 🚀 FIXED: Run a single high-speed conditional aggregation that perfectly mirrors your workflow rules
+    // 🚀 BOUNDARY GUARD ALIGNED: Explicitly filter by LOWER(l.lead_status) = 'follow-up'
+    // This instantly isolates your dashboard metrics and drops mismatched 'New' items automatically!
     const [countsResult] = await connection.query(`
       SELECT 
         COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
@@ -101,7 +106,7 @@ const getLeadNotifications = async (req, res) => {
       WHERE l.next_follow_up_date IS NOT NULL
         AND l.deleted_at IS NULL
         AND l.is_archived = 0
-        AND l.lead_status NOT IN ('Converted', 'Lost', 'Not Interested', 'Rejected', 'Closed')
+        AND LOWER(l.lead_status) = 'follow-up'
         ${scopeWhere}
     `, [todayLocal, todayLocal, todayLocal, ...scopeParams]);
 
@@ -148,4 +153,5 @@ const getLeadNotifications = async (req, res) => {
     if (connection) connection.release();
   }
 };
+
 module.exports = { getTodayTasks, getLeadNotifications };
