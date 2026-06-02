@@ -114,72 +114,56 @@ const activityController = {
   /**
    * Fetches global logs for administrative audit purposes.
    */
+// 🎯 UPDATE IN: backend/src/controllers/activityController.js
+
 getGlobalLogs: async (req, res) => {
   let connection;
-
   try {
     let rawDate = req.query.date || req.query.localDate;
     let filterDate = null;
 
     if (rawDate) {
       const cleanRawDate = String(rawDate).trim();
-
-      // DD-MM-YYYY → YYYY-MM-DD
-      if (/^\d{2}-\d{2}-\d{4}$/.test(cleanRawDate)) {
-        const [day, month, year] = cleanRawDate.split("-");
+      
+      // 🚀 BULLETPROOF TRANSLATOR MATRICES:
+      // Case A: Detects standard slash/hyphen layouts like "DD-MM-YYYY" or "DD/MM/YYYY"
+      if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(cleanRawDate)) {
+        const separator = cleanRawDate.includes('-') ? '-' : '/';
+        const [day, month, year] = cleanRawDate.split(separator);
         filterDate = `${year}-${month}-${day}`;
-      }
-      // ISO Date
+      } 
+      // Case B: Detects database standard layout "YYYY-MM-DD" or "YYYY/MM/DD"
+      else if (/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(cleanRawDate)) {
+        const separator = cleanRawDate.includes('-') ? '-' : '/';
+        const [year, month, day] = cleanRawDate.split(separator);
+        filterDate = `${year}-${month}-${day}`;
+      } 
+      // Case C: Raw fallback splits for full ISO-extended calendar stamps
       else {
-        filterDate = cleanRawDate.split("T")[0];
+        filterDate = cleanRawDate.split('T')[0];
       }
     }
-
+    
     let logsWhere = "1=1";
     let historyWhere = "1=1";
     const params = [];
 
     if (filterDate) {
-      logsWhere = `
-        al.created_at >= ?
-        AND al.created_at < DATE_ADD(?, INTERVAL 1 DAY)
-      `;
-
-      historyWhere = `
-        h.changed_at >= ?
-        AND h.changed_at < DATE_ADD(?, INTERVAL 1 DAY)
-      `;
-
-      params.push(
-        filterDate,
-        filterDate,
-        filterDate,
-        filterDate
-      );
+      // Direct comparison with Asia/Kolkata timezone offset applied safely
+      logsWhere = "DATE(CONVERT_TZ(al.created_at, '+00:00', '+05:30')) = ?";
+      historyWhere = "DATE(CONVERT_TZ(h.changed_at, '+00:00', '+05:30')) = ?";
+      params.push(filterDate, filterDate);
+      console.log(`🎯 Standardized Log Execution Parameter: ${filterDate}`);
     }
 
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("RAW DATE:", rawDate);
-    console.log("FILTER DATE:", filterDate);
-    console.log("PARAMS:", params);
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
     connection = await pool.getConnection();
-
-    const [logs] = await connection.query(
-      `
-      SELECT *
-      FROM (
-        SELECT
-          al.id,
-          al.lead_id,
-          al.user_id,
+    const [logs] = await connection.query(`
+      SELECT * FROM (
+        SELECT 
+          al.id, al.lead_id, al.user_id,
           COALESCE(u.name, 'System') AS user_name,
-          al.action_type,
-          al.description,
-          al.old_value,
-          al.new_value,
-          al.created_at,
+          al.action_type, al.description,
+          al.old_value, al.new_value, al.created_at,
           COALESCE(l.full_name, 'System / Auth') AS student_name
         FROM activity_logs al
         LEFT JOIN users u ON al.user_id = u.id
@@ -188,21 +172,12 @@ getGlobalLogs: async (req, res) => {
 
         UNION ALL
 
-        SELECT
-          h.id,
-          h.lead_id,
-          h.changed_by AS user_id,
+        SELECT 
+          h.id, h.lead_id, h.changed_by AS user_id,
           COALESCE(u2.name, 'System') AS user_name,
           'STATUS_UPDATE' AS action_type,
-          CONCAT(
-            'Status changed from ',
-            h.old_status,
-            ' to ',
-            h.new_status
-          ) AS description,
-          h.old_status AS old_value,
-          h.new_status AS new_value,
-          h.changed_at AS created_at,
+          CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) AS description,
+          h.old_status AS old_value, h.new_status AS new_value, h.changed_at AS created_at,
           COALESCE(l2.full_name, 'System / Auth') AS student_name
         FROM lead_status_history h
         LEFT JOIN users u2 ON h.changed_by = u2.id
@@ -211,41 +186,14 @@ getGlobalLogs: async (req, res) => {
       ) AS macro_history
       ORDER BY created_at DESC
       LIMIT 100
-      `,
-      params
-    );
+    `, params);
 
-    console.log("LOGS FOUND:", logs.length);
-
-    if (logs.length > 0) {
-      console.log("LATEST LOG:", {
-        id: logs[0].id,
-        action_type: logs[0].action_type,
-        created_at: logs[0].created_at,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      count: logs.length,
-      data: logs,
-    });
-
+    return res.status(200).json({ success: true, data: logs });
   } catch (err) {
-    console.error(
-      "ActivityController.getGlobalLogs Error:",
-      err
-    );
-
-    return res.status(500).json({
-      success: false,
-      error: err.message,
-    });
-
+    console.error("ActivityController.getGlobalLogs Error:", err.message);
+    return res.status(500).json({ success: false, error: "Failed to retrieve audit logs" });
   } finally {
-    if (connection) {
-      connection.release();
-    }
+    if (connection) connection.release();
   }
 },
   /**
