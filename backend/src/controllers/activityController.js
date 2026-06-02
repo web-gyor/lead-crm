@@ -116,10 +116,11 @@ const activityController = {
    */
   // 🎯 UPDATE IN: backend/src/controllers/activityController.js
 
+// 🎯 UPDATE IN: backend/src/controllers/activityController.js
+
 getGlobalLogs: async (req, res) => {
   let connection;
   try {
-    // 🚀 READ THE FRONTEND DATE PICKER VALUE: (e.g., '2026-06-02')
     const filterDate = req.query.date || req.query.localDate;
     
     let logsWhere = "1=1";
@@ -127,10 +128,10 @@ getGlobalLogs: async (req, res) => {
     const params = [];
 
     if (filterDate) {
-      // If the frontend passes a date, force the database to compare days directly
-      logsWhere = "DATE(al.created_at) = ?";
-      historyWhere = "DATE(h.changed_at) = ?";
-      params.push(filterDate, filterDate); // Pass to both sides of the UNION
+      // 🚀 FIXED: Force the engine to offset the timestamps into Asia/Kolkata (+05:30) before extracting the date string!
+      logsWhere = "DATE(CONVERT_TZ(al.created_at, '+00:00', '+05:30')) = ?";
+      historyWhere = "DATE(CONVERT_TZ(h.changed_at, '+00:00', '+05:30')) = ?";
+      params.push(filterDate, filterDate);
     }
 
     connection = await pool.getConnection();
