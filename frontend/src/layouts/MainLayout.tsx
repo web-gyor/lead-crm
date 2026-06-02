@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import {
-  LayoutDashboard, Users, TrendingUp, MessageCircle, FileText,
-  Settings, Database, Upload, Layers, Activity, ShieldCheck, 
-  BarChart3, Medal, BrainCircuit
+  LayoutDashboard, Users, Layers, TrendingUp, MessageCircle,
+  Upload, BrainCircuit, BarChart3, FileText, Activity, Database, 
+  Settings, ShieldCheck, Medal
 } from "lucide-react";
 import { apiGet } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
@@ -23,17 +23,11 @@ const PAGE_TITLES: Record<string, string> = {
   "/analytics":                   "Intelligence",
   "/performance":                 "Staff Performance", 
   "/reports":                     "Lead Reports",
-  "/leads/operations-hub":        "Lead Operations Hub",
   "/audit-logs":                  "Activity Logs",
   "/settings":                    "Settings",
   "/permissions":                 "Access Control",
   "/masters":                     "System Masters Control",
 };
-
-const AVATAR_COLORS = [
-  "bg-blue-600", "bg-violet-600", "bg-rose-600", "bg-emerald-600",
-  "bg-amber-600", "bg-cyan-600",  "bg-pink-600", "bg-indigo-600",
-];
 
 export default function MainLayout() {
   const { user, logout, permissionsLoading, can } = useAuth();
@@ -45,7 +39,6 @@ export default function MainLayout() {
   const [collapsed,       setCollapsed]   = useState(false);
   const [showNotif,       setShowNotif]   = useState(false);
   const [showUser,        setShowUser]    = useState(false);
-  const [openGroups,      setOpenGroups]  = useState<Record<string, boolean>>({ masters: false });
   
   const [logo,            setLogo]        = useState("");
   const [companyName, setCompanyName] = useState("WebGyor Media"); 
@@ -79,8 +72,7 @@ export default function MainLayout() {
       const res = await apiGet("/api/settings");
       const data = res?.success && res?.data ? res.data : res;
       if (data?.company_name) setCompanyName(data.company_name);
-      const rawLogo = data?.logo_url || data?.logo || '';
-      if (rawLogo) setLogo(rawLogo);
+      if (data?.logo_url) setLogo(data.logo_url);
     } catch (err) {
       console.error('fetchBranding error:', err);
     }
@@ -88,45 +80,42 @@ export default function MainLayout() {
 
   useEffect(() => {
     fetchBranding();
-    window.addEventListener("settingsUpdated", fetchBranding);
-    return () => window.removeEventListener("settingsUpdated", fetchBranding);
   }, [fetchBranding]);
 
   const sidebarSections = useMemo(() => {
-    // 🚀 RESTORED: Completely blind layout trusting ONLY the Access Control Module settings
     return [
       {
         title: "Overview",
         items: [
-          { label: "Dashboard",      to: "/dashboard",        slug: "dashboard",     icon: <LayoutDashboard size={14} /> },
-          { label: "Lead Workspace", to: "/leads",            slug: "leads",         icon: <Users size={14} />, end: true },
+          ...(can("dashboard", "view") ? [{ label: "Dashboard", to: "/dashboard", slug: "dashboard", icon: <LayoutDashboard size={14} /> }] : []),
+          ...(can("leads", "view") ? [{ label: "Lead Workspace", to: "/leads", slug: "leads", icon: <Users size={14} />, end: true }] : []),
         ],
       },
       {
         title: "Operations",
         items: [
-          ...(can("leads.kanban", "view") ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
-          ...(can("tasks.view", "view") ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
-          ...(can("logs.communication", "view") ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
-          ...(can("leads.import", "view") ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
-          ...(can("ai.intelligence", "view") ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
+          ...(can("pipeline", "view") ? [{ label: "Pipeline Board", to: "/pipeline", slug: "pipeline", icon: <Layers size={14} /> }] : []),
+          ...(can("tasks", "view") ? [{ label: "Follow up Tasks", to: "/followups", slug: "tasks", icon: <TrendingUp size={14} /> }] : []),
+          ...(can("communication", "view") ? [{ label: "Communication", to: "/communication", slug: "communication", icon: <MessageCircle size={14} /> }] : []),
+          ...(can("import", "view") ? [{ label: "Import Data", to: "/leads/operations-hub/import", slug: "import", icon: <Upload size={14} /> }] : []),
+          ...(can("automation", "view") ? [{ label: "AI Automation", to: "/automation", slug: "automation", icon: <BrainCircuit size={14} /> }] : []),
         ],
       },
       {
         title: "Admin",
         items: [
-          ...(can("analytics.view", "view") ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
-          ...(can("reports.view", "view") ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
-          ...(can("audit.view", "view") ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
-          ...(can("performance.view", "view") ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
-          ...(can("masters.view", "view") ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
+          ...(can("analytics", "view") ? [{ label: "Analytics", to: "/analytics", slug: "analytics", icon: <BarChart3 size={14} /> }] : []),
+          ...(can("reports", "view") ? [{ label: "Lead Reports", to: "/reports", slug: "reports", icon: <FileText size={14} /> }] : []),
+          ...(can("audit", "view") ? [{ label: "Audit & Logs", to: "/audit-logs", slug: "audit", icon: <Activity size={14} /> }] : []),
+          ...(can("performance", "view") ? [{ label: "Staff Performance", to: "/performance", slug: "performance", icon: <Medal size={14} /> }] : []), 
+          ...(can("masters", "view") ? [{ label: "System Masters", to: "/masters", slug: "masters", icon: <Database size={14} /> }] : []),
         ],
       },
       {
         title: "System",
         items: [
-          ...(can("system.settings", "view") ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
-          ...(can("system.permissions", "view") ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
+          ...(can("settings", "view") ? [{ label: "Settings", to: "/settings", slug: "settings", icon: <Settings size={14} /> }] : []),
+          ...(can("rbac", "view") ? [{ label: "Access Control", to: "/permissions", slug: "rbac", icon: <ShieldCheck size={14} /> }] : []),
         ],
       },
     ]
@@ -148,48 +137,27 @@ export default function MainLayout() {
   return (
     <div className="flex h-screen w-full bg-gray-50 dark:bg-[#0f172a] text-gray-900 dark:text-gray-100 font-sans antialiased overflow-hidden">
       <MobileSidebar
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        logo={logo} 
-        companyName={companyName}
-        sections={sidebarSections}
-        openGroups={openGroups}
-        onToggleGroup={() => {}}
+        sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}
+        logo={logo} companyName={companyName} sections={sidebarSections}
+        openGroups={{}} onToggleGroup={() => {}}
       />
       <div className="hidden md:flex flex-shrink-0 h-full">
         <Sidebar
-          logo={logo} 
-          companyName={companyName}
-          collapsed={collapsed}
-          setCollapsed={setCollapsed}
-          sections={sidebarSections}
-          openGroups={openGroups}
-          onToggleGroup={() => {}}
-          closeSidebar={() => setSidebarOpen(false)}
-          sidebarWidth={collapsed ? "w-[60px]" : "w-56"}
+          logo={logo} companyName={companyName} collapsed={collapsed} setCollapsed={setCollapsed}
+          sections={sidebarSections} openGroups={{}} onToggleGroup={() => {}}
+          closeSidebar={() => setSidebarOpen(false)} sidebarWidth={collapsed ? "w-[60px]" : "w-56"}
         />
       </div>
       <div className="flex-1 flex flex-col min-w-0 w-full overflow-hidden relative">
-        <div className="relative z-40 flex-shrink-0">
-          <Topbar
-            setSidebarOpen={setSidebarOpen}
-            pageTitle={PAGE_TITLES[location.pathname] || "CRM Matrix"}
-            dark={dark}
-            setDark={setDark}
-            notifData={notifData}
-            totalNotif={notifData.overdue + notifData.today + notifData.newLeads}
-            navigate={navigate}
-            clearNotifs={() => setNotifData({ overdue: 0, today: 0, newLeads: 0 })}
-            user={user}
-            avatarColor="bg-blue-600"
-            handleLogout={logout}
-            showNotif={showNotif} setShowNotif={setShowNotif}
-            showUser={showUser}   setShowUser={setShowUser}
-          />
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          <PageContainer><Outlet /></PageContainer>
-        </div>
+        <Topbar
+          setSidebarOpen={setSidebarOpen} pageTitle={PAGE_TITLES[location.pathname] || "CRM Matrix"}
+          dark={dark} setDark={setDark} notifData={notifData}
+          totalNotif={notifData.overdue + notifData.today + notifData.newLeads} navigate={navigate}
+          clearNotifs={() => setNotifData({ overdue: 0, today: 0, newLeads: 0 })} user={user}
+          avatarColor="bg-blue-600" handleLogout={logout} showNotif={showNotif} setShowNotif={setShowNotif}
+          showUser={showUser} setShowUser={setShowUser}
+        />
+        <div className="flex-1 overflow-y-auto"><PageContainer><Outlet /></PageContainer></div>
       </div>
       <ToastContainer />
     </div>
