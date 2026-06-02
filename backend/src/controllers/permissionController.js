@@ -5,18 +5,34 @@ const { pool } = require('../config/db');
 // GET /api/permissions
 // ─────────────────────────────────────────────────────────────
 exports.fetchAll = async (req, res) => {
+  let connection;
   try {
-    const [rows] = await pool.query(`
-      SELECT * FROM permissions
-      ORDER BY name ASC, slug ASC
-    `);
-    return res.status(200).json(rows);
+    const userId = req.user.id;
+    const userRole = String(req.user?.role || "").toLowerCase().replace(/\s+|-/g, "");
+
+    connection = await pool.getConnection(); // 🚀 Grab open connection socket
+
+    // If superadmin, return all clearances instantly without heavy table loops
+    if (userRole === "superadmin") {
+      return res.json({ success: true, permissions: { all: true } });
+    }
+
+    // Otherwise, fetch the standard user permissions mapping matrix
+    const [rows] = await connection.query(
+  `SELECT LOWER(REPLACE(slug, ' ', '')) AS permission_key, can_view 
+   FROM permissions 
+   WHERE LOWER(REPLACE(name, ' ', '')) = LOWER(REPLACE(?, ' ', ''))`,
+  [req.user.role]
+);
+
+    return res.json({ success: true, permissions: rows });
   } catch (err) {
-    console.error('fetchAll error:', err.message);
-    return res.status(500).json({ error: 'Failed to load permissions' });
+    console.error("Permission fetch failed:", err);
+    return res.status(500).json({ success: false, error: "Internal security link failure" });
+  } finally {
+    if (connection) connection.release(); // ⚙️ CRITICAL: Free the socket thread back to the pool instantly!
   }
 };
-
 // ─────────────────────────────────────────────────────────────
 // GET PERMISSIONS BY ROLE
 // GET /api/permissions/role/:role
