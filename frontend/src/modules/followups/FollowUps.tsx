@@ -57,7 +57,7 @@ export default function FollowUps() {
 
   // Request Lock Mechanisms
   const isMutatingLock = useRef<boolean>(false);
-
+const isFetchingRef = useRef<boolean>(false);
   // Optimistic State Architecture with Auto-Expiry Tracker
   const optimisticState = useRef<Map<number, { patch: Record<string, any>; until: number }>>(new Map());
   const isUpdating = useRef<boolean>(false);
@@ -89,75 +89,137 @@ export default function FollowUps() {
   }, [leads]);
 
   // ── Telemetry Loading Track Ingestion ──────────────────────────────────────
-  const fetchData = useCallback(async (silent = false) => {
-    if (silent && isUpdating.current) return;
-    enforceOptimisticCleanup();
+const fetchData = useCallback(async (silent = false) => {
+   console.count("FOLLOWUPS_FETCH");
+  if (isFetchingRef.current) return;
 
-    if (!silent) setLoading(true);
-    else setRefreshing(true);
+  isFetchingRef.current = true;
 
-    try {
-      const localDate = getISTDateString();
-      
-      const [fuRes, staffRes, sourcesRes] = await Promise.all([
-      apiGet(`/api/leads?status=Follow-up&limit=2000&localDate=${localDate}`),
-        apiGet("/api/users").catch(() => ({ data: [] })),
-        apiGet("/api/lead-sources").catch(() => ({ data: [] })),
-      ]);
+  if (silent && isUpdating.current) {
+    isFetchingRef.current = false;
+    return;
+  }
 
-      const rawLeads: FollowUpLead[] = fuRes?.leads ?? fuRes?.data ?? (Array.isArray(fuRes) ? fuRes : []);
-      const rawSources: LeadSource[] = Array.isArray(sourcesRes) 
-        ? sourcesRes 
-        : (sourcesRes?.data ?? sourcesRes?.sources ?? sourcesRes?.channels ?? sourcesRes?.lead_sources ?? sourcesRes?.rows ?? []);
+  enforceOptimisticCleanup();
 
-      const sm = new Map<number, string>();
-      rawSources.forEach((s) => {
-        const id = Number(s?.id ?? s?.source_id);
-        const name = (s?.name || s?.source_name || "").trim();
-        if (!isNaN(id) && name) sm.set(id, name);
-      });
-
-      const normalized = rawLeads.map((l) => {
-        const cleanDate = l.next_follow_up_date ? String(l.next_follow_up_date).split("T")[0] : null;
-        return normaliseLead({ ...l, next_follow_up_date: cleanDate }, sm);
-      });
-
-      const now = Date.now();
-      const merged = normalized.map((l) => {
-        const id = Number(l.id ?? l.lead_id);
-        const entry = optimisticState.current.get(id);
-        if (entry && entry.until > now) {
-          return { ...l, ...entry.patch };
-        }
-        return l;
-      });
-
-      setLeads(merged);
-      
-      const rawStaff: StaffUser[] = Array.isArray(staffRes) ? staffRes : (staffRes?.data ?? staffRes?.users ?? []);
-    const filteredStaff = rawStaff.filter((s) => {
-  const rName = String(s.role?.name ?? s.role ?? s.role_name ?? "").toLowerCase();
-  return rName.includes("counselor") || rName.includes("telecaller");
-});
-      
-      setStaff(filteredStaff);
-      setSources(rawSources.length > 0 ? rawSources : FALLBACK_SOURCES);
-
-    } catch (err) {
-      if (import.meta.env.DEV) {
-        console.error("Central operational sync core breakdown: ", err);
-      }
-      // ⚡ UPDATED: Standardized alert trigger
-      addToast("Failed to load follow-ups", "error");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  try {
+    if (!silent) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
     }
-  }, [enforceOptimisticCleanup, addToast]);
 
-  useEffect(() => { 
-    fetchData(); 
-  }, [fetchData]);
+    const localDate = getISTDateString();
+
+    const [fuRes, staffRes, sourcesRes] = await Promise.all([
+      apiGet(`/api/leads?status=Follow-up&limit=2000&localDate=${localDate}`),
+      apiGet("/api/users").catch(() => ({ data: [] })),
+      apiGet("/api/lead-sources").catch(() => ({ data: [] })),
+    ]);
+
+    const rawLeads =
+      fuRes?.leads ??
+      fuRes?.data ??
+      (Array.isArray(fuRes) ? fuRes : []);
+
+    const rawSources = Array.isArray(sourcesRes)
+      ? sourcesRes
+      : (
+          sourcesRes?.data ??
+          sourcesRes?.sources ??
+          sourcesRes?.channels ??
+          sourcesRes?.lead_sources ??
+          sourcesRes?.rows ??
+          []
+        );
+
+    const sm = new Map<number, string>();
+
+    rawSources.forEach((s) => {
+      const id = Number(s?.id ?? s?.source_id);
+      const name = (s?.name || s?.source_name || "").trim();
+
+      if (!isNaN(id) && name) {
+        sm.set(id, name);
+      }
+    });
+
+    const normalized = rawLeads.map((l) => {
+      const cleanDate = l.next_follow_up_date
+        ? String(l.next_follow_up_date).split("T")[0]
+        : null;
+
+      return normaliseLead(
+        {
+          ...l,
+          next_follow_up_date: cleanDate,
+        },
+        sm
+      );
+    });
+
+    const now = Date.now();
+
+    const merged = normalized.map((l) => {
+      const id = Number(l.id ?? l.lead_id);
+
+      const optimistic = optimisticState.current.get(id);
+
+      if (optimistic && optimistic.until > now) {
+        return {
+          ...l,
+          ...optimistic.patch,
+        };
+      }
+
+      return l;
+    });
+
+    setLeads(merged);
+
+    const rawStaff = Array.isArray(staffRes)
+      ? staffRes
+      : (staffRes?.data ?? staffRes?.users ?? []);
+
+    setStaff(
+      rawStaff.filter((s) => {
+        const role = String(
+          s.role?.name ??
+          s.role ??
+          s.role_name ??
+          ""
+        ).toLowerCase();
+
+        return (
+          role.includes("counselor") ||
+          role.includes("telecaller")
+        );
+      })
+    );
+
+    setSources(
+      rawSources.length > 0
+        ? rawSources
+        : FALLBACK_SOURCES
+    );
+  } catch (err) {
+    console.error(err);
+    addToast("Failed to load follow-ups", "error");
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+    isFetchingRef.current = false;
+  }
+}, [addToast, enforceOptimisticCleanup]);
+
+const initialLoadRef = useRef(false);
+
+useEffect(() => {
+  if (!initialLoadRef.current) {
+    initialLoadRef.current = true;
+    fetchData();
+  }
+}, []);
 
   useEffect(() => {
     if (leads.length > 0) {
@@ -335,8 +397,12 @@ const handleReschedule = async (leadId: number, newDate: string) => {
         )
       );
       // ⚡ UPDATED: Standardized alert trigger
-      addToast(`${filteredLeads.length} follow-ups cleared`, "success");
-      fetchData();
+     setLeads([]);
+
+addToast(
+  `${filteredLeads.length} follow-ups cleared`,
+  "success"
+);
     } catch { 
       // ⚡ UPDATED: Standardized alert trigger
       addToast("Some updates failed", "error"); 
@@ -350,7 +416,11 @@ const handleReschedule = async (leadId: number, newDate: string) => {
   const handleCloseConfirm = useCallback(() => setShowConfirm(false), []);
   const handleCloseNoteModal = useCallback(() => setNoteLead(null), []);
   const handleToggleFilters = useCallback(() => setShowFilters(v => !v), []);
-  const handleRefreshClick = useCallback(() => { setRefreshing(true); fetchData(true); }, [fetchData]);
+const handleRefreshClick = useCallback(() => {
+  if (isFetchingRef.current) return;
+
+  fetchData(true);
+}, [fetchData]);
 
   return (
     <div className="space-y-4 pb-8 antialiased">
