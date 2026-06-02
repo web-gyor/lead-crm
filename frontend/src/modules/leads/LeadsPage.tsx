@@ -254,19 +254,11 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
 
     const baseRoute = isColdStorage ? '/api/leads/archive' : '/api/leads';
     
-    // 🚀 FIXED: Concurrently requests your rows, your general KPIs, AND your live notification metrics!
-    const [leadsResult, kpiResult, notifResult] = await Promise.allSettled([
-      apiGet(`${baseRoute}?${new URLSearchParams(params)}`),
-      apiGet(`/api/leads/kpis?${new URLSearchParams({
-        startDate: filters.startDate || '',
-        endDate: filters.endDate || ''
-      })}`),
-      apiGet('/api/dashboard/notifications') // 👈 Calls your exact notification endpoint query!
-    ]);
+    // 🚀 SPEED PATCH: Only await the primary grid data. This lets the page render immediately!
+    const res = await apiGet(`${baseRoute}?${new URLSearchParams(params)}`);
 
-    // ─── PART 1: LEADS DATA GRID ─────────────────
-    if (leadsResult.status === 'fulfilled' && leadsResult.value) {
-      const res = leadsResult.value;
+    // ─── PART 1: LEADS DATA GRID RENDERED INSTANTLY ───
+    if (res) {
       const rows = res.data ?? (Array.isArray(res) ? res : []);
       setLeads(rows);
       setTotalCount(res.pagination?.totalItems ?? rows.length);
@@ -274,37 +266,49 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
       refreshTimestamp();
     }
 
-    // ─── PART 2: GENERAL KPI CARDS ──────────────────
-    if (kpiResult.status === 'fulfilled' && kpiResult.value) {
-      const res = kpiResult.value;
-      const payload = res.success && res.data ? res.data : res;
-      
-      setStats({
-        totalLeads: Number(payload?.totalLeads ?? payload?.stats?.all ?? 0),
-        newToday: Number(payload?.newToday ?? 0),
-        highIntentLeads: Number(payload?.highIntentLeads ?? 0),
-        pendingFollowUps: Number(payload?.pendingFollowUps ?? 0),
-      });
-    }
+    // ⚡ Drop the blocking screen loader right here so the UI snaps responsive
+    if (!silent) setLoading(false);
 
-    // ─── PART 3: 🚀 REAL-TIME UNASSIGNED METRIC CALCULATION ──────────────────
-  if (notifResult.status === 'fulfilled' && notifResult.value) {
-      const res = notifResult.value;
-      const liveUnassigned = Number(res?.newLeads ?? res?.data?.newLeads ?? 0);
-      setGlobalUnassigned(liveUnassigned);
+    // ─── PART 2: GENERAL KPI CARDS STREAMED IN THE BACKGROUND ───
+    apiGet(`/api/leads/kpis?${new URLSearchParams({
+      startDate: filters.startDate || '',
+      endDate: filters.endDate || ''
+    })}`)
+      .then((kpiResult) => {
+        if (kpiResult) {
+          const payload = kpiResult.success && kpiResult.data ? kpiResult.data : kpiResult;
+          setStats((prev: any) => ({
+            ...prev,
+            totalLeads: Number(payload?.totalLeads ?? payload?.stats?.all ?? 0),
+            newToday: Number(payload?.newToday ?? 0),
+            highIntentLeads: Number(payload?.highIntentLeads ?? 0),
+            pendingFollowUps: Number(payload?.pendingFollowUps ?? 0),
+          }));
+        }
+      })
+      .catch((err) => console.error('Background KPI deferred catch:', err.message));
 
-      // 🚀 FIXED: Changed event namespace to completely isolate it from page layout refresh loops!
-      window.dispatchEvent(
-        new CustomEvent('crm:notifications-badge-sync', {
-          detail: { newLeads: liveUnassigned }
-        })
-      );
-    
-    }
- } catch (error) {
+    // ─── PART 3: REAL-TIME UNASSIGNED METRIC STREAMED IN THE BACKGROUND ───
+    apiGet('/api/dashboard/notifications')
+      .then((notifResult) => {
+        if (notifResult) {
+          const liveUnassigned = Number(notifResult?.newLeads ?? notifResult?.data?.newLeads ?? 0);
+          setGlobalUnassigned(liveUnassigned);
+
+          window.dispatchEvent(
+            new CustomEvent('crm:notifications-badge-sync', {
+              detail: { newLeads: liveUnassigned }
+            })
+          );
+        }
+      })
+      .catch((err) => console.error('Background Notification tracker deferred catch:', err.message));
+
+  } catch (error) {
     console.error('loadPayload error:', error);
     if (!silent) addToast('Failed to sync complete workspace modules', 'error');
   } finally {
+    // Ensures cleanup failsafe drops cleanly
     if (!silent) setLoading(false);
   }
 }, [
@@ -320,7 +324,6 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
   refreshTimestamp, 
   addToast
 ]);
-
   // ─── EFFECTS ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
