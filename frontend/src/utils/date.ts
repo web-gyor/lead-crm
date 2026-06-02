@@ -1,16 +1,16 @@
 /**
  * Generates an IST-safe date string (YYYY-MM-DD) regardless of host timezone settings.
  */
-export function getISTDateString(): string {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const ist = new Date(utc + 5.5 * 60 * 60000);
-
-  const y = ist.getFullYear();
-  const m = String(ist.getMonth() + 1).padStart(2, "0");
-  const d = String(ist.getDate()).padStart(2, "0");
+export const getISTDateString = () => {
+  const now    = new Date();
+  const utcMs  = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const istMs  = utcMs + 5.5 * 60 * 60_000;
+  const ist    = new Date(istMs);
+  const y      = ist.getFullYear();
+  const m      = String(ist.getMonth() + 1).padStart(2, '0');
+  const d      = String(ist.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
-}
+};
 
 
 /**
@@ -26,28 +26,32 @@ export function parseLocalDate(dateStr: string | Date): Date {
 /**
  * Calculates current tracking bucket locations for any parsed entry date configurations.
  */
-export const getStatusBucket = (dateStr: string | null | Date, todayStr: string): 'overdue' | 'today' | 'upcoming' => {
+export const getStatusBucket = (dateStr: string | null | Date, todayStr?: string): 'overdue' | 'today' | 'upcoming' => {
   if (!dateStr) return 'upcoming';
-
-  // Extract a clean YYYY-MM-DD string regardless of format type
+  
+  const referenceToday = todayStr || getISTDateString();
+  
+  // Extract absolute text value YYYY-MM-DD directly to completely bypass browser timezone offsets
   let targetDate = "";
   if (dateStr instanceof Date) {
-    targetDate = dateStr.toISOString().split('T')[0];
-  } else if (String(dateStr).includes('T')) {
-    targetDate = String(dateStr).split('T')[0];
+    const y = dateStr.getFullYear();
+    const m = String(dateStr.getMonth() + 1).padStart(2, '0');
+    const d = String(dateStr.getDate()).padStart(2, '0');
+    targetDate = `${y}-${m}-${d}`;
   } else {
-    // Standardize text formats
     const clean = String(dateStr).trim();
-    if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) {
-      const [d, m, y] = clean.split('-');
-      targetDate = `${y}-${m}-${d}`;
+    if (clean.includes('T')) {
+      targetDate = clean.split('T')[0];
+    } else if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) {
+      const [day, month, year] = clean.split('-');
+      targetDate = `${year}-${month}-${day}`;
     } else {
       targetDate = clean;
     }
   }
 
-  if (targetDate < todayStr) return 'overdue';
-  if (targetDate === todayStr) return 'today';
+  if (targetDate < referenceToday) return 'overdue';
+  if (targetDate === referenceToday) return 'today';
   return 'upcoming';
 };
 /**

@@ -1,7 +1,7 @@
 import React from "react";
 import { Phone, Calendar, User, BookOpen, CheckCircle2, MessageCircle } from "lucide-react";
 import { Section, STATUS_OPTIONS } from "../../../constants/leadStatus";
-import { formatShortDate, getISTDateString } from "../../../utils/date";
+import { formatShortDate, getISTDateString, getStatusBucket } from "../../../utils/date";
 import { FollowUpLead } from "../../../types/followup";
 
 interface FollowUpCardProps {
@@ -26,11 +26,12 @@ export const FollowUpCard = React.memo(function FollowUpCard({
   const leadId = Number(lead.id ?? lead.lead_id);
   const isProcessing = processingId === leadId;
   const bucket = section.id;
+  const targetBucket = getStatusBucket(lead.next_follow_up_date);
 
   const borderCls =
-    bucket === "overdue" ? "border-red-100 dark:border-red-900/40"
-    : bucket === "today" ? "border-orange-100 dark:border-orange-900/40"
-    : "border-gray-100 dark:border-gray-800";
+  targetBucket === "overdue" ? "border-red-100 dark:border-red-900/40"
+  : targetBucket === "today" ? "border-orange-100 dark:border-orange-900/40"
+  : "border-gray-100 dark:border-gray-800";
 
   const avatarCls =
     bucket === "overdue" ? "bg-red-100 text-red-600"
