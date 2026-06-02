@@ -61,36 +61,34 @@ router.get('/notifications', authenticateToken, async (req, res) => {
     connection = await pool.getConnection();
 
     // ── Follow-up counts — reads leads.next_follow_up_date ─────────────────
-    const [fuRows] = await connection.query(`
-      SELECT DATE(l.next_follow_up_date) AS follow_date
-      FROM leads l
-      WHERE l.next_follow_up_date IS NOT NULL
-        AND l.deleted_at   IS NULL
-        AND l.is_archived  = 0
-        AND LOWER(l.lead_status) NOT IN ('converted','lost','not interested','rejected','closed')
-        ${scopeWhere}
-    `, scopeParams);
+const [fuRows] = await connection.query(`
+  SELECT DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) AS follow_date
+  FROM leads l
+  WHERE l.next_follow_up_date IS NOT NULL
+    AND l.deleted_at   IS NULL
+    AND l.is_archived  = 0
+    AND LOWER(l.lead_status) NOT IN ('converted','lost','not interested','rejected','closed')
+    ${scopeWhere}
+`, scopeParams);
 
 let overdue = 0, today = 0, upcoming = 0;
 fuRows.forEach(row => {
   if (!row.follow_date) return;
 
-  // 🚀 FIXED: Robust conversion of the native Date object or text fallback into clear YYYY-MM-DD
+  // The database output is now cleanly localized to India Standard Time strings
   let d;
   if (row.follow_date instanceof Date) {
-    // Safely extracts the year, month, and day out of the database object structure
     const yyyy = row.follow_date.getFullYear();
     const mm = String(row.follow_date.getMonth() + 1).padStart(2, '0');
     const dd = String(row.follow_date.getDate()).padStart(2, '0');
     d = `${yyyy}-${mm}-${dd}`;
   } else {
-    // Text format string pattern matching fallback
     d = String(row.follow_date).includes('T') 
       ? String(row.follow_date).split('T')[0] 
       : String(row.follow_date).trim();
   }
   
-  // Clean alphanumeric comparison works perfectly now!
+  // Alphanumeric evaluation matches your real calendar view perfectly
   if (d < todayLocal) {
     overdue++;
   } else if (d === todayLocal) {
