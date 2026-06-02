@@ -13,7 +13,9 @@ export const ActivityTimelinePane: React.FC<ActivityTimelinePaneProps> = ({ sear
   const fetchTimeline = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await apiGet("/api/activity/global");
+      // 🚀 FIXED: Pass the active date filter directly to the backend API request!
+      const queryParam = date ? `?date=${encodeURIComponent(date)}` : "";
+      const res = await apiGet(`/api/activity/global${queryParam}`);
       setLogs(res?.success ? (res.data || []) : (Array.isArray(res) ? res : []));
     } catch (err) {
       console.error("Timeline fetch error:", err);
@@ -21,9 +23,11 @@ export const ActivityTimelinePane: React.FC<ActivityTimelinePaneProps> = ({ sear
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [date]); // Re-fetch when the date variable shifts
 
-  useEffect(() => { fetchTimeline(); }, [fetchTimeline, refreshTrigger]);
+  useEffect(() => { 
+    fetchTimeline(); 
+  }, [fetchTimeline, refreshTrigger]);
 
   const filtered = useMemo(() => {
     return logs.filter(l => {
@@ -32,16 +36,11 @@ export const ActivityTimelinePane: React.FC<ActivityTimelinePaneProps> = ({ sear
         l.description?.toLowerCase().includes(search.toLowerCase()) ||
         l.student_name?.toLowerCase().includes(search.toLowerCase());
       
-      // 🚀 FIXED: Robust date normalization to avoid timezone baseline drops
-      let matchDate = true;
-      if (date && l.created_at) {
-        const logDateStr = new Date(l.created_at).toISOString().split('T')[0];
-        matchDate = logDateStr === date;
-      }
-      
-      return matchSearch && matchDate;
+      // 🚀 FIXED: The backend handles the timezone mapping perfectly now.
+      // We no longer discard rows using client-side string splitting!
+      return matchSearch;
     });
-  }, [logs, search, date]);
+  }, [logs, search]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -89,12 +88,9 @@ export const ActivityTimelinePane: React.FC<ActivityTimelinePaneProps> = ({ sear
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    
-                    {/* 🚀 FIXED: Dynamic Capitalized Casing applied uniformly to all operators */}
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 capitalize">
                       {(log.user_name || "Identity Root").toLowerCase()}
                     </span>
-                    
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${style.color}`}>{style.label}</span>
                     {log.student_name && (
                       <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 max-w-[180px] truncate capitalize">
