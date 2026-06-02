@@ -124,22 +124,15 @@ getGlobalLogs: async (req, res) => {
 
     if (rawDate) {
       const cleanRawDate = String(rawDate).trim();
-      
-      // 🚀 BULLETPROOF TRANSLATOR MATRICES:
-      // Case A: Detects standard slash/hyphen layouts like "DD-MM-YYYY" or "DD/MM/YYYY"
       if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(cleanRawDate)) {
         const separator = cleanRawDate.includes('-') ? '-' : '/';
         const [day, month, year] = cleanRawDate.split(separator);
         filterDate = `${year}-${month}-${day}`;
-      } 
-      // Case B: Detects database standard layout "YYYY-MM-DD" or "YYYY/MM/DD"
-      else if (/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(cleanRawDate)) {
+      } else if (/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(cleanRawDate)) {
         const separator = cleanRawDate.includes('-') ? '-' : '/';
         const [year, month, day] = cleanRawDate.split(separator);
         filterDate = `${year}-${month}-${day}`;
-      } 
-      // Case C: Raw fallback splits for full ISO-extended calendar stamps
-      else {
+      } else {
         filterDate = cleanRawDate.split('T')[0];
       }
     }
@@ -149,11 +142,9 @@ getGlobalLogs: async (req, res) => {
     const params = [];
 
     if (filterDate) {
-      // Direct comparison with Asia/Kolkata timezone offset applied safely
       logsWhere = "DATE(CONVERT_TZ(al.created_at, '+00:00', '+05:30')) = ?";
       historyWhere = "DATE(CONVERT_TZ(h.changed_at, '+00:00', '+05:30')) = ?";
       params.push(filterDate, filterDate);
-      console.log(`🎯 Standardized Log Execution Parameter: ${filterDate}`);
     }
 
     connection = await pool.getConnection();
@@ -163,7 +154,9 @@ getGlobalLogs: async (req, res) => {
           al.id, al.lead_id, al.user_id,
           COALESCE(u.name, 'System') AS user_name,
           al.action_type, al.description,
-          al.old_value, al.new_value, al.created_at,
+          al.old_value, al.new_value,
+          -- 🚀 FIXED: Format timestamp explicitly as an ISO UTC string with a trailing 'Z'
+          DATE_FORMAT(al.created_at, '%Y-%m-%dT%H:%i:%sZ') AS created_at,
           COALESCE(l.full_name, 'System / Auth') AS student_name
         FROM activity_logs al
         LEFT JOIN users u ON al.user_id = u.id
@@ -177,7 +170,9 @@ getGlobalLogs: async (req, res) => {
           COALESCE(u2.name, 'System') AS user_name,
           'STATUS_UPDATE' AS action_type,
           CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) AS description,
-          h.old_status AS old_value, h.new_status AS new_value, h.changed_at AS created_at,
+          h.old_status AS old_value, h.new_status AS new_value,
+          -- 🚀 FIXED: Format timestamp explicitly as an ISO UTC string with a trailing 'Z'
+          DATE_FORMAT(h.changed_at, '%Y-%m-%dT%H:%i:%sZ') AS created_at,
           COALESCE(l2.full_name, 'System / Auth') AS student_name
         FROM lead_status_history h
         LEFT JOIN users u2 ON h.changed_by = u2.id
