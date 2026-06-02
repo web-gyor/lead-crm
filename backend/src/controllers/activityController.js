@@ -114,77 +114,103 @@ const activityController = {
   /**
    * Fetches global logs for administrative audit purposes.
    */
-  getGlobalLogs: async (req, res) => {
-    let connection;
-    try {
-      connection = await pool.getConnection();
-      const [logs] = await connection.query(`
-        SELECT * FROM (
-          SELECT 
-            al.id, al.lead_id, al.user_id,
-            COALESCE(u.name, 'System') AS user_name,
-            al.action_type, al.description,
-            al.old_value, al.new_value, al.created_at,
-            COALESCE(l.full_name, 'System / Auth') AS student_name
-          FROM activity_logs al
-          LEFT JOIN users u ON al.user_id = u.id
-          LEFT JOIN leads l ON al.lead_id = l.id
+  // 🎯 UPDATE IN: backend/src/controllers/activityController.js
 
-          UNION ALL
+getGlobalLogs: async (req, res) => {
+  let connection;
+  try {
+    // 🚀 READ THE FRONTEND DATE PICKER VALUE: (e.g., '2026-06-02')
+    const filterDate = req.query.date || req.query.localDate;
+    
+    let logsWhere = "1=1";
+    let historyWhere = "1=1";
+    const params = [];
 
-          SELECT 
-            h.id, h.lead_id, h.changed_by AS user_id,
-            COALESCE(u2.name, 'System') AS user_name,
-            'STATUS_UPDATE' AS action_type,
-            CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) AS description,
-            h.old_status AS old_value, h.new_status AS new_value, h.changed_at AS created_at,
-            COALESCE(l2.full_name, 'System / Auth') AS student_name
-          FROM lead_status_history h
-          LEFT JOIN users u2 ON h.changed_by = u2.id
-          LEFT JOIN leads l2 ON h.lead_id = l2.id
-        ) AS macro_history
-        ORDER BY created_at DESC
-        LIMIT 100
-      `);
-
-      return res.status(200).json({ success: true, data: logs });
-    } catch (err) {
-      console.error("ActivityController.getGlobalLogs Error:", err.message);
-      return res.status(500).json({ success: false, error: "Failed to retrieve audit logs" });
-    } finally {
-      if (connection) connection.release();
+    if (filterDate) {
+      // If the frontend passes a date, force the database to compare days directly
+      logsWhere = "DATE(al.created_at) = ?";
+      historyWhere = "DATE(h.changed_at) = ?";
+      params.push(filterDate, filterDate); // Pass to both sides of the UNION
     }
-  },
 
+    connection = await pool.getConnection();
+    const [logs] = await connection.query(`
+      SELECT * FROM (
+        SELECT 
+          al.id, al.lead_id, al.user_id,
+          COALESCE(u.name, 'System') AS user_name,
+          al.action_type, al.description,
+          al.old_value, al.new_value, al.created_at,
+          COALESCE(l.full_name, 'System / Auth') AS student_name
+        FROM activity_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        LEFT JOIN leads l ON al.lead_id = l.id
+        WHERE ${logsWhere}
+
+        UNION ALL
+
+        SELECT 
+          h.id, h.lead_id, h.changed_by AS user_id,
+          COALESCE(u2.name, 'System') AS user_name,
+          'STATUS_UPDATE' AS action_type,
+          CONCAT('Status changed from ', h.old_status, ' to ', h.new_status) AS description,
+          h.old_status AS old_value, h.new_status AS new_value, h.changed_at AS created_at,
+          COALESCE(l2.full_name, 'System / Auth') AS student_name
+        FROM lead_status_history h
+        LEFT JOIN users u2 ON h.changed_by = u2.id
+        LEFT JOIN leads l2 ON h.lead_id = l2.id
+        WHERE ${historyWhere}
+      ) AS macro_history
+      ORDER BY created_at DESC
+      LIMIT 100
+    `, params);
+
+    return res.status(200).json({ success: true, data: logs });
+  } catch (err) {
+    console.error("ActivityController.getGlobalLogs Error:", err.message);
+    return res.status(500).json({ success: false, error: "Failed to retrieve audit logs" });
+  } finally {
+    if (connection) connection.release();
+  }
+},
   /**
    * Internal utility to record a new activity log safely.
    */
-  record: async ({ userId, leadId, actionType, description, oldValue, newValue }) => {
-    let connection;
-    try {
-      connection = await pool.getConnection();
-      await connection.query(`
-        INSERT INTO activity_logs 
-          (user_id, lead_id, action_type, description, old_value, new_value)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [
-        userId || null,
-        leadId || null, 
-        actionType || 'OTHER',
-        description || 'Activity performed',
-        oldValue || null,
-        newValue || null,
-      ]);
+ // 🎯 TARGET LOCATION: backend/src/controllers/activityController.js -> record() utility
 
-      return true;
-    } catch (err) {
-      console.error("ActivityController.record Internal Error:", err.message);
-      return false;
-    } finally {
-      if (connection) connection.release();
-    }
-  },
+record: async (logData) => {
+  let connection;
+  try {
+    // 🚀 FIXED: Accept both camelCase and snake_case properties transparently
+    const userId      = logData.userId || logData.user_id;
+    const leadId      = logData.leadId || logData.lead_id;
+    const actionType  = logData.actionType || logData.action_type || 'OTHER';
+    const description = logData.description;
+    const oldValue    = logData.oldValue || logData.old_value;
+    const newValue    = logData.newValue || logData.new_value;
 
+    connection = await pool.getConnection();
+    await connection.query(`
+      INSERT INTO activity_logs 
+        (user_id, lead_id, action_type, description, old_value, new_value)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      userId || null,
+      leadId || null, 
+      String(actionType).toUpperCase(), // Force clean uppercase 'LOGIN' tokens
+      description || 'Activity performed',
+      oldValue || null,
+      newValue || null,
+    ]);
+
+    return true;
+  } catch (err) {
+    console.error("ActivityController.record Internal Error:", err.message);
+    return false;
+  } finally {
+    if (connection) connection.release();
+  }
+},
   /**
    * Moves logs older than 12 months to an archive table.
    */
