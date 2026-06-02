@@ -77,6 +77,13 @@ const getTodayTasks = async (req, res) => {
 };
 
 const getLeadNotifications = async (req, res) => {
+  console.log("MANAGER NOTIFICATION DEBUNKER LOG:", {
+  rawRoleFieldValue: req.user?.role,
+  extractedRoleString: String(req.user?.role || ''),
+  typeOfRoleField: typeof req.user?.role,
+  userIdExecuting: req.user?.id,
+  fullUserObjectDump: req.user
+});
   let connection;
   try {
     const userId     = req.user?.id;
