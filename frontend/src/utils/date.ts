@@ -26,18 +26,30 @@ export function parseLocalDate(dateStr: string | Date): Date {
 /**
  * Calculates current tracking bucket locations for any parsed entry date configurations.
  */
-export function getStatusBucket(
-  dateStr?: string | null,
-  todayIST?: string,
-): "overdue" | "today" | "upcoming" {
-  if (!dateStr) return "upcoming";
-  const followUp = String(dateStr).split("T")[0]; // strip time if present
-  const today    = todayIST || getISTDateString();
+export const getStatusBucket = (dateStr: string | null | Date, todayStr: string): 'overdue' | 'today' | 'upcoming' => {
+  if (!dateStr) return 'upcoming';
 
-  if (followUp < today)  return "overdue";
-  if (followUp === today) return "today";
-  return "upcoming";
-}
+  // Extract a clean YYYY-MM-DD string regardless of format type
+  let targetDate = "";
+  if (dateStr instanceof Date) {
+    targetDate = dateStr.toISOString().split('T')[0];
+  } else if (String(dateStr).includes('T')) {
+    targetDate = String(dateStr).split('T')[0];
+  } else {
+    // Standardize text formats
+    const clean = String(dateStr).trim();
+    if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) {
+      const [d, m, y] = clean.split('-');
+      targetDate = `${y}-${m}-${d}`;
+    } else {
+      targetDate = clean;
+    }
+  }
+
+  if (targetDate < todayStr) return 'overdue';
+  if (targetDate === todayStr) return 'today';
+  return 'upcoming';
+};
 /**
  * Returns localized UK standard string date fragments ("06 May") for data visualization columns.
  */

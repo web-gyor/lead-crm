@@ -96,19 +96,18 @@ const getLeadNotifications = async (req, res) => {
     connection = await pool.getConnection();
 
     // 🚀 BOUNDARY GUARD ALIGNED: Explicitly filter by LOWER(l.lead_status) = 'follow-up'
-    // This instantly isolates your dashboard metrics and drops mismatched 'New' items automatically!
-    const [countsResult] = await connection.query(`
-      SELECT 
-        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
-        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ? THEN l.id END) AS today,
-        COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) > ? THEN l.id END) AS upcoming
-      FROM leads l
-      WHERE l.next_follow_up_date IS NOT NULL
-        AND l.deleted_at IS NULL
-        AND l.is_archived = 0
-        AND LOWER(l.lead_status) = 'follow-up'
-        ${scopeWhere}
-    `, [todayLocal, todayLocal, todayLocal, ...scopeParams]);
+   const [countsResult] = await connection.query(`
+  SELECT 
+    COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) < ? THEN l.id END) AS overdue,
+    COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) = ? THEN l.id END) AS today,
+    COUNT(DISTINCT CASE WHEN DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) > ? THEN l.id END) AS upcoming
+  FROM leads l
+  WHERE l.next_follow_up_date IS NOT NULL
+    AND l.deleted_at IS NULL
+    AND l.is_archived = 0
+    AND LOWER(l.lead_status) = 'follow-up'
+    ${scopeWhere}
+`, [todayLocal, todayLocal, todayLocal, ...scopeParams]);
 
     const metrics = countsResult[0] || { overdue: 0, today: 0, upcoming: 0 };
 
