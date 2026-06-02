@@ -57,7 +57,7 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
 }));
 
-app.options("*", cors());
+app.options("/*", cors());
 
 // 🛡️ ACCELERATED RATE LIMITER: Expanded windows to accommodate intense parallel multi-user logins
 const apiLimiter = rateLimit({
