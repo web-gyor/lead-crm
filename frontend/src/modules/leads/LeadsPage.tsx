@@ -86,7 +86,7 @@ const [activeStatus, setActiveStatus]   = useState<TabName>('All');
   const [rowsPerPage, setRowsPerPage]     = useState(15);
   const [loading, setLoading]             = useState(false);
   const [syncTimestamp, setSyncTimestamp] = useState('');
-  
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [stats, setStats] = useState<any>({ totalLeads: 0, newToday: 0, highIntentLeads: 0, pendingFollowUps: 0, unassignedLeads: 0 });
   const [filters, setFilters] = useState({
     search: '', sourceId: '', counselorId: '', quality: '', range: 'all', startDate: '', endDate: '',
@@ -232,7 +232,9 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
   }, [filters.startDate, filters.endDate]);
 
   const loadPayload = useCallback(async (silent = false) => {
-  if (!silent) setLoading(true);
+  // 🚀 FIXED: Only block the screen if it is the first time the workspace opens!
+  if (!silent && isInitialLoad) setLoading(true);
+  
   try {
     const params: Record<string, string> = {
       page: String(currentPage),
@@ -241,23 +243,20 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
     };
 
     const isColdStorage = activeStatus === 'Cold Storage';
-    
     if (!isColdStorage && activeStatus !== 'All') {
       params.status = activeStatus;
     }
 
-    if (filters.sourceId)      params.source_id = filters.sourceId;
-    if (filters.counselorId)   params.assigned_user_id = filters.counselorId;
-    if (filters.quality)       params.lead_quality = filters.quality;
-    if (filters.startDate)     params.startDate = filters.startDate;
-    if (filters.endDate)       params.endDate = filters.endDate;
+    if (filters.sourceId)     params.source_id = filters.sourceId;
+    if (filters.counselorId)  params.assigned_user_id = filters.counselorId;
+    if (filters.quality)      params.lead_quality = filters.quality;
+    if (filters.startDate)    params.startDate = filters.startDate;
+    if (filters.endDate)      params.endDate = filters.endDate;
 
     const baseRoute = isColdStorage ? '/api/leads/archive' : '/api/leads';
     
-    // 🚀 SPEED PATCH: Only await the primary grid data. This lets the page render immediately!
     const res = await apiGet(`${baseRoute}?${new URLSearchParams(params)}`);
 
-    // ─── PART 1: LEADS DATA GRID RENDERED INSTANTLY ───
     if (res) {
       const rows = res.data ?? (Array.isArray(res) ? res : []);
       setLeads(rows);
@@ -266,50 +265,40 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
       refreshTimestamp();
     }
 
-    // ⚡ Drop the blocking screen loader right here so the UI snaps responsive
-    if (!silent) setLoading(false);
+    // ⚡ Complete the initial load sequence loop
+    setIsInitialLoad(false);
 
-    // ─── PART 2: GENERAL KPI CARDS STREAMED IN THE BACKGROUND ───
+    // Stream counters quietly in the background layout
     apiGet(`/api/leads/kpis?${new URLSearchParams({
       startDate: filters.startDate || '',
       endDate: filters.endDate || ''
-    })}`)
-      .then((kpiResult) => {
-        if (kpiResult) {
-          const payload = kpiResult.success && kpiResult.data ? kpiResult.data : kpiResult;
-          setStats((prev: any) => ({
-            ...prev,
-            totalLeads: Number(payload?.totalLeads ?? payload?.stats?.all ?? 0),
-            newToday: Number(payload?.newToday ?? 0),
-            highIntentLeads: Number(payload?.highIntentLeads ?? 0),
-            pendingFollowUps: Number(payload?.pendingFollowUps ?? 0),
-          }));
-        }
-      })
-      .catch((err) => console.error('Background KPI deferred catch:', err.message));
+    })}`).then((kpiResult) => {
+      if (kpiResult) {
+        const payload = kpiResult.success && kpiResult.data ? kpiResult.data : kpiResult;
+        setStats((prev: any) => ({
+          ...prev,
+          totalLeads: Number(payload?.totalLeads ?? payload?.stats?.all ?? 0),
+          newToday: Number(payload?.newToday ?? 0),
+          highIntentLeads: Number(payload?.highIntentLeads ?? 0),
+          pendingFollowUps: Number(payload?.pendingFollowUps ?? 0),
+        }));
+      }
+    }).catch(err => console.error("KPI deferred loop error:", err));
 
-    // ─── PART 3: REAL-TIME UNASSIGNED METRIC STREAMED IN THE BACKGROUND ───
-    apiGet('/api/dashboard/notifications')
-      .then((notifResult) => {
-        if (notifResult) {
-          const liveUnassigned = Number(notifResult?.newLeads ?? notifResult?.data?.newLeads ?? 0);
-          setGlobalUnassigned(liveUnassigned);
-
-          window.dispatchEvent(
-            new CustomEvent('crm:notifications-badge-sync', {
-              detail: { newLeads: liveUnassigned }
-            })
-          );
-        }
-      })
-      .catch((err) => console.error('Background Notification tracker deferred catch:', err.message));
+    apiGet('/api/dashboard/notifications').then((notifResult) => {
+      if (notifResult) {
+        const liveUnassigned = Number(notifResult?.newLeads ?? notifResult?.data?.newLeads ?? 0);
+        setGlobalUnassigned(liveUnassigned);
+        window.dispatchEvent(
+          new CustomEvent('crm:notifications-badge-sync', { detail: { newLeads: liveUnassigned } })
+        );
+      }
+    }).catch(err => console.error("Badges background loop error:", err));
 
   } catch (error) {
     console.error('loadPayload error:', error);
-    if (!silent) addToast('Failed to sync complete workspace modules', 'error');
   } finally {
-    // Ensures cleanup failsafe drops cleanly
-    if (!silent) setLoading(false);
+    setLoading(false);
   }
 }, [
   currentPage, 
@@ -321,8 +310,8 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
   filters.quality, 
   filters.startDate, 
   filters.endDate, 
-  refreshTimestamp, 
-  addToast
+  isInitialLoad, // 🚀 Added dependency hook
+  refreshTimestamp
 ]);
   // ─── EFFECTS ─────────────────────────────────────────────────────────────────
 

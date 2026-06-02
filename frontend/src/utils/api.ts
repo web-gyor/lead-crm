@@ -87,12 +87,24 @@ const safeFetch = async (url: string, options: RequestInit) => {
 
 // ─── API METHODS ──────────────────────────────────────────────────────────────
 
+// 🎯 TARGET FILE: frontend/src/utils/api.ts
+
 export const apiGet = async (endpoint: string) => {
+  // ⏱️ START STOPWATCH: Capture exact entry time
+  const startTime = performance.now();
+
   const response = await safeFetch(formatUrl(endpoint), {
     method:  "GET",
     headers: getHeaders(endpoint),
   });
-  return handleResponse(response);
+
+  const data = await handleResponse(response);
+
+  // 📊 OUTPUT SPEED LAYER: Prints directly to your browser Inspect Console tab!
+  const duration = Math.round(performance.now() - startTime);
+  console.log(`⚡ [API PERF] ${endpoint} took ${duration}ms`);
+
+  return data;
 };
 
 export const apiPost = async (endpoint: string, data: any) => {

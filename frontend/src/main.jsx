@@ -6,19 +6,16 @@ import { AuthProvider } from "./context/AuthContext";
 import AppRoutes from "./routes/AppRoutes";
 import "./index.css";
 
-
-
 const root = document.getElementById("root");
 if (root) {
   ReactDOM.createRoot(root).render(
-    <React.StrictMode>
-      <ToastProvider>
-        <AuthProvider>
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
-        </AuthProvider>
-      </ToastProvider>
-    </React.StrictMode>
+    // 🚀 FIXED: Stripped away StrictMode to stop duplicate network pings on page switches
+    <ToastProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </AuthProvider>
+    </ToastProvider>
   );
 }
