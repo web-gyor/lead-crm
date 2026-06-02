@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import {
   LayoutDashboard, Users, Layers, Calendar, MessageCircle,
   Upload, Bot, FileText, Activity, Database, Settings,
-  ShieldCheck, BarChart3, ShieldAlert,
+  ShieldCheck, BarChart3, ShieldAlert, Medal,
 } from "lucide-react";
 import { EnterpriseRole } from "./RoleSidebarPanel";
 
@@ -40,12 +40,13 @@ export const PERMISSION_MODULE_GROUPS: PermissionGroup[] = [
   },
   {
     group: "3. Admin Section",
-    items: [
-      { name: "Analytics Intel",     key: "analytics", icon: <BarChart3 size={13} />,       supportedActions: ["view", "export"] },
-      { name: "Lead Reports",        key: "reports",   icon: <FileText size={13} />,        supportedActions: ["view", "export"] },
-      { name: "Audit & Logs",        key: "audit",     icon: <Activity size={13} />,        supportedActions: ["view", "export"] },
-      { name: "System Masters",      key: "masters",   icon: <Database size={13} />,        supportedActions: ["view", "create", "edit", "delete"] },
-    ],
+  items: [
+    { name: "Analytics Intel",      key: "analytics",   icon: <BarChart3 size={13} />, supportedActions: ["view", "export"] },
+    { name: "Staff Performance",     key: "performance", icon: <Medal size={13} />,    supportedActions: ["view", "export"] }, 
+    { name: "Lead Reports",          key: "reports",     icon: <FileText size={13} />, supportedActions: ["view", "export"] },
+    { name: "Audit & Logs",          key: "audit",       icon: <Activity size={13} />, supportedActions: ["view", "export"] },
+    { name: "System Masters",        key: "masters",     icon: <Database size={13} />, supportedActions: ["view", "create", "edit", "delete"] },
+  ],
   },
   {
     group: "4. System Section",
