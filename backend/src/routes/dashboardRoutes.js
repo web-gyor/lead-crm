@@ -62,7 +62,7 @@ router.get('/notifications', authenticateToken, async (req, res) => {
 
     // ── Follow-up counts — reads leads.next_follow_up_date ─────────────────
 const [fuRows] = await connection.query(`
-  SELECT DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) AS follow_date
+  SELECT DISTINCT l.id, DATE(CONVERT_TZ(l.next_follow_up_date, '+00:00', '+05:30')) AS follow_date
   FROM leads l
   WHERE l.next_follow_up_date IS NOT NULL
     AND l.deleted_at   IS NULL
@@ -75,7 +75,6 @@ let overdue = 0, today = 0, upcoming = 0;
 fuRows.forEach(row => {
   if (!row.follow_date) return;
 
-  // The database output is now cleanly localized to India Standard Time strings
   let d;
   if (row.follow_date instanceof Date) {
     const yyyy = row.follow_date.getFullYear();
@@ -88,7 +87,6 @@ fuRows.forEach(row => {
       : String(row.follow_date).trim();
   }
   
-  // Alphanumeric evaluation matches your real calendar view perfectly
   if (d < todayLocal) {
     overdue++;
   } else if (d === todayLocal) {
