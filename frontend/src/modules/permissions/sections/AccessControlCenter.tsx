@@ -22,11 +22,11 @@ export default function AccessControlCenter() {
   const { addToast } = useToast();
   const { user } = useAuth();
 
-  const [loading,        setLoading]        = useState(true);
-  const [updating,       setUpdating]       = useState<string | null>(null);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>("super-admin");
-  const [matrixFilter,   setMatrixFilter]   = useState<string>("all");
-  const [dbPermissions,  setDbPermissions]  = useState<any[]>([]);
+  const [loading,         setLoading]        = useState(true);
+  const [updating,        setUpdating]       = useState<string | null>(null);
+  const [selectedRoleId,  setSelectedRoleId] = useState<string>("super-admin");
+  const [matrixFilter,    setMatrixFilter]   = useState<string>("all");
+  const [dbPermissions,   setDbPermissions]  = useState<any[]>([]);
 
   const canEdit = useMemo(() => {
     if (!user) return false;
@@ -75,7 +75,9 @@ export default function AccessControlCenter() {
     const newValue           = !currentState;
     const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
     const roleName           = targetedRoleObject ? targetedRoleObject.name : roleKey;
+    
     setUpdating(updatingKey);
+    
     setDbPermissions(prev => {
       const exists = prev.some(
         p => p.slug?.toLowerCase() === featureKey.toLowerCase() &&
@@ -96,11 +98,15 @@ export default function AccessControlCenter() {
       }
       return updated;
     });
+
     try {
       const res = await apiPost("/api/permissions/update", {
         name: roleName, slug: featureKey, action: actionKey, value: newValue,
       });
       if (!res?.success) throw new Error("Server rejected update");
+      
+      // 🚀 FIXED: Sync fresh state array parameters back directly on update success
+      await fetchPermissionsMatrix();
       addToast("Permission updated", "success");
     } catch (err) {
       console.error("Single toggle failed:", err);
@@ -116,14 +122,16 @@ export default function AccessControlCenter() {
     } finally {
       setUpdating(null);
     }
-  }, [addToast]);
+  }, [addToast, fetchPermissionsMatrix]);
 
   const handleBulkToggle = useCallback(async (roleKey: string, enableAll: boolean) => {
     if (roleKey === "super-admin") return;
     const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
     const roleName           = targetedRoleObject ? targetedRoleObject.name : roleKey;
     const slugActions        = buildSlugActions();
+    
     setUpdating(`bulk-${roleKey}`);
+    
     setDbPermissions(prev => {
       const next = [...prev];
       Object.entries(slugActions).forEach(([slug, actions]) => {
@@ -143,11 +151,15 @@ export default function AccessControlCenter() {
       });
       return next;
     });
+
     try {
       const res = await apiPost("/api/permissions/bulk-update", {
         name: roleName, role: roleName, slugActions, is_enabled: enableAll ? 1 : 0,
       });
       if (!res?.success) throw new Error("Bulk update rejected");
+      
+      // 🚀 FIXED: Force automatic fetch sequence to commit checkbox configurations visually
+      await fetchPermissionsMatrix();
       addToast(enableAll ? "All permissions granted" : "All permissions revoked", "success");
     } catch (err) {
       console.error("Bulk toggle failed:", err);
