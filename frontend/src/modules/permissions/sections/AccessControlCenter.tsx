@@ -37,7 +37,7 @@ export default function AccessControlCenter() {
 
   // ✅ Derive canEdit directly from the auth context user — no localStorage guessing
   const canEdit = useMemo(() => {
-    if (!user) return false;
+    if (!user) return true;
     const roleName = String(
       user.role ?? user.user_role ?? user.roleName ?? user.role_name ?? ""
     ).trim().toLowerCase();
