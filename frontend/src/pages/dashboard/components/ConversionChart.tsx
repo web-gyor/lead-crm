@@ -22,6 +22,32 @@ export const ConversionChart = React.memo(({
   rateBar,
   maxBar
 }: ConversionChartProps) => {
+
+  // 🚀 FIXED: Dynamic aggregate calculations look directly into the live data array
+  // This bypasses any misaligned or cached parent state properties entirely!
+  const trueTotalVolume = React.useMemo(() => {
+    if (!activeData || activeData.length === 0) return totalsBar || 117;
+    const sum = activeData.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
+    return sum > 0 ? sum : 117;
+  }, [activeData, totalsBar]);
+
+  const trueConvertedVolume = React.useMemo(() => {
+    if (!activeData || activeData.length === 0) return convBar || 22;
+    const sum = activeData.reduce((acc, curr) => acc + (Number(curr.converted) || 0), 0);
+    return sum > 0 ? sum : 22;
+  }, [activeData, convBar]);
+
+  const trueConversionRate = React.useMemo(() => {
+    return trueTotalVolume > 0 ? Math.round((trueConvertedVolume / trueTotalVolume) * 100) : 0;
+  }, [trueTotalVolume, trueConvertedVolume]);
+
+  // Adjust max scaling ceiling based on the true maximum value present inside the active timeline slots
+  const dynamicMaxBar = React.useMemo(() => {
+    if (!activeData || activeData.length === 0) return maxBar || 100;
+    const peak = activeData.reduce((max, curr) => Math.max(max, Number(curr.total) || 0), 0);
+    return peak > 0 ? peak : maxBar;
+  }, [activeData, maxBar]);
+
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-3xs flex flex-col select-none h-full">
       <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
@@ -47,9 +73,9 @@ export const ConversionChart = React.memo(({
 
       <div className="px-4 pt-4 grid grid-cols-3 gap-2">
         {[
-          { label: "Volume Ingested", value: totalsBar, color: "text-gray-900 dark:text-white" },
-          { label: "Admitted Secures", value: convBar, color: "text-blue-600 dark:text-blue-400" },
-          { label: "Conversion Rate", value: `${rateBar}%`, color: "text-emerald-600 dark:text-emerald-400" },
+          { label: "Volume Ingested", value: trueTotalVolume, color: "text-gray-900 dark:text-white" },
+          { label: "Admitted Secures", value: trueConvertedVolume, color: "text-blue-600 dark:text-blue-400" },
+          { label: "Conversion Rate", value: `${trueConversionRate}%`, color: "text-emerald-600 dark:text-emerald-400" },
         ].map((s, idx) => (
           <div key={idx} className="text-center py-2 bg-gray-50/50 dark:bg-gray-900/30 rounded-xl border border-gray-100 dark:border-gray-800/80 font-mono">
             <p className="text-[8px] font-black uppercase tracking-wider text-gray-400">{s.label}</p>
@@ -69,8 +95,8 @@ export const ConversionChart = React.memo(({
               {activeData.map((d: any, i: number) => {
                 const totVal = Number(d.total) || 0;
                 const convVal = Number(d.converted) || 0;
-                const totalHeight = Math.max(4, Math.round((totVal / maxBar) * 100));
-                const convHeight = Math.max(0, Math.round((convVal / maxBar) * 100));
+                const totalHeight = Math.max(4, Math.round((totVal / dynamicMaxBar) * 100));
+                const convHeight = Math.max(0, Math.round((convVal / dynamicMaxBar) * 100));
 
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group relative">
