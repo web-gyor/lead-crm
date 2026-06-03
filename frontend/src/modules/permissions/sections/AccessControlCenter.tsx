@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+﻿import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw } from "lucide-react";
 import { apiGet, apiPost } from "../../../utils/api";
 import { useToast } from "../../../hooks/useToast";
@@ -7,12 +7,6 @@ import { useAuth } from "../../../context/AuthContext";
 import { RoleSidebarPanel, INITIAL_ENTERPRISE_ROLES } from "./RoleSidebarPanel";
 import { AccessControlMatrix, PERMISSION_MODULE_GROUPS } from "./AccessControlMatrix";
 import { SafetyAuditPanel } from "./SafetyAuditPanel";
-
-const ADMIN_ROLE_SLUGS = new Set([
-  'superadmin', 'super admin', 'super-admin',
-  'admin', 'branchadmin', 'branch admin', 'branch-admin',
-  'manager',
-]);
 
 const buildSlugActions = (): Record<string, string[]> => {
   const map: Record<string, string[]> = {};
@@ -26,7 +20,6 @@ const buildSlugActions = (): Record<string, string[]> => {
 
 export default function AccessControlCenter() {
   const { addToast } = useToast();
-  // ✅ USE AUTH CONTEXT — same as MainLayout, already has the logged-in user
   const { user } = useAuth();
 
   const [loading,        setLoading]        = useState(true);
@@ -35,18 +28,19 @@ export default function AccessControlCenter() {
   const [matrixFilter,   setMatrixFilter]   = useState<string>("all");
   const [dbPermissions,  setDbPermissions]  = useState<any[]>([]);
 
-  // ✅ Derive canEdit directly from the auth context user — no localStorage guessing
   const canEdit = useMemo(() => {
-    if (!user) return true;
-    const roleName = String(
-      user.role ?? user.user_role ?? user.roleName ?? user.role_name ?? ""
-    ).trim().toLowerCase();
+    if (!user) return false;
+    const role = String(user.role ?? "").trim().toLowerCase();
     return (
-      user.is_super_admin === 1  ||
       user.is_super_admin === true ||
-      user.is_admin       === 1  ||
+      user.is_super_admin === 1    ||
       user.is_admin       === true ||
-      ADMIN_ROLE_SLUGS.has(roleName)
+      user.is_admin       === 1    ||
+      role === "super admin"       ||
+      role === "superadmin"        ||
+      role === "admin"             ||
+      role === "branch admin"      ||
+      role === "manager"
     );
   }, [user]);
 
@@ -77,14 +71,11 @@ export default function AccessControlCenter() {
     currentState: boolean,
   ) => {
     if (!roleKey || roleKey === "super-admin") return;
-
     const updatingKey        = `${roleKey}-${featureKey}-${actionKey}`;
     const newValue           = !currentState;
     const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
     const roleName           = targetedRoleObject ? targetedRoleObject.name : roleKey;
-
     setUpdating(updatingKey);
-
     setDbPermissions(prev => {
       const exists = prev.some(
         p => p.slug?.toLowerCase() === featureKey.toLowerCase() &&
@@ -105,7 +96,6 @@ export default function AccessControlCenter() {
       }
       return updated;
     });
-
     try {
       const res = await apiPost("/api/permissions/update", {
         name: roleName, slug: featureKey, action: actionKey, value: newValue,
@@ -130,13 +120,10 @@ export default function AccessControlCenter() {
 
   const handleBulkToggle = useCallback(async (roleKey: string, enableAll: boolean) => {
     if (roleKey === "super-admin") return;
-
     const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
     const roleName           = targetedRoleObject ? targetedRoleObject.name : roleKey;
     const slugActions        = buildSlugActions();
-
     setUpdating(`bulk-${roleKey}`);
-
     setDbPermissions(prev => {
       const next = [...prev];
       Object.entries(slugActions).forEach(([slug, actions]) => {
@@ -156,7 +143,6 @@ export default function AccessControlCenter() {
       });
       return next;
     });
-
     try {
       const res = await apiPost("/api/permissions/bulk-update", {
         name: roleName, role: roleName, slugActions, is_enabled: enableAll ? 1 : 0,
@@ -175,7 +161,7 @@ export default function AccessControlCenter() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh] text-slate-400 font-bold uppercase tracking-wider text-[10px] animate-pulse">
-        Loading Security Matrix…
+        Loading Security Matrix...
       </div>
     );
   }
@@ -198,7 +184,6 @@ export default function AccessControlCenter() {
           <RefreshCw size={13} className={updating?.startsWith("bulk-") ? "animate-spin text-blue-500" : ""} />
         </button>
       </div>
-
       <div className="flex flex-col xl:flex-row gap-6 items-start w-full">
         <RoleSidebarPanel selectedId={selectedRoleId} onSelect={setSelectedRoleId} />
         <div className="flex-1 w-full min-w-0">
