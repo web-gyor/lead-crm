@@ -2,43 +2,17 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw } from "lucide-react";
 import { apiGet, apiPost } from "../../../utils/api";
 import { useToast } from "../../../hooks/useToast";
+import { useAuth } from "../../../context/AuthContext";
 
 import { RoleSidebarPanel, INITIAL_ENTERPRISE_ROLES } from "./RoleSidebarPanel";
 import { AccessControlMatrix, PERMISSION_MODULE_GROUPS } from "./AccessControlMatrix";
 import { SafetyAuditPanel } from "./SafetyAuditPanel";
 
-// ─────────────────────────────────────────────────────────────
-// ✅ Read the logged-in user from localStorage once, cleanly.
-//    Tries common key names so it works regardless of what your
-//    auth layer stores under.
-// ─────────────────────────────────────────────────────────────
-const STORAGE_KEYS   = ['user', 'userData', 'auth', 'session', 'currentUser'];
-const ROLE_FIELDS    = ['role', 'user_role', 'roleName', 'role_name', 'userRole'];
-const ADMIN_ROLES    = new Set([
+const ADMIN_ROLE_SLUGS = new Set([
   'superadmin', 'super admin', 'super-admin',
   'admin', 'branchadmin', 'branch admin', 'branch-admin',
   'manager',
 ]);
-
-const getStoredUser = (): Record<string, any> => {
-  for (const key of STORAGE_KEYS) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') return parsed;
-      }
-    } catch { /* try next */ }
-  }
-  return {};
-};
-
-const getUserRole = (user: Record<string, any>): string => {
-  for (const field of ROLE_FIELDS) {
-    if (user[field]) return String(user[field]).trim().toLowerCase();
-  }
-  return "";
-};
 
 const buildSlugActions = (): Record<string, string[]> => {
   const map: Record<string, string[]> = {};
@@ -52,6 +26,8 @@ const buildSlugActions = (): Record<string, string[]> => {
 
 export default function AccessControlCenter() {
   const { addToast } = useToast();
+  // ✅ USE AUTH CONTEXT — same as MainLayout, already has the logged-in user
+  const { user } = useAuth();
 
   const [loading,        setLoading]        = useState(true);
   const [updating,       setUpdating]       = useState<string | null>(null);
@@ -59,29 +35,20 @@ export default function AccessControlCenter() {
   const [matrixFilter,   setMatrixFilter]   = useState<string>("all");
   const [dbPermissions,  setDbPermissions]  = useState<any[]>([]);
 
-  // ✅ Compute canEdit ONCE from the stored user — no localStorage reads inside child components
+  // ✅ Derive canEdit directly from the auth context user — no localStorage guessing
   const canEdit = useMemo(() => {
-    const user     = getStoredUser();
-    const roleName = getUserRole(user);
-
-    const isSuperAdmin = user.is_super_admin === 1 || user.is_super_admin === true;
-    const isAdmin      = user.is_admin       === 1 || user.is_admin       === true;
-    const roleMatch    = ADMIN_ROLES.has(roleName);
-    const noUser       = Object.keys(user).length === 0; // dev fallback
-
-    const result = noUser || isSuperAdmin || isAdmin || roleMatch;
-
-    if (process.env.NODE_ENV === "development") {
-      console.group("[RBAC] AccessControlCenter — canEdit debug");
-      console.log("storedUser :", user);
-      console.log("roleName   :", roleName);
-      console.log("isSuperAdmin:", isSuperAdmin, "| isAdmin:", isAdmin, "| roleMatch:", roleMatch);
-      console.log("canEdit    :", result);
-      console.groupEnd();
-    }
-
-    return result;
-  }, []);
+    if (!user) return false;
+    const roleName = String(
+      user.role ?? user.user_role ?? user.roleName ?? user.role_name ?? ""
+    ).trim().toLowerCase();
+    return (
+      user.is_super_admin === 1  ||
+      user.is_super_admin === true ||
+      user.is_admin       === 1  ||
+      user.is_admin       === true ||
+      ADMIN_ROLE_SLUGS.has(roleName)
+    );
+  }, [user]);
 
   const selectedRole = useMemo(
     () => INITIAL_ENTERPRISE_ROLES.find(r => r.id === selectedRoleId) || INITIAL_ENTERPRISE_ROLES[0],
