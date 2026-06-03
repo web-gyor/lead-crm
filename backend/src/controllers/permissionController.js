@@ -7,19 +7,16 @@ const { pool } = require('../config/db');
 exports.fetchAll = async (req, res) => {
   let connection;
   try {
-    const userRole = String(req.user?.role || "").toLowerCase().replace(/\s+|-/g, "");
-
     connection = await pool.getConnection();
 
-    // ✅ FIX: Return ALL permission rows for admin matrix display
-    // The frontend AccessControlCenter needs the full table — not just the current user's rows
+    // Return ALL permission rows for admin matrix display
     const [rows] = await connection.query(
       `SELECT id, name, slug, can_view, can_create, can_edit, can_delete, can_export, updated_at
        FROM permissions
        ORDER BY name ASC, slug ASC`
     );
 
-    return res.json(rows); // ✅ Return plain array — frontend does: Array.isArray(data)
+    return res.json(rows); 
 
   } catch (err) {
     console.error("Permission fetch failed:", err);
@@ -90,7 +87,7 @@ exports.updatePermission = async (req, res) => {
         [roleName, slug]
       );
 
-      // Now set the specific permission
+      // Now set the specific permission column
       await pool.query(
         `UPDATE permissions 
          SET ${column} = ?, updated_at = NOW()
@@ -146,8 +143,8 @@ const bulkUpdateRolePermissions = async (req, res) => {
         );
       }
 
-      // Update the relevant columns
-      const updateFields = (actions as string[])
+      // 🚀 FIXED: Removed the typescript template 'as string[]' assertion to satisfy the node parser runtime
+      const updateFields = actions
         .map(action => `can_${action} = ${binaryValue}`)
         .join(', ');
 
@@ -169,7 +166,7 @@ const bulkUpdateRolePermissions = async (req, res) => {
   }
 };
 
-// ✅ FIX: Export with the name the router expects
+// Export with the name the router expects
 exports.bulkUpdatePermissions = bulkUpdateRolePermissions;
 
 // ─────────────────────────────────────────────────────────────
