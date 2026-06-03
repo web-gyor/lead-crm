@@ -28,20 +28,43 @@ export default function AccessControlCenter() {
   const [matrixFilter,    setMatrixFilter]   = useState<string>("all");
   const [dbPermissions,   setDbPermissions]  = useState<any[]>([]);
 
+  // 🚀 FIXED: Dynamic Account Authorization Gating with declared database flags
   const canEdit = useMemo(() => {
-    if (!user) return false;
-    const role = String(user.role ?? "").trim().toLowerCase();
-    return (
-      user.is_super_admin === true ||
-      user.is_super_admin === 1    ||
-      user.is_admin       === true ||
-      user.is_admin       === 1    ||
-      role === "super admin"       ||
-      role === "superadmin"        ||
-      role === "admin"             ||
-      role === "branch admin"      ||
-      role === "manager"
-    );
+    if (!user) {
+      console.log("[RBAC AUDIT] Blocked: No user session found in context.");
+      return false;
+    }
+
+    // Normalize the user role string to catch all casing and symbol variations
+    const normalizedUserRole = String(user.role || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, "");
+
+    // 🚀 FIXED syntax crash: Explicitly declare the flag variables from your database model payload
+    const isSuperAdminFlag  = user.is_super_admin === 1  || user.is_super_admin === true;
+    const isBranchAdminFlag = user.is_branch_admin === 1 || user.is_branch_admin === true;
+
+    const hasAuthorizedRoleText = [
+      "superadmin",
+      "admin",
+      "branchadmin",
+      "manager"
+    ].includes(normalizedUserRole);
+
+    const isAllowedToModifyMatrix = isSuperAdminFlag || isBranchAdminFlag || hasAuthorizedRoleText;
+
+    // 🔍 REAL-TIME CONSOLE TELEMETRY REPORTING
+    console.log("=== 🛡️ RBAC INTERACTION SECURITY AUDIT ===");
+    console.log("Raw User Payload Object:", user);
+    console.log("Extracted Role String Key:", user.role);
+    console.log("Normalized Role String Match:", normalizedUserRole);
+    console.log("Is Super Admin Flag:", isSuperAdminFlag);
+    console.log("Is Branch Admin Flag:", isBranchAdminFlag);
+    console.log("FINAL DETERMINED CAN_EDIT VALUE:", isAllowedToModifyMatrix);
+    console.log("=========================================");
+
+    return isAllowedToModifyMatrix;
   }, [user]);
 
   const selectedRole = useMemo(
@@ -105,7 +128,6 @@ export default function AccessControlCenter() {
       });
       if (!res?.success) throw new Error("Server rejected update");
       
-      // 🚀 FIXED: Sync fresh state array parameters back directly on update success
       await fetchPermissionsMatrix();
       addToast("Permission updated", "success");
     } catch (err) {
@@ -158,7 +180,6 @@ export default function AccessControlCenter() {
       });
       if (!res?.success) throw new Error("Bulk update rejected");
       
-      // 🚀 FIXED: Force automatic fetch sequence to commit checkbox configurations visually
       await fetchPermissionsMatrix();
       addToast(enableAll ? "All permissions granted" : "All permissions revoked", "success");
     } catch (err) {
