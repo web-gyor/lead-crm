@@ -76,28 +76,30 @@ interface AccessControlMatrixProps {
   onFilterChange?: (val: string) => void;
 }
 
+
+
 const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
 
 export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   selectedRole,
   dbPermissions,
   updating,
-  canEdit, // 🚀 DESTRUCTURED FOR ACTIVE USE
+  canEdit,
   onToggleCell,
   onBulkToggle,
 }) => {
-  // Guard rule: Prevent any modifications to the core Super Admin role configuration itself
   const isTargetSuperAdmin = selectedRole.id === "super-admin";
-
-  // 🚀 FIXED EFFECTIVE INTERACTION SWITCH: Enable controls if user has permissions AND isn't editing Super Admin profile
   const isInteractionAllowed = canEdit && !isTargetSuperAdmin;
 
+  // 🚀 FIXED PERMISSION MAP: Defensive checking for all common database role column assignments
   const permMap = useMemo(() => {
     const map = new Map<string, any>();
     const targetRoleName = cleanStr(selectedRole.name);
     
     dbPermissions.forEach((p) => {
-      const dbRoleName = cleanStr(p.name || p.role || "");
+      // Safely check name, role, OR role_name variants coming from your SQL pool
+      const dbRoleName = cleanStr(p.name || p.role || p.role_name || "");
+      
       if (dbRoleName === targetRoleName) {
         map.set(cleanStr(p.slug), p);
       }
