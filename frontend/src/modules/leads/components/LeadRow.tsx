@@ -21,6 +21,8 @@ interface Lead {
   source_name?: string;
   lead_source_name?: string;
   lead_source_id?: number;
+  education?: string;
+  passing_year?: string | number;
 }
 
 interface LeadRowProps {
@@ -123,11 +125,26 @@ export const LeadRow = React.memo(({
         <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 focus:ring-blue-500/20 cursor-pointer accent-blue-600" />
       </td>
       <td className="px-3 py-2 text-center font-mono text-[11px] text-gray-400">{index}</td>
-      <td className="px-3 py-2 font-mono text-[10px] font-black text-blue-600">L26-{String(lead.id).padStart(4, "0")}</td>
-      <td className="px-3 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">{fmtDate(lead.created_at)}</td>
-      <td className="px-3 py-2 font-black text-gray-900 dark:text-white max-w-[140px] truncate">{lead.full_name}</td>
+      
+      {/* Combined ID & Entry Date */}
+      <td className="px-3 py-2 whitespace-nowrap">
+        <div className="font-mono text-[10px] font-black text-blue-600">L26-{String(lead.id).padStart(4, "0")}</div>
+        <div className="text-[10px] text-gray-400">{fmtDate(lead.created_at)}</div>
+      </td>
+
+      {/* Combined Name & Phone */}
+      <td className="px-3 py-2 max-w-[140px] truncate">
+        <div className="font-black text-gray-900 dark:text-white truncate">{lead.full_name}</div>
+        <div className="font-mono text-[10px] text-gray-500 dark:text-gray-400">{lead.phone ? `+91 ${lead.phone}` : "—"}</div>
+      </td>
+
       <td className="px-3 py-2 text-gray-600 dark:text-gray-300 max-w-[120px] truncate">{lead.interested_course || "General Track"}</td>
-      <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-200">{lead.phone ? `+91 ${lead.phone}` : "—"}</td>
+      
+      {/* Combined Education & Passing Year */}
+      <td className="px-3 py-2 text-gray-600 dark:text-gray-300 max-w-[120px] truncate">
+        <div className="text-xs font-medium truncate">{lead.education || "—"}</div>
+        {lead.passing_year && <div className="text-[10px] text-gray-400 font-mono">Year: {lead.passing_year}</div>}
+      </td>
       
       <td className="px-3 py-2 whitespace-nowrap">
         <span className={`px-2 py-0.5 rounded-sm text-[9px] font-black uppercase border shadow-3xs ${sourceColorClass}`}>
@@ -166,12 +183,11 @@ export const LeadRow = React.memo(({
       </td>
       <td className="px-3 py-2 max-w-[150px] truncate text-gray-400 italic">{lead.counselor_remarks || "—"}</td>
 
- {/* Fixed Alignment Action Elements */}
+      {/* Fixed Alignment Action Elements */}
       <td className="px-3 py-2 text-right whitespace-nowrap text-xs w-[140px] min-w-[140px] max-w-[140px] relative">
         <div className="w-full h-full flex justify-end items-center">
           
           {(() => {
-            // Dynamic permissions extraction loop inside rendering execution node
             let userObj: any = {};
             try { userObj = JSON.parse(localStorage.getItem('user') || '{}'); } catch { userObj = {}; }
             const userRole = String(userObj.role || '').toLowerCase();
@@ -183,7 +199,6 @@ export const LeadRow = React.memo(({
             return isColdStorageView ? (
               <div className="relative w-full flex justify-end items-center h-8">
                 <div className={`flex items-center gap-1 transition-opacity ${isRestoreConfirming || isDeleteConfirming ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-                  {/* ✅ View Button remains ONLY inside Cold Storage */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onView(lead); }} className="p-1.5 text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 rounded-lg cursor-pointer" title="View Lead Profile"><Eye size={13} /></button>
                   <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(false); setIsRestoreConfirming(true); }} className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg cursor-pointer" title="Restore lead"><RotateCcw size={13} /></button>
                   {hasFullPerms && <button type="button" onClick={(e) => { e.stopPropagation(); setIsRestoreConfirming(false); setIsDeleteConfirming(true); }} className="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg cursor-pointer" title="Wipe Permanently"><Trash2 size={13} /></button>}
@@ -208,7 +223,6 @@ export const LeadRow = React.memo(({
             ) : (
               <div className="relative w-full flex justify-end items-center h-8">
                 <div className={`flex items-center gap-1 transition-opacity ${isDeleteConfirming ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-                  {/* ❌ View Eye Button removed from active pipeline dashboard */}
                   <button type="button" onClick={() => onEdit(lead)} className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg cursor-pointer" title="Edit Lead Profile"><Edit3 size={13} /></button>
                   {hasFullPerms && <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(true); }} className="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg cursor-pointer" title="Delete Lead"><Trash2 size={13} /></button>}
                   <div className="flex items-center gap-0.5 ml-1 pl-1.5 border-l border-gray-100 dark:border-gray-800">

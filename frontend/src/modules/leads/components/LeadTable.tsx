@@ -22,6 +22,8 @@ interface Lead {
   source_name?: string;
   lead_source_name?: string;
   lead_source_id?: number;
+  education?: string;
+  passing_year?: string | number;
 }
 
 interface LeadTableProps {
@@ -109,17 +111,16 @@ export const LeadTable = React.memo(({
                 <input type="checkbox" checked={isAllSelected} onChange={handleSelectAllToggle} className="w-4 h-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 focus:ring-blue-500/20 cursor-pointer accent-blue-600" />
               </th>
               <th className="px-3 py-3.5 w-12 text-center">#</th>
-              <th className="px-3 py-3.5">ID</th>
-              <th className="px-3 py-3.5">Entry Date</th>
-              <th className="px-3 py-3.5">Student Profile</th>
-              <th className="px-3 py-3.5">Course Track</th>
-              <th className="px-3 py-3.5">Contact Details</th>
-              <th className="px-3 py-3.5">Source Channel</th>
-              <th className="px-3 py-3.5">Status Pipeline</th>
+              <th className="px-3 py-3.5">ID / Entry Date</th>
+              <th className="px-3 py-3.5">Student / Contact</th>
+              <th className="px-3 py-3.5">Course </th>
+              <th className="px-3 py-3.5">Edu / Year</th>
+              <th className="px-3 py-3.5">Source </th>
+              <th className="px-3 py-3.5">Status </th>
               <th className="px-3 py-3.5">Quality</th>
-              <th className="px-3 py-3.5">Follow-up Due</th>
-              <th className="px-3 py-3.5">Assigned User</th>
-              <th className="px-3 py-3.5">Counselor Remarks</th>
+              <th className="px-3 py-3.5">Follow-up </th>
+              <th className="px-3 py-3.5">Assigned </th>
+              <th className="px-3 py-3.5"> Remarks</th>
               <th className="px-3 py-3.5 text-right pr-6 min-w-[140px]">
                 {activeStatus === "Cold Storage" ? "Vault Actions" : "Row Actions"}
               </th>
@@ -128,10 +129,10 @@ export const LeadTable = React.memo(({
           
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs font-medium text-slate-600 dark:text-slate-300">
             {loading ? (
-              <tr><td colSpan={14} className="py-20 text-center text-[10px] font-black uppercase text-slate-400 animate-pulse">Loading admission profiles...</td></tr>
+              <tr><td colSpan={13} className="py-20 text-center text-[10px] font-black uppercase text-slate-400 animate-pulse">Loading admission profiles...</td></tr>
             ) : safeLeads.length === 0 ? (
               <tr>
-                <td colSpan={14} className="py-20 text-center text-[10px] font-black uppercase text-slate-400">
+                <td colSpan={13} className="py-20 text-center text-[10px] font-black uppercase text-slate-400">
                   {activeStatus === "Cold Storage" ? "No archived records inside Cold Storage" : "No active profiles match filters"}
                 </td>
               </tr>
