@@ -90,12 +90,14 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   const isInteractionAllowed = canEdit && !isTargetSuperAdmin;
 
   // 🚀 FIXED PERMISSION MAP: Comprehensive matching layer maps name, role, or role_name keys safely
+const cleanStr = (s: string) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+
 const permMap = useMemo(() => {
   const map = new Map<string, any>();
   const targetRoleName = cleanStr(selectedRole.name);
   
   dbPermissions.forEach((p) => {
-    const dbRoleName = cleanStr(p.name || p.role || p.role_name || p.slug_name || "");
+    const dbRoleName = cleanStr(p.name || p.role || p.role_name || "");
     if (dbRoleName === targetRoleName) {
       map.set(cleanStr(p.slug), p);
     }
