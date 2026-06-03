@@ -69,14 +69,12 @@ interface AccessControlMatrixProps {
   selectedRole:    EnterpriseRole;
   dbPermissions:   any[];
   updating:        string | null;
-  canEdit:         boolean; // 🚀 RECEIVED SECURELY FROM THE PARENT COMPONENT
+  canEdit:         boolean;
   onToggleCell:    (roleKey: string, featureKey: string, actionType: string, current: boolean) => void;
   onBulkToggle:    (roleKey: string, enableAll: boolean) => void;
   matrixFilter?:   string;
   onFilterChange?: (val: string) => void;
 }
-
-
 
 const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
 
@@ -91,15 +89,13 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   const isTargetSuperAdmin = selectedRole.id === "super-admin";
   const isInteractionAllowed = canEdit && !isTargetSuperAdmin;
 
-  // 🚀 FIXED PERMISSION MAP: Defensive checking for all common database role column assignments
+  // 🚀 FIXED: Maps elements securely supporting all column variations
   const permMap = useMemo(() => {
     const map = new Map<string, any>();
     const targetRoleName = cleanStr(selectedRole.name);
     
     dbPermissions.forEach((p) => {
-      // Safely check name, role, OR role_name variants coming from your SQL pool
       const dbRoleName = cleanStr(p.name || p.role || p.role_name || "");
-      
       if (dbRoleName === targetRoleName) {
         map.set(cleanStr(p.slug), p);
       }
@@ -107,12 +103,14 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
     return map;
   }, [dbPermissions, selectedRole.name]);
 
+  // 🚀 FIXED CEll STATUS LOGIC: Defensive checking captures both numbers, text strings and booleans safely
   const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
     if (isTargetSuperAdmin) return true;
     const row = permMap.get(cleanStr(featureKey));
     if (!row) return false;
+    
     const val = row[`can_${actionKey}`];
-    return val === 1 || val === true || String(val) === "1";
+    return val === 1 || val === true || String(val) === "1" || String(val) === "true";
   };
 
   const totalEnabled = useMemo(() => {
@@ -121,10 +119,9 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
         .reduce((sum, item) => sum + item.supportedActions.length, 0);
     }
     let count = 0;
-    permMap.forEach((row) => {
-      ACTION_COLUMNS.forEach((c) => {
-        const val = row[`can_${c.key}`];
-        if (val === 1 || val === true || String(val) === "1") count++;
+    PERMISSION_MODULE_GROUPS.flatMap((g) => g.items).forEach((item) => {
+      item.supportedActions.forEach((act) => {
+        if (getCellStatus(item.key, act)) count++;
       });
     });
     return count;
@@ -150,7 +147,6 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
           </span>
         </div>
 
-        {/* 🚀 FIXED: Grant/Revoke bulk headers now unlock dynamically using isInteractionAllowed instead of hardcoded rules */}
         {isInteractionAllowed && (
           <div className="flex gap-2 shrink-0 self-end sm:self-auto">
             <button
@@ -221,7 +217,6 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
                         <td key={col.key} className="px-3 py-3.5 text-center">
                           <button
                             type="button"
-                            // 🚀 FIXED: Uses the dynamic permission value instead of hardcoded isSuperAdmin
                             disabled={!isInteractionAllowed || isUpdating}
                             onClick={() => onToggleCell(selectedRole.id, item.key, col.key, isActive)}
                             title={`${isActive ? "Revoke" : "Grant"} ${col.label} — ${item.name}`}
