@@ -112,15 +112,18 @@ export const LeadRow = React.memo(({
   const statusColorClass = STATUS_COLORS[currentStatusString] ?? "bg-gray-50 text-gray-700 border-gray-200";
 
   const qualityKey = (lead.lead_quality || "unverified").toLowerCase();
-  const qualityConfig = QUALITY_CONFIG[qualityKey] ?? QUALITY_CONFIG.unverified;
+const qualityConfig = QUALITY_CONFIG[qualityKey] ?? QUALITY_CONFIG.unverified;
 
-  const normalizedActiveStatus = String(activeStatus || "").toLowerCase();
-  const isColdStorageView = normalizedActiveStatus.includes("cold") || normalizedActiveStatus.includes("archive");
+const normalizedActiveStatus = String(activeStatus || "").toLowerCase();
+const isColdStorageView = normalizedActiveStatus.includes("cold") || normalizedActiveStatus.includes("archive");
+
+const displayEducation = lead.education || (lead as any).qualification || (lead as any).course_education || "—";
+const displayPassingYear = lead.passing_year || (lead as any).passingYear || (lead as any).graduation_year || null;
 
   return (
-    <tr className={`group transition-colors hover:bg-blue-50/20 dark:hover:bg-gray-800/10 ${
-      isSelected ? "bg-blue-50/40 dark:bg-blue-950/10" : fuStatus === "overdue" ? "bg-rose-50/40 dark:bg-rose-950/10" : fuStatus === "today" ? "bg-blue-50/40 dark:bg-blue-950/10" : ""
-    }`}>
+   <tr className={`group transition-colors hover:bg-blue-50/20 dark:hover:bg-gray-800/10 ${
+    isSelected ? "bg-blue-50/40 dark:bg-blue-950/10" : fuStatus === "overdue" ? "bg-rose-50/40 dark:bg-rose-950/10" : fuStatus === "today" ? "bg-blue-50/40 dark:bg-blue-950/10" : ""
+  }`}>
       <td className="px-4 py-2 text-center align-middle w-12">
         <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 focus:ring-blue-500/20 cursor-pointer accent-blue-600" />
       </td>
@@ -140,11 +143,11 @@ export const LeadRow = React.memo(({
 
       <td className="px-3 py-2 text-gray-600 dark:text-gray-300 max-w-[120px] truncate">{lead.interested_course || "General Track"}</td>
       
-      {/* Combined Education & Passing Year */}
       <td className="px-3 py-2 text-gray-600 dark:text-gray-300 max-w-[120px] truncate">
-        <div className="text-xs font-medium truncate">{lead.education || "—"}</div>
-        {lead.passing_year && <div className="text-[10px] text-gray-400 font-mono">Year: {lead.passing_year}</div>}
-      </td>
+
+  <div className="text-xs font-medium truncate">{displayEducation}</div>
+  {displayPassingYear && <div className="text-[10px] text-gray-400 font-mono">Year: {displayPassingYear}</div>}
+</td>
       
       <td className="px-3 py-2 whitespace-nowrap">
         <span className={`px-2 py-0.5 rounded-sm text-[9px] font-black uppercase border shadow-3xs ${sourceColorClass}`}>
