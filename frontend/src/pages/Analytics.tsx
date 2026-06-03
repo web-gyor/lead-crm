@@ -1,5 +1,4 @@
-// src/pages/Analytics.tsx
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   TrendingUp, Target, Award, Users, UserCheck, UserX,
   Clock, Zap, Activity, BarChart2, TrendingDown,
@@ -95,42 +94,32 @@ function FunnelBar({ label, value, total, color }: {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
 export default function Analytics() {
-  const [data,        setData]       = useState<any>({ trends: [], courses: [], funnel: {} });
-  const [loading,    setLoading]    = useState(true);
-  const [timeRange,  setTimeRange]  = useState("month");
+  const [data, setData] = useState<any>({ trends: [], courses: [], funnel: {} });
+  const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState("month");
   const [refreshing, setRefreshing] = useState(false);
-
-
-// 🎯 TARGET LOCATION: src/pages/Analytics.tsx -> Replace your fetchData function with this:
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiGet(`/api/analytics/business-overview?range=${timeRange}`);
-      
       const finalData = res?.success && res.data ? res.data : (res?.data ?? res);
       if (!finalData) throw new Error("Empty telemetry response instance");
 
       const rawFunnel = finalData.funnel ?? finalData.data?.funnel ?? {};
-      
-      // 🚀 FIXED: Read the real database numbers directly without any hardcoded clamps!
-      const finalSynchronizedTotal = Number(rawFunnel.total   ?? 0);
-      const calibratedClosed       = Number(rawFunnel.closed  ?? rawFunnel.converted ?? 0);
-      const calibratedLost         = Number(rawFunnel.lost    ?? 0);
 
+      // 🚀 SAFE DYNAMIC CAPTURE MATRIX FOR PIPELINE DATA
       setData({
         trends:  Array.isArray(finalData.trends)  ? finalData.trends  : [],
         courses: Array.isArray(finalData.courses) ? finalData.courses : [],
         funnel: {
           ...rawFunnel,
-          total:    finalSynchronizedTotal, // Mapped straight to true DB value
-          closed:   calibratedClosed,       // Mapped straight to true DB value
-          lost:     calibratedLost,         // Mapped straight to true DB value
-          engaged:  Number(rawFunnel.engaged  ?? 0),
-          followUp: Number(rawFunnel.followUp ?? 0),
+          total:    Number(rawFunnel.total     ?? 0),
+          closed:   Number(rawFunnel.closed    ?? rawFunnel.converted ?? 0),
+          lost:     Number(rawFunnel.lost      ?? 0),
+          engaged:  Number(rawFunnel.engaged   ?? 0),
+          followUp: Number(rawFunnel.followUp  ?? rawFunnel.followup  ?? 0),
         },
       });
     } catch (err) {
@@ -145,17 +134,20 @@ export default function Analytics() {
       setRefreshing(false);
     }
   }, [timeRange]);
-  
+
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── KPI calculations ──────────────────────────────────────────────────────
+  // ── 🚀 ACCURATE TELEMETRY CALCULATIONS OVERRIDE ──────────────────────────────
 
   const total          = data.funnel?.total    ?? 0;
-  const engaged        = data.funnel?.engaged  ?? 0;
-  const converted      = data.funnel?.closed   ?? 0;
+  const converted      = data.funnel?.closed   ?? data.funnel?.converted ?? 0;
   const lost           = data.funnel?.lost     ?? 0;
-  const followUp       = data.funnel?.followUp ?? 0;
+  const followUp       = data.funnel?.followUp ?? data.funnel?.followup  ?? 0;
+  const engaged        = data.funnel?.engaged  ?? 0;
+
+  // Real pipeline active represents true ongoing entries
   const pending        = Math.max(0, total - converted - lost);
+  
   const conversionRate = pct(converted, total);
   const engagementRate = pct(engaged,   total);
   const lossRate       = pct(lost,      total);
@@ -167,16 +159,13 @@ export default function Analytics() {
     ...(miscLeads > 0 ? [{ name: "Other", value: miscLeads }] : []),
   ];
 
- const kpis = [
-    { label: "Total Intake",     value: total,     icon: Users,    color: "text-blue-600",    bg: "bg-blue-50 dark:bg-blue-900/20",    border: "border-blue-100 dark:border-blue-800",    trend: 12, sub: "All registered leads"          },
-    { label: "Engaged Leads",    value: engaged,   icon: Activity, color: "text-violet-600",  bg: "bg-violet-50 dark:bg-violet-900/20", border: "border-violet-100 dark:border-violet-800", trend: 8,  sub: `${engagementRate}% engagement`  },
-    { label: "Converted",        value: converted, icon: Award,     color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20",border:"border-emerald-100 dark:border-emerald-800",trend: 5,  sub: `${conversionRate}% conv rate`   },
-    { label: "Lost Leads",       value: lost,      icon: UserX,     color: "text-red-500",     bg: "bg-red-50 dark:bg-red-900/20",       border: "border-red-100 dark:border-red-800",      trend: -3, sub: `${lossRate}% loss rate`         },
-    
-    // 🚀 FIXED LABEL: Changed from "Follow-ups Due" to "Follow-up Leads" to reflect your global breakdown parameters perfectly
-    { label: "Follow-up Leads",  value: followUp,  icon: Clock,     color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-900/20", border: "border-orange-100 dark:border-orange-800", trend: 0, sub: "Pipeline entries" },
-    
-    { label: "Pipeline Active", value: pending,   icon: Target,    color: "text-cyan-600",    bg: "bg-cyan-50 dark:bg-cyan-900/20",     border: "border-cyan-100 dark:border-cyan-800",     trend: 2,  sub: "In progress"                   },
+  const kpis = [
+    { label: "Total Intake",     value: total,     icon: Users,    color: "text-blue-600",    bg: "bg-blue-50 dark:bg-blue-900/20",    border: "border-blue-100 dark:border-blue-800",    trend: 0,  sub: "All registered leads" },
+    { label: "Engaged Leads",    value: engaged,   icon: Activity, color: "text-violet-600",  bg: "bg-violet-50 dark:bg-violet-900/20", border: "border-violet-100 dark:border-violet-800", trend: 0,  sub: `${engagementRate}% engagement` },
+    { label: "Converted",        value: converted, icon: Award,    color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20",border: "border-emerald-100 dark:border-emerald-800",trend: 0,  sub: `${conversionRate}% conv rate` },
+    { label: "Lost Leads",       value: lost,      icon: UserX,    color: "text-red-500",     bg: "bg-red-50 dark:bg-red-900/20",       border: "border-red-100 dark:border-red-800",      trend: 0,  sub: `${lossRate}% loss rate` },
+    { label: "Follow-up Leads",  value: followUp,  icon: Clock,    color: "text-orange-500",  bg: "bg-orange-50 dark:bg-orange-900/20", border: "border-orange-100 dark:border-orange-800",  trend: 0,  sub: "Pipeline entries" },
+    { label: "Pipeline Active",  value: pending,   icon: Target,   color: "text-cyan-600",    bg: "bg-cyan-50 dark:bg-cyan-900/20",     border: "border-cyan-100 dark:border-cyan-800",     trend: 0,  sub: "In progress" },
   ];
 
   const quickStats = [
@@ -185,8 +174,6 @@ export default function Analytics() {
     { label: "Active Courses",  value: data.courses?.length ?? 0, icon: "📚" },
     { label: "Pending Review",  value: Math.max(0, total - converted - lost - engaged), icon: "⏳" },
   ];
-
-  // ── Loading ───────────────────────────────────────────────────────────────
 
   if (loading && !refreshing) {
     return (
@@ -197,28 +184,19 @@ export default function Analytics() {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="space-y-4 pb-12 text-sm text-slate-900 dark:text-slate-100 font-normal antialiased">
-
-      {/* ✅ DESIGN SYSTEM FIXED HEADER DECK (No shifts, no jumps) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-4 select-none w-full shrink-0">
-        
-        {/* Left side brand layout alignment */}
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
             <BarChart2 size={14} className="text-white" />
           </div>
           <div>
-            {/* Synchronized System Breadcrumbs */}
             <nav className="flex items-center gap-1 text-[10px] text-slate-400 font-black uppercase tracking-wider mb-0.5">
               <span>CRM Hub</span>
               <ChevronRight size={10} strokeWidth={3} className="text-slate-300" />
               <span className="text-slate-600 dark:text-slate-400">Analytics</span>
             </nav>
-            
-            {/* Balanced dynamic typography layout */}
             <h1 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wide leading-none">
               Intelligence Operations Center
             </h1>
@@ -230,13 +208,12 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Right side normalized action controls block */}
         <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
           <button
             type="button"
             onClick={() => { setRefreshing(true); fetchData(); }}
             disabled={refreshing}
-            className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50"
+            className="p-2 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50"
             title="Synchronize Aggregated Telemetry"
           >
             <RefreshCw size={13} className={refreshing ? "animate-spin text-blue-500" : ""} />
@@ -261,7 +238,6 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── Hero banner ── */}
       <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-blue-700 to-violet-700 rounded-2xl p-5 sm:p-6 text-white shadow-xl shadow-blue-600/20">
         <div
           className="absolute inset-0 opacity-10"
@@ -297,17 +273,13 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── KPI Grid ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {kpis.map((kpi, i) => (
           <KpiCard key={i} {...kpi} />
         ))}
       </div>
 
-      {/* ── Charts Row 1 ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-        {/* Area Chart */}
         <div className="lg:col-span-8 bg-white dark:bg-gray-900 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -328,7 +300,7 @@ export default function Analytics() {
               <AreaChart data={data.trends} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#2563EB" stopOpacity={0.15} />
+                    <stop offset="5%" stopColor="#2563EB" stopOpacity={0.15} />
                     <stop offset="95%" stopColor="#2563EB" stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -336,14 +308,13 @@ export default function Analytics() {
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: "#94a3b8" }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: "#94a3b8" }} />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="totalLeads" name="Leads"      stroke="#2563EB" strokeWidth={3}   fill="url(#colorLeads)" />
+                <Area type="monotone" dataKey="totalLeads" name="Leads" stroke="#2563EB" strokeWidth={3} fill="url(#colorLeads)" />
                 <Area type="monotone" dataKey="admissions" name="Admissions" stroke="#10B981" strokeWidth={2.5} fill="none" strokeDasharray="6 4" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Pie Chart */}
         <div className="lg:col-span-4 bg-white dark:bg-gray-900 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
           <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest mb-0.5">Course Distribution</h3>
           <p className="text-[10px] text-gray-400 mb-4">Lead share by program</p>
@@ -376,10 +347,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── Charts Row 2 ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Horizontal Bar Chart */}
         <div className="bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
           <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest mb-0.5">Course Volume</h3>
           <p className="text-[10px] text-gray-400 mb-5">Lead count by program</p>
@@ -406,7 +374,6 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Funnel + top courses */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
           <div className="px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-gray-800">
             <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest">Conversion Funnel</h3>
@@ -414,12 +381,11 @@ export default function Analytics() {
           </div>
           <div className="p-4 sm:p-5 space-y-3">
             {[
-              { label: "Total Leads", value: total,                       color: "bg-blue-600"    },
-              { label: "Engaged",     value: engaged,                     color: "bg-violet-600"  },
-              { label: "Interested",  value: Math.round(engaged * 0.6),   color: "bg-orange-500"  },
-              { label: "Follow-up",   value: followUp,                    color: "bg-orange-500"  },
-              { label: "Converted",   value: converted,                   color: "bg-emerald-600" },
-              { label: "Lost",        value: lost,                        color: "bg-red-500"     },
+              { label: "Total Leads", value: total,      color: "bg-blue-600"    },
+              { label: "Engaged",     value: engaged,    color: "bg-violet-600"  },
+              { label: "Follow-up",   value: followUp,   color: "bg-orange-500"  },
+              { label: "Converted",   value: converted,  color: "bg-emerald-600" },
+              { label: "Lost",        value: lost,       color: "bg-red-500"     },
             ].map((stage) => (
               <FunnelBar key={stage.label} {...stage} total={total} />
             ))}
@@ -449,7 +415,6 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── Quick stats ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {quickStats.map((stat, i) => (
           <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-3 sm:p-4 flex items-center gap-3">
