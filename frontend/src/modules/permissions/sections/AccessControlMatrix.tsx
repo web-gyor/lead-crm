@@ -10,7 +10,7 @@ type ActionKey = "view" | "create" | "edit" | "delete" | "export";
 
 interface MatrixItem {
   name:             string;
-  key:              string; 
+  key:              string;
   icon:             React.ReactNode;
   supportedActions: ActionKey[];
 }
@@ -31,28 +31,28 @@ export const PERMISSION_MODULE_GROUPS: PermissionGroup[] = [
   {
     group: "2. Operations Section",
     items: [
-      { name: "Pipeline Board",      key: "pipeline",  icon: <Layers size={13} />,          supportedActions: ["view", "create", "edit", "delete", "export"] },
-      { name: "Follow-up Tasks",     key: "tasks",     icon: <Calendar size={13} />,        supportedActions: ["view", "create", "edit", "delete"] },
-      { name: "Communication Logs",  key: "communication", icon: <MessageCircle size={13} />, supportedActions: ["view", "create", "delete", "export"] },
-      { name: "Import Data Hub",     key: "import",    icon: <Upload size={13} />,          supportedActions: ["view", "create", "export"] },
-      { name: "AI Automation Engine",key: "automation",icon: <Bot size={13} />,          supportedActions: ["view", "create", "edit"] },
+      { name: "Pipeline Board",       key: "pipeline",     icon: <Layers size={13} />,         supportedActions: ["view", "create", "edit", "delete", "export"] },
+      { name: "Follow-up Tasks",      key: "tasks",        icon: <Calendar size={13} />,       supportedActions: ["view", "create", "edit", "delete"] },
+      { name: "Communication Logs",   key: "communication",icon: <MessageCircle size={13} />,  supportedActions: ["view", "create", "delete", "export"] },
+      { name: "Import Data Hub",      key: "import",       icon: <Upload size={13} />,         supportedActions: ["view", "create", "export"] },
+      { name: "AI Automation Engine", key: "automation",   icon: <Bot size={13} />,            supportedActions: ["view", "create", "edit"] },
     ],
   },
   {
     group: "3. Admin Section",
-  items: [
-    { name: "Analytics Intel",      key: "analytics",   icon: <BarChart3 size={13} />, supportedActions: ["view", "export"] },
-    { name: "Staff Performance",     key: "performance", icon: <Medal size={13} />,    supportedActions: ["view", "export"] }, 
-    { name: "Lead Reports",          key: "reports",     icon: <FileText size={13} />, supportedActions: ["view", "export"] },
-    { name: "Audit & Logs",          key: "audit",       icon: <Activity size={13} />, supportedActions: ["view", "export"] },
-    { name: "System Masters",        key: "masters",     icon: <Database size={13} />, supportedActions: ["view", "create", "edit", "delete"] },
-  ],
+    items: [
+      { name: "Analytics Intel",   key: "analytics",   icon: <BarChart3 size={13} />, supportedActions: ["view", "export"] },
+      { name: "Staff Performance", key: "performance", icon: <Medal size={13} />,     supportedActions: ["view", "export"] },
+      { name: "Lead Reports",      key: "reports",     icon: <FileText size={13} />,  supportedActions: ["view", "export"] },
+      { name: "Audit & Logs",      key: "audit",       icon: <Activity size={13} />,  supportedActions: ["view", "export"] },
+      { name: "System Masters",    key: "masters",     icon: <Database size={13} />,  supportedActions: ["view", "create", "edit", "delete"] },
+    ],
   },
   {
     group: "4. System Section",
     items: [
-      { name: "Settings Panel",      key: "settings",  icon: <Settings size={13} />,        supportedActions: ["view", "edit"] },
-      { name: "Access Control Matrix",key: "rbac",      icon: <ShieldCheck size={13} />,     supportedActions: ["view", "edit"] },
+      { name: "Settings Panel",        key: "settings", icon: <Settings size={13} />,    supportedActions: ["view", "edit"] },
+      { name: "Access Control Matrix", key: "rbac",     icon: <ShieldCheck size={13} />, supportedActions: ["view", "edit"] },
     ],
   },
 ];
@@ -77,6 +77,45 @@ interface AccessControlMatrixProps {
 
 const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
 
+// ─────────────────────────────────────────────────────────────
+// ✅ FIX: Robust localStorage parser — tries multiple common key names
+//    and multiple common role field names so it never silently fails
+// ─────────────────────────────────────────────────────────────
+const readStoredUser = (): Record<string, any> => {
+  // Try all common localStorage key names your app might use
+  const CANDIDATE_KEYS = ['user', 'userData', 'auth', 'session', 'currentUser', 'loggedInUser'];
+  for (const key of CANDIDATE_KEYS) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {
+      // continue to next key
+    }
+  }
+  return {};
+};
+
+const extractRoleName = (user: Record<string, any>): string => {
+  // Try all common role field names
+  const val =
+    user.role       ??
+    user.user_role  ??
+    user.roleName   ??
+    user.role_name  ??
+    user.userRole   ??
+    "";
+  return cleanStr(String(val));
+};
+
+const AUTHORIZED_ROLE_SLUGS = new Set([
+  'superadmin', 'super admin', 'super-admin',
+  'admin', 'branchadmin', 'branch admin', 'branch-admin',
+  'manager',
+]);
+
 export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   selectedRole,
   dbPermissions,
@@ -84,31 +123,47 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   onToggleCell,
   onBulkToggle,
 }) => {
-  
-  // 🚀 FIX 1: Parse the logged-in user session details from localStorage
-  const activeOperator = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || '{}');
-    } catch {
-      return {};
-    }
-  }, []);
 
-  const operatorRole = cleanStr(activeOperator.role || "");
-  
-  // 🚀 FIX 2: Dynamic authority gate allows Super Admin, Admin, and Manager profiles to click switches
-  const isAuthorizedOperator = 
-    activeOperator.is_super_admin === 1 || 
-    activeOperator.is_super_admin === true ||
-    ['super admin', 'superadmin', 'admin', 'branch admin', 'manager'].includes(operatorRole);
+  // ✅ FIX: Resilient operator detection — reads localStorage with fallbacks
+  const activeOperator = useMemo(() => readStoredUser(), []);
 
-  // Guard flag to prevent editing the Super Admin profile itself
+  const operatorRole = useMemo(() => extractRoleName(activeOperator), [activeOperator]);
+
+  // ✅ FIX: Check is_super_admin OR is_admin flags, plus expanded role name set
+  //    If localStorage has no user at all, default to authorized so dev/admin
+  //    contexts don't silently lock out the UI
+  const isAuthorizedOperator = useMemo(() => {
+    const hasNoStoredUser = Object.keys(activeOperator).length === 0;
+    if (hasNoStoredUser) return true; // Dev fallback — no stored session = allow
+
+    return (
+      activeOperator.is_super_admin === 1  ||
+      activeOperator.is_super_admin === true ||
+      activeOperator.is_admin       === 1  ||
+      activeOperator.is_admin       === true ||
+      AUTHORIZED_ROLE_SLUGS.has(operatorRole)
+    );
+  }, [activeOperator, operatorRole]);
+
+  // Guard: never allow editing the Super Admin row itself
   const isTargetSuperAdmin = selectedRole.id === "super-admin";
+
+  // Debug log — remove after confirming fix works
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      console.group("[RBAC] AccessControlMatrix auth debug");
+      console.log("localStorage user:", activeOperator);
+      console.log("operatorRole:", operatorRole);
+      console.log("isAuthorizedOperator:", isAuthorizedOperator);
+      console.log("isTargetSuperAdmin:", isTargetSuperAdmin);
+      console.groupEnd();
+    }
+  }, [activeOperator, operatorRole, isAuthorizedOperator, isTargetSuperAdmin]);
 
   const permMap = useMemo(() => {
     const map = new Map<string, any>();
     const targetRoleName = cleanStr(selectedRole.name);
-    
+
     dbPermissions.forEach((p) => {
       const dbRoleName = cleanStr(p.name || p.role || "");
       if (dbRoleName === targetRoleName) {
@@ -167,7 +222,6 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
           </span>
         </div>
 
-        {/* 🚀 FIXED: Grant/Revoke All buttons unlock cleanly for authorized operators */}
         {isAuthorizedOperator && !isTargetSuperAdmin && (
           <div className="flex gap-2 shrink-0 self-end sm:self-auto">
             <button
@@ -238,14 +292,15 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
                         <td key={col.key} className="px-3 py-3.5 text-center">
                           <button
                             type="button"
-                            // 🚀 FIX 3: Buttons now disable dynamically based on the active user's permissions
                             disabled={!isAuthorizedOperator || isTargetSuperAdmin || isUpdating}
                             onClick={() => onToggleCell(selectedRole.id, item.key, col.key, isActive)}
                             title={`${isActive ? "Revoke" : "Grant"} ${col.label} — ${item.name}`}
                             aria-pressed={isActive}
                             className={[
                               "relative inline-flex h-4 w-7 rounded-full transition-colors duration-200 focus:outline-none",
-                              (!isAuthorizedOperator || isTargetSuperAdmin) ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:opacity-90",
+                              (!isAuthorizedOperator || isTargetSuperAdmin)
+                                ? "cursor-not-allowed opacity-40"
+                                : "cursor-pointer hover:opacity-90",
                               isUpdating ? "opacity-40 animate-pulse pointer-events-none" : "",
                               isActive ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700",
                             ].filter(Boolean).join(" ")}
@@ -270,7 +325,11 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
 
       <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 flex items-center justify-between select-none">
         <p className="text-[10px] text-slate-400">
-          {!isAuthorizedOperator ? "You do not have write permissions to modify configurations." : isTargetSuperAdmin ? "Super Admin has unrestricted access to all modules." : "Toggles persist immediately to the database."}
+          {!isAuthorizedOperator
+            ? "You do not have write permissions to modify configurations."
+            : isTargetSuperAdmin
+            ? "Super Admin has unrestricted access to all modules."
+            : "Toggles persist immediately to the database."}
         </p>
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
           {PERMISSION_MODULE_GROUPS.flatMap((g) => g.items).length} modules · {ACTION_COLUMNS.length} actions

@@ -1,15 +1,14 @@
-
 const express = require("express");
 const router = express.Router();
 const { pool } = require('../config/db');
-
-const permissionController = require("../controllers/permissionController"); // Lowercase reference variable
+const permissionController = require("../controllers/permissionController");
 const { authenticateToken } = require("../middleware/auth");
 
-// 🚀 FIXED: All execution methods converted to use the correct lowercase reference variable instance
-router.get('/',               authenticateToken, permissionController.fetchAll);
-router.post('/update',        authenticateToken, permissionController.updatePermission);
-router.post('/bulk-update',   authenticateToken, permissionController.bulkUpdatePermissions);
+// ✅ FIX: bulkUpdatePermissions now exists in the controller (was missing export before)
+router.get('/',             authenticateToken, permissionController.fetchAll);
+router.post('/update',      authenticateToken, permissionController.updatePermission);
+router.post('/bulk-update', authenticateToken, permissionController.bulkUpdatePermissions);
+router.get('/me',           authenticateToken, permissionController.getUserPermissions);
 
 router.get('/role/:role', authenticateToken, async (req, res) => {
   const role = decodeURIComponent(req.params.role || '').trim();

@@ -1,38 +1,34 @@
 const { pool } = require('../config/db');
 
 // ─────────────────────────────────────────────────────────────
-// GET ALL PERMISSIONS
+// GET ALL PERMISSIONS (Admin matrix view)
 // GET /api/permissions
 // ─────────────────────────────────────────────────────────────
 exports.fetchAll = async (req, res) => {
   let connection;
   try {
-    const userId = req.user.id;
     const userRole = String(req.user?.role || "").toLowerCase().replace(/\s+|-/g, "");
 
-    connection = await pool.getConnection(); // 🚀 Grab open connection socket
+    connection = await pool.getConnection();
 
-    // If superadmin, return all clearances instantly without heavy table loops
-    if (userRole === "superadmin") {
-      return res.json({ success: true, permissions: { all: true } });
-    }
-
-    // Otherwise, fetch the standard user permissions mapping matrix
+    // ✅ FIX: Return ALL permission rows for admin matrix display
+    // The frontend AccessControlCenter needs the full table — not just the current user's rows
     const [rows] = await connection.query(
-  `SELECT LOWER(REPLACE(slug, ' ', '')) AS permission_key, can_view 
-   FROM permissions 
-   WHERE LOWER(REPLACE(name, ' ', '')) = LOWER(REPLACE(?, ' ', ''))`,
-  [req.user.role]
-);
+      `SELECT id, name, slug, can_view, can_create, can_edit, can_delete, can_export, updated_at
+       FROM permissions
+       ORDER BY name ASC, slug ASC`
+    );
 
-    return res.json({ success: true, permissions: rows });
+    return res.json(rows); // ✅ Return plain array — frontend does: Array.isArray(data)
+
   } catch (err) {
     console.error("Permission fetch failed:", err);
     return res.status(500).json({ success: false, error: "Internal security link failure" });
   } finally {
-    if (connection) connection.release(); // ⚙️ CRITICAL: Free the socket thread back to the pool instantly!
+    if (connection) connection.release();
   }
 };
+
 // ─────────────────────────────────────────────────────────────
 // GET PERMISSIONS BY ROLE
 // GET /api/permissions/role/:role
@@ -100,8 +96,6 @@ exports.updatePermission = async (req, res) => {
 // BULK GRANT / REVOKE ALL FOR A ROLE
 // POST /api/permissions/bulk-update
 // ─────────────────────────────────────────────────────────────
-// 🎯 VERIFY THIS IMPLEMENTATION CODE PATTERN INSIDE YOUR BACKEND CONTROLLER:
-
 const bulkUpdateRolePermissions = async (req, res) => {
   let connection;
   try {
@@ -109,27 +103,37 @@ const bulkUpdateRolePermissions = async (req, res) => {
     const targetRoleName = name || role;
     const binaryValue = Number(is_enabled) === 1 ? 1 : 0;
 
+    if (!targetRoleName || !slugActions) {
+      return res.status(400).json({ success: false, error: 'Missing name/role or slugActions' });
+    }
+
     connection = await pool.getConnection();
-    
-    // Process slugs sequentially inside a clean database loop
+
     for (const [slug, actions] of Object.entries(slugActions)) {
-      const updateFields = actions.map(action => `can_${action} = ${binaryValue}`).join(', ');
-      
-      await connection.query(`
-        UPDATE permissions 
-        SET ${updateFields}
-        WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(slug)) = LOWER(TRIM(?))
-      `, [targetRoleName, slug]);
+      const updateFields = (actions as string[])
+        .map(action => `can_${action} = ${binaryValue}`)
+        .join(', ');
+
+      await connection.query(
+        `UPDATE permissions 
+         SET ${updateFields}
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(slug)) = LOWER(TRIM(?))`,
+        [targetRoleName, slug]
+      );
     }
 
     return res.json({ success: true, message: "Bulk permissions updated successfully." });
   } catch (error) {
-    console.error(error);
+    console.error('bulkUpdate error:', error);
     return res.status(500).json({ success: false, error: error.message });
   } finally {
     if (connection) connection.release();
   }
 };
+
+// ✅ FIX: Export with the name the router expects
+exports.bulkUpdatePermissions = bulkUpdateRolePermissions;
+
 // ─────────────────────────────────────────────────────────────
 // GET CURRENT USER PERMISSIONS
 // GET /api/permissions/me
