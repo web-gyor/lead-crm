@@ -123,6 +123,7 @@ export default function AccessControlCenter() {
     if (roleKey === "super-admin") return;
 
     const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
+    // 🚀 FIXED: Enforce string mapping uniformity matching your exact DB rows
     const roleName = targetedRoleObject ? targetedRoleObject.name : roleKey;
     const slugActions = buildSlugActions();
 
@@ -131,9 +132,10 @@ export default function AccessControlCenter() {
     setDbPermissions(prev => {
       const next = [...prev];
       Object.entries(slugActions).forEach(([slug, actions]) => {
+        // Strict case-insensitive fallback loop mapping
         const idx = next.findIndex(
-          p => p.slug?.toLowerCase() === slug.toLowerCase() &&
-               p.name?.toLowerCase() === roleName.toLowerCase()
+          p => String(p.slug).toLowerCase() === slug.toLowerCase() &&
+               String(p.name || p.role).toLowerCase() === roleName.toLowerCase()
         );
         const patch: Record<string, number> = {};
         (actions as string[]).forEach(a => { patch[`can_${a}`] = enableAll ? 1 : 0; });
@@ -142,7 +144,8 @@ export default function AccessControlCenter() {
           next[idx] = { ...next[idx], ...patch };
         } else {
           next.push({
-            name: roleName, slug,
+            name: roleName, 
+            slug,
             can_view: 0, can_create: 0, can_edit: 0, can_delete: 0, can_export: 0,
             ...patch,
           });
@@ -152,10 +155,12 @@ export default function AccessControlCenter() {
     });
 
     try {
+      // 🚀 FIXED: Ensure data object keys align with backend router expected fields
       const res = await apiPost("/api/permissions/bulk-update", {
-        role:       roleName,
+        name: roleName,       // Unified variable naming
+        role: roleName,       // Fallback tracking naming
         slugActions,            
-        is_enabled: enableAll,
+        is_enabled: enableAll ? 1 : 0, // Pass as a clean numeric binary parameter
       });
 
       if (!res?.success) throw new Error("Bulk update rejected");
@@ -164,12 +169,12 @@ export default function AccessControlCenter() {
     } catch (err) {
       console.error("Bulk toggle failed:", err);
       addToast("Bulk update failed", "error");
-      await fetchPermissionsMatrix();
+      await fetchPermissionsMatrix(); // Sync state back instantly on error
     } finally {
       setUpdating(null);
     }
   }, [addToast, fetchPermissionsMatrix]);
-
+  
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh] text-slate-400 font-bold uppercase tracking-wider text-[10px] animate-pulse">

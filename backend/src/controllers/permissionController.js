@@ -100,46 +100,36 @@ exports.updatePermission = async (req, res) => {
 // BULK GRANT / REVOKE ALL FOR A ROLE
 // POST /api/permissions/bulk-update
 // ─────────────────────────────────────────────────────────────
-exports.bulkUpdatePermissions = async (req, res) => {
-  const { role, slugActions, is_enabled } = req.body;
+// 🎯 VERIFY THIS IMPLEMENTATION CODE PATTERN INSIDE YOUR BACKEND CONTROLLER:
 
-  if (!role || !slugActions || typeof slugActions !== 'object') {
-    return res.status(400).json({ error: 'Missing role or slugActions map' });
-  }
-
-  const allowed = ['view', 'create', 'edit', 'delete', 'export'];
-  const enabled = is_enabled ? 1 : 0;
-
+const bulkUpdateRolePermissions = async (req, res) => {
+  let connection;
   try {
+    const { role, name, slugActions, is_enabled } = req.body;
+    const targetRoleName = name || role;
+    const binaryValue = Number(is_enabled) === 1 ? 1 : 0;
+
+    connection = await pool.getConnection();
+    
+    // Process slugs sequentially inside a clean database loop
     for (const [slug, actions] of Object.entries(slugActions)) {
-      const cols = Array.isArray(actions)
-        ? actions.filter(a => allowed.includes(a))
-        : [];
-
-      if (!cols.length) continue;
-
-      const insertCols    = cols.map(a => `can_${a}`).join(', ');
-      const insertVals    = cols.map(() => '?').join(', ');
-      const updateClauses = cols.map(a => `can_${a} = ?`).join(', ');
-      const vals          = cols.map(() => enabled);
-
-      await pool.query(
-        `INSERT INTO permissions (name, slug, ${insertCols}, updated_at)
-         VALUES (?, ?, ${insertVals}, NOW())
-         ON DUPLICATE KEY UPDATE
-           ${updateClauses},
-           updated_at = NOW()`,
-        [role, slug, ...vals, ...vals]
-      );
+      const updateFields = actions.map(action => `can_${action} = ${binaryValue}`).join(', ');
+      
+      await connection.query(`
+        UPDATE permissions 
+        SET ${updateFields}
+        WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(slug)) = LOWER(TRIM(?))
+      `, [targetRoleName, slug]);
     }
 
-    return res.status(200).json({ success: true });
-  } catch (err) {
-    console.error('bulkUpdatePermissions error:', err.message);
-    return res.status(500).json({ error: 'Failed to perform bulk update' });
+    return res.json({ success: true, message: "Bulk permissions updated successfully." });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (connection) connection.release();
   }
 };
-
 // ─────────────────────────────────────────────────────────────
 // GET CURRENT USER PERMISSIONS
 // GET /api/permissions/me

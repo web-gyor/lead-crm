@@ -77,6 +77,8 @@ interface AccessControlMatrixProps {
 
 const normalize = (s: string) => s ? s.toLowerCase().replace(/[\s_-]/g, "") : "";
 
+const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
+
 export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   selectedRole,
   dbPermissions,
@@ -86,12 +88,15 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
 }) => {
   const isSuperAdmin = selectedRole.id === "super-admin";
 
+  // 🚀 FIXED: Maps elements using reliable lower-casing matching rules
   const permMap = useMemo(() => {
     const map = new Map<string, any>();
-    const roleName = normalize(selectedRole.name);
+    const targetRoleName = cleanStr(selectedRole.name);
+    
     dbPermissions.forEach((p) => {
-      if (normalize(String(p.name || "")) === roleName) {
-        map.set(normalize(String(p.slug || "")), p);
+      const dbRoleName = cleanStr(p.name || p.role || "");
+      if (dbRoleName === targetRoleName) {
+        map.set(cleanStr(p.slug), p);
       }
     });
     return map;
@@ -99,12 +104,11 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
 
   const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
     if (isSuperAdmin) return true;
-    const row = permMap.get(normalize(featureKey));
+    const row = permMap.get(cleanStr(featureKey));
     if (!row) return false;
     const val = row[`can_${actionKey}`];
     return val === 1 || val === true || String(val) === "1";
   };
-
   const totalEnabled = useMemo(() => {
     if (isSuperAdmin) {
       return PERMISSION_MODULE_GROUPS.flatMap((g) => g.items)
