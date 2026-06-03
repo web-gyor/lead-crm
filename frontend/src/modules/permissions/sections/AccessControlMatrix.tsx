@@ -75,8 +75,6 @@ interface AccessControlMatrixProps {
   onFilterChange?: (val: string) => void;
 }
 
-const normalize = (s: string) => s ? s.toLowerCase().replace(/[\s_-]/g, "") : "";
-
 const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
 
 export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
@@ -86,9 +84,27 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   onToggleCell,
   onBulkToggle,
 }) => {
-  const isSuperAdmin = selectedRole.id === "super-admin";
+  
+  // 🚀 FIX 1: Parse the logged-in user session details from localStorage
+  const activeOperator = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}');
+    } catch {
+      return {};
+    }
+  }, []);
 
-  // 🚀 FIXED: Maps elements using reliable lower-casing matching rules
+  const operatorRole = cleanStr(activeOperator.role || "");
+  
+  // 🚀 FIX 2: Dynamic authority gate allows Super Admin, Admin, and Manager profiles to click switches
+  const isAuthorizedOperator = 
+    activeOperator.is_super_admin === 1 || 
+    activeOperator.is_super_admin === true ||
+    ['super admin', 'superadmin', 'admin', 'branch admin', 'manager'].includes(operatorRole);
+
+  // Guard flag to prevent editing the Super Admin profile itself
+  const isTargetSuperAdmin = selectedRole.id === "super-admin";
+
   const permMap = useMemo(() => {
     const map = new Map<string, any>();
     const targetRoleName = cleanStr(selectedRole.name);
@@ -103,14 +119,15 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   }, [dbPermissions, selectedRole.name]);
 
   const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
-    if (isSuperAdmin) return true;
+    if (isTargetSuperAdmin) return true;
     const row = permMap.get(cleanStr(featureKey));
     if (!row) return false;
     const val = row[`can_${actionKey}`];
     return val === 1 || val === true || String(val) === "1";
   };
+
   const totalEnabled = useMemo(() => {
-    if (isSuperAdmin) {
+    if (isTargetSuperAdmin) {
       return PERMISSION_MODULE_GROUPS.flatMap((g) => g.items)
         .reduce((sum, item) => sum + item.supportedActions.length, 0);
     }
@@ -122,7 +139,7 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
       });
     });
     return count;
-  }, [isSuperAdmin, permMap]);
+  }, [isTargetSuperAdmin, permMap]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "development") {
@@ -150,7 +167,8 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
           </span>
         </div>
 
-        {!isSuperAdmin && (
+        {/* 🚀 FIXED: Grant/Revoke All buttons unlock cleanly for authorized operators */}
+        {isAuthorizedOperator && !isTargetSuperAdmin && (
           <div className="flex gap-2 shrink-0 self-end sm:self-auto">
             <button
               type="button"
@@ -220,13 +238,14 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
                         <td key={col.key} className="px-3 py-3.5 text-center">
                           <button
                             type="button"
-                            disabled={isSuperAdmin || isUpdating}
+                            // 🚀 FIX 3: Buttons now disable dynamically based on the active user's permissions
+                            disabled={!isAuthorizedOperator || isTargetSuperAdmin || isUpdating}
                             onClick={() => onToggleCell(selectedRole.id, item.key, col.key, isActive)}
                             title={`${isActive ? "Revoke" : "Grant"} ${col.label} — ${item.name}`}
                             aria-pressed={isActive}
                             className={[
                               "relative inline-flex h-4 w-7 rounded-full transition-colors duration-200 focus:outline-none",
-                              isSuperAdmin ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:opacity-90",
+                              (!isAuthorizedOperator || isTargetSuperAdmin) ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:opacity-90",
                               isUpdating ? "opacity-40 animate-pulse pointer-events-none" : "",
                               isActive ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700",
                             ].filter(Boolean).join(" ")}
@@ -251,7 +270,7 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
 
       <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 flex items-center justify-between select-none">
         <p className="text-[10px] text-slate-400">
-          {isSuperAdmin ? "Super Admin has unrestricted access to all modules." : "Toggles persist immediately to the database."}
+          {!isAuthorizedOperator ? "You do not have write permissions to modify configurations." : isTargetSuperAdmin ? "Super Admin has unrestricted access to all modules." : "Toggles persist immediately to the database."}
         </p>
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
           {PERMISSION_MODULE_GROUPS.flatMap((g) => g.items).length} modules · {ACTION_COLUMNS.length} actions
