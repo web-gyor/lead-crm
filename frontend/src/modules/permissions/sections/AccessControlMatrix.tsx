@@ -89,7 +89,7 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   const isTargetSuperAdmin = selectedRole.id === "super-admin";
   const isInteractionAllowed = canEdit && !isTargetSuperAdmin;
 
-  // 🚀 FIXED: Maps elements securely supporting all column variations
+  // 🚀 FIXED PERMISSION MAP: Comprehensive matching layer maps name, role, or role_name keys safely
   const permMap = useMemo(() => {
     const map = new Map<string, any>();
     const targetRoleName = cleanStr(selectedRole.name);
@@ -103,7 +103,7 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
     return map;
   }, [dbPermissions, selectedRole.name]);
 
-  // 🚀 FIXED CEll STATUS LOGIC: Defensive checking captures both numbers, text strings and booleans safely
+  // 🚀 FIXED CELL STATUS LOGIC: Loose casting reads numeric TINYINT numbers (1/0) or text parameters securely
   const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
     if (isTargetSuperAdmin) return true;
     const row = permMap.get(cleanStr(featureKey));
@@ -126,6 +126,17 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
     });
     return count;
   }, [isTargetSuperAdmin, permMap]);
+
+  // Real-time telemetry reporting for front-end debug tracking
+  useEffect(() => {
+    console.log("=== 🔍 MATRIX RENDERING DIAGNOSTICS ===");
+    console.log("Highlighted Target Sidebar Role:", selectedRole.name);
+    console.log("Passed Down canEdit Gate Status:", canEdit);
+    console.log("Calculated isInteractionAllowed:", isInteractionAllowed);
+    console.log("Database Array Rows Loaded:", dbPermissions.length);
+    console.log("Mapped Permissions Row Count for Role:", permMap.size);
+    console.log("=======================================");
+  }, [selectedRole.id, canEdit, isInteractionAllowed, dbPermissions, permMap]);
 
   return (
     <div className="border border-slate-200/60 dark:border-slate-800/80 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-sm w-full">
