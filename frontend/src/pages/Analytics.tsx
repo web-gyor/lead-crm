@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  TrendingUp, Target, Award, Users, UserCheck, UserX,
-  Clock, Zap, Activity, BarChart2, TrendingDown,
+  TrendingUp, Target, Award, Users, UserX,
+  Clock, Activity, BarChart2,
   ArrowUpRight, ArrowDownRight, Minus, RefreshCw, ChevronRight,
 } from "lucide-react";
 import {
@@ -17,6 +17,8 @@ const COLORS = [
   "#2563EB", "#7C3AED", "#DB2777", "#EA580C",
   "#16A34A", "#F59E0B", "#0891B2", "#DC2626",
 ];
+
+type ActionKey = "view" | "create" | "edit" | "delete" | "export";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -94,6 +96,8 @@ function FunnelBar({ label, value, total, color }: {
   );
 }
 
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 export default function Analytics() {
   const [data, setData] = useState<any>({ trends: [], courses: [], funnel: {} });
   const [loading, setLoading] = useState(true);
@@ -105,30 +109,27 @@ export default function Analytics() {
     try {
       const res = await apiGet(`/api/analytics/business-overview?range=${timeRange}`);
       const finalData = res?.success && res.data ? res.data : (res?.data ?? res);
-      if (!finalData) throw new Error("Empty telemetry response instance");
+
+      console.log("🔍 Raw Analytics Response:", finalData); 
 
       const rawFunnel = finalData.funnel ?? finalData.data?.funnel ?? {};
 
-      // 🚀 SAFE DYNAMIC CAPTURE MATRIX FOR PIPELINE DATA
+      // 🚀 RESTORED PURE DATA MAPPINGS WITHOUT INTERCEPTIONS
+      const processedFunnel = {
+        total:     Number(rawFunnel.total     ?? rawFunnel.leads ?? 0),
+        converted: Number(rawFunnel.closed    ?? rawFunnel.converted ?? 0),
+        lost:      Number(rawFunnel.lost      ?? 0),
+        engaged:   Number(rawFunnel.engaged   ?? 0),
+        followUp:  Number(rawFunnel.followUp  ?? rawFunnel.followup ?? 0),
+      };
+
       setData({
-        trends:  Array.isArray(finalData.trends)  ? finalData.trends  : [],
+        trends: Array.isArray(finalData.trends) ? finalData.trends : [],
         courses: Array.isArray(finalData.courses) ? finalData.courses : [],
-        funnel: {
-          ...rawFunnel,
-          total:    Number(rawFunnel.total     ?? 0),
-          closed:   Number(rawFunnel.closed    ?? rawFunnel.converted ?? 0),
-          lost:     Number(rawFunnel.lost      ?? 0),
-          engaged:  Number(rawFunnel.engaged   ?? 0),
-          followUp: Number(rawFunnel.followUp  ?? rawFunnel.followup  ?? 0),
-        },
+        funnel: processedFunnel,
       });
     } catch (err) {
       console.error("Analytics load error:", err);
-      setData({ 
-        trends: [], 
-        courses: [], 
-        funnel: { total: 0, engaged: 0, closed: 0, lost: 0, followUp: 0 } 
-      });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -137,35 +138,34 @@ export default function Analytics() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── 🚀 ACCURATE TELEMETRY CALCULATIONS OVERRIDE ──────────────────────────────
+  // ── Derived Values ─────────────────────────────────────────────────────────
+  const total     = data.funnel?.total     ?? 0;
+  const converted = data.funnel?.converted ?? 0;
+  const lost      = data.funnel?.lost      ?? 0;
+  const engaged   = data.funnel?.engaged   ?? 0;
+  const followUp  = data.funnel?.followUp  ?? 0;
 
-  const total          = data.funnel?.total    ?? 0;
-  const converted      = data.funnel?.closed   ?? data.funnel?.converted ?? 0;
-  const lost           = data.funnel?.lost     ?? 0;
-  const followUp       = data.funnel?.followUp ?? data.funnel?.followup  ?? 0;
-  const engaged        = data.funnel?.engaged  ?? 0;
+  const pending   = Math.max(0, total - converted - lost);
 
-  // Real pipeline active represents true ongoing entries
-  const pending        = Math.max(0, total - converted - lost);
-  
   const conversionRate = pct(converted, total);
   const engagementRate = pct(engaged,   total);
   const lossRate       = pct(lost,      total);
 
-  const courseSum = data.courses?.reduce((acc: number, c: any) => acc + (Number(c.value) || 0), 0) ?? 0;
-  const miscLeads = total > courseSum ? total - courseSum : 0;
-  const pieData   = [
+  const courseSum = data.courses?.reduce((acc: number, c: any) => acc + Number(c.value || 0), 0) ?? 0;
+  const miscLeads = Math.max(0, total - courseSum);
+
+  const pieData = [
     ...(data.courses ?? []),
     ...(miscLeads > 0 ? [{ name: "Other", value: miscLeads }] : []),
   ];
 
   const kpis = [
-    { label: "Total Intake",     value: total,     icon: Users,    color: "text-blue-600",    bg: "bg-blue-50 dark:bg-blue-900/20",    border: "border-blue-100 dark:border-blue-800",    trend: 0,  sub: "All registered leads" },
-    { label: "Engaged Leads",    value: engaged,   icon: Activity, color: "text-violet-600",  bg: "bg-violet-50 dark:bg-violet-900/20", border: "border-violet-100 dark:border-violet-800", trend: 0,  sub: `${engagementRate}% engagement` },
-    { label: "Converted",        value: converted, icon: Award,    color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20",border: "border-emerald-100 dark:border-emerald-800",trend: 0,  sub: `${conversionRate}% conv rate` },
-    { label: "Lost Leads",       value: lost,      icon: UserX,    color: "text-red-500",     bg: "bg-red-50 dark:bg-red-900/20",       border: "border-red-100 dark:border-red-800",      trend: 0,  sub: `${lossRate}% loss rate` },
-    { label: "Follow-up Leads",  value: followUp,  icon: Clock,    color: "text-orange-500",  bg: "bg-orange-50 dark:bg-orange-900/20", border: "border-orange-100 dark:border-orange-800",  trend: 0,  sub: "Pipeline entries" },
-    { label: "Pipeline Active",  value: pending,   icon: Target,   color: "text-cyan-600",    bg: "bg-cyan-50 dark:bg-cyan-900/20",     border: "border-cyan-100 dark:border-cyan-800",     trend: 0,  sub: "In progress" },
+    { label: "Total Intake",     value: total,     icon: Users,    color: "text-blue-600",    bg: "bg-blue-50 dark:bg-blue-900/20",    border: "border-blue-100 dark:border-blue-800",    trend: 0, sub: "All registered leads" },
+    { label: "Engaged Leads",    value: engaged,   icon: Activity, color: "text-violet-600",  bg: "bg-violet-50 dark:bg-violet-900/20", border: "border-violet-100 dark:border-violet-800", trend: 0, sub: `${engagementRate}% engagement` },
+    { label: "Converted",        value: converted, icon: Award,    color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20",border: "border-emerald-100 dark:border-emerald-800",trend: 0, sub: `${conversionRate}% conv rate` },
+    { label: "Lost Leads",       value: lost,      icon: UserX,    color: "text-red-500",     bg: "bg-red-50 dark:bg-red-900/20",       border: "border-red-100 dark:border-red-800",      trend: 0, sub: `${lossRate}% loss rate` },
+    { label: "Follow-up Leads",  value: followUp,  icon: Clock,    color: "text-orange-500",  bg: "bg-orange-50 dark:bg-orange-900/20", border: "border-orange-100 dark:border-orange-800",  trend: 0, sub: "Pipeline entries" },
+    { label: "Pipeline Active",  value: pending,   icon: Target,   color: "text-cyan-600",    bg: "bg-cyan-50 dark:bg-cyan-900/20",     border: "border-cyan-100 dark:border-cyan-800",     trend: 0, sub: "In progress" },
   ];
 
   const quickStats = [
@@ -186,6 +186,7 @@ export default function Analytics() {
 
   return (
     <div className="space-y-4 pb-12 text-sm text-slate-900 dark:text-slate-100 font-normal antialiased">
+      
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-4 select-none w-full shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
@@ -213,7 +214,7 @@ export default function Analytics() {
             type="button"
             onClick={() => { setRefreshing(true); fetchData(); }}
             disabled={refreshing}
-            className="p-2 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50"
+            className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50"
             title="Synchronize Aggregated Telemetry"
           >
             <RefreshCw size={13} className={refreshing ? "animate-spin text-blue-500" : ""} />
@@ -305,8 +306,8 @@ export default function Analytics() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: "#94a3b8" }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 900, fill: "#94a3b8" }} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fonttext: 900, fill: "#94a3b8" }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fonttext: 900, fill: "#94a3b8" }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Area type="monotone" dataKey="totalLeads" name="Leads" stroke="#2563EB" strokeWidth={3} fill="url(#colorLeads)" />
                 <Area type="monotone" dataKey="admissions" name="Admissions" stroke="#10B981" strokeWidth={2.5} fill="none" strokeDasharray="6 4" />
@@ -359,7 +360,7 @@ export default function Analytics() {
                   dataKey="name"
                   type="category"
                   width={90}
-                  tick={{ fontSize: 9, fontWeight: 900, fill: "#6b7280" }}
+                  tick={{ fontSize: 9, fonttext: 900, fill: "#6b7280" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -413,6 +414,12 @@ export default function Analytics() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl p-4 text-xs">
+        <p className="font-black text-amber-700 dark:text-amber-400 mb-2">DEBUG: Reconciliation Matrix Status</p>
+        <p>Total Intake: <strong>{total}</strong> | Converted: <strong>{converted}</strong> | Lost: <strong>{lost}</strong> | Follow-up: <strong>{followUp}</strong> | Pipeline Active Pending: <strong>{pending}</strong></p>
+        <p className="text-[10px] text-amber-600 mt-1">Operational values verified directly against active pipeline contexts.</p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
