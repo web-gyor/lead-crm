@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  RefreshCw, Layers, CheckCircle2,
-  AlertTriangle, HelpCircle, Flame, Download,
-  LayoutGrid, ChevronRight, XCircle, Archive
+  RefreshCw, Download, ChevronRight
 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { apiGet, apiDelete, apiPost, apiPut } from '../../utils/api';
@@ -17,6 +15,8 @@ import { EditLeadModal } from './components/EditLeadModal';
 import { ViewLeadModal } from './components/ViewLeadModal';
 import { AddLeadModal } from './components/AddLeadModal';
 import PaginationFooter from './components/PaginationFooter';
+// 🚀 IMPORT THE FIXED TABS COMPONENT DYNAMICALLY
+import { LeadStatusTabs, TabValue } from './components/LeadStatusTabs';
 
 const STATUS_OPTIONS = [
   { value: 'all',            label: 'All managed leads'    },
@@ -42,22 +42,8 @@ const FALLBACK_SOURCES = [
   { id: '10', name: 'Unknown' }
 ];
 
-const TAB_CONFIG = [
-  { name: 'All',             color: 'text-slate-700 bg-slate-100',    icon: <LayoutGrid size={13} /> },
-  { name: 'New',             color: 'text-blue-600 bg-blue-50',       icon: <Layers size={13} /> },
-  { name: 'Contacted',       color: 'text-indigo-600 bg-indigo-50',    icon: <RefreshCw size={13} /> },
-  { name: 'Interested',      color: 'text-emerald-600 bg-emerald-50', icon: <Flame size={13} /> },
-  { name: 'Follow-up',       color: 'text-amber-600 bg-amber-50',     icon: <AlertTriangle size={13} /> },
-  { name: 'Converted',       color: 'text-teal-600 bg-teal-50',       icon: <CheckCircle2 size={13} /> },
-  { name: 'Lost',            color: 'text-rose-600 bg-rose-50',       icon: <XCircle size={13} /> },
-  { name: 'Not Interested',  color: 'text-slate-500 bg-slate-100',    icon: <HelpCircle size={13} /> },
-  { name: 'Cold Storage',    color: 'text-cyan-600 bg-cyan-50',       icon: <Archive size={13} /> },
-] as const;
-
-type TabName = typeof TAB_CONFIG[number]['name'];
-
-const EMPTY_COUNTS: Record<TabName, number> = {
-  All: 0, New: 0, Contacted: 0, Interested: 0, 'Follow-up': 0, Converted: 0, Lost: 0, 'Not Interested': 0, 'Cold Storage': 0
+const EMPTY_COUNTS: Record<TabValue, number> = {
+  all: 0, New: 0, Contacted: 0, Interested: 0, 'Follow-up': 0, Converted: 0, Lost: 0, 'Not Interested': 0, 'Cold Storage': 0
 };
 
 export default function LeadPage() {
@@ -77,8 +63,8 @@ export default function LeadPage() {
     currentUser?.role?.toLowerCase() === 'admin',
   [currentUser]);
 
-const [activeStatus, setActiveStatus]   = useState<TabName>('All');
-  const [statusCounts, setStatusCounts]   = useState<Record<TabName, number>>(EMPTY_COUNTS);
+  const [activeStatus, setActiveStatus]   = useState<TabValue>('all');
+  const [statusCounts, setStatusCounts]   = useState<Record<TabValue, number>>(EMPTY_COUNTS);
   const [leads, setLeads]                 = useState<any[]>([]);
   const [totalCount, setTotalCount]       = useState(0);
   const [totalPages, setTotalPages]       = useState(1);
@@ -95,7 +81,6 @@ const [activeStatus, setActiveStatus]   = useState<TabName>('All');
   const [sourceOptions, setSourceOptions]     = useState<any[]>([]);
   const [counselors, setCounselors]           = useState<any[]>([]);
 
-  // 🚀 FIXED: Added the missing opening square bracket '['
   const [selectedLeads, setSelectedLeads]         = useState<number[]>([]);
   const [bulkMode, setBulkMode]                   = useState<'assign' | 'edit' | 'delete' | 'restore'>('assign');
   const [targetCounselorId, setTargetCounselorId] = useState('');
@@ -110,8 +95,7 @@ const [activeStatus, setActiveStatus]   = useState<TabName>('All');
   const [deleteId, setDeleteId]               = useState<number | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting]           = useState(false);
-// 🎯 TARGET LOCATION: src/modules/leads/LeadsPage.tsx (State block)
-const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
+  const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
   const [phone, setPhone]                   = useState('');
   const [checkingPhone, setCheckingPhone]   = useState(false);
   const [duplicateLead, setDuplicateLead]   = useState<any>(null);
@@ -165,8 +149,7 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
     <div className="p-2 text-xs italic text-slate-400">Loading node #{leadId} activity stream…</div>
   ), []);
 
-  // ─── FETCH SUMMARY STATS ─────────────────────────────────────────────────────
- const fetchSummaryStats = useCallback(async () => {
+  const fetchSummaryStats = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (filters.startDate) params.set('startDate', filters.startDate);
@@ -202,8 +185,8 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
                               finalFollowup + finalConverted + finalLost + finalNotInterested;
       const displayTotal = Number(res.totalLeads ?? res.data?.totalLeads ?? calculatedTotal);
 
-    setStatusCounts({
-        All:              displayTotal,
+      setStatusCounts({
+        all:              displayTotal,
         New:              finalNew,
         Contacted:        finalContacted,
         Interested:       finalInterested,
@@ -215,15 +198,11 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
       });
 
       setStats((prev: any) => ({
-        // 🚀 CRUCIAL FIX: Spread previous state to maintain variables loaded by loadPayload
         ...prev, 
         totalLeads:       displayTotal,
         newToday:         Number(res.newToday         ?? res.data?.newToday         ?? 0),
         highIntentLeads:  Number(res.highIntentLeads  ?? res.data?.highIntentLeads  ?? finalInterested),
         pendingFollowUps: Number(res.pendingFollowUps ?? res.data?.pendingFollowUps ?? finalFollowup),
-        
-        // 🚀 REMOVED THE OVERWRITE: Do NOT read res.unassigned here anymore! 
-        // We strictly lock down and preserve the unassigned count from prev state.
         unassignedLeads:  Number(prev?.unassignedLeads ?? 25)
       }));
     } catch (err) {
@@ -232,88 +211,71 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
   }, [filters.startDate, filters.endDate]);
 
   const loadPayload = useCallback(async (silent = false) => {
-  // 🚀 FIXED: Only block the screen if it is the first time the workspace opens!
-  if (!silent && isInitialLoad) setLoading(true);
-  
-  try {
-    const params: Record<string, string> = {
-      page: String(currentPage),
-      limit: String(rowsPerPage),
-      search: debouncedSearch || '',
-    };
-
-    const isColdStorage = activeStatus === 'Cold Storage';
-    if (!isColdStorage && activeStatus !== 'All') {
-      params.status = activeStatus;
-    }
-
-    if (filters.sourceId)     params.source_id = filters.sourceId;
-    if (filters.counselorId)  params.assigned_user_id = filters.counselorId;
-    if (filters.quality)      params.lead_quality = filters.quality;
-    if (filters.startDate)    params.startDate = filters.startDate;
-    if (filters.endDate)      params.endDate = filters.endDate;
-
-    const baseRoute = isColdStorage ? '/api/leads/archive' : '/api/leads';
+    if (!silent && isInitialLoad) setLoading(true);
     
-    const res = await apiGet(`${baseRoute}?${new URLSearchParams(params)}`);
+    try {
+      const params: Record<string, string> = {
+        page: String(currentPage),
+        limit: String(rowsPerPage),
+        search: debouncedSearch || '',
+      };
 
-    if (res) {
-      const rows = res.data ?? (Array.isArray(res) ? res : []);
-      setLeads(rows);
-      setTotalCount(res.pagination?.totalItems ?? rows.length);
-      setTotalPages(res.pagination?.totalPages ?? 1);
-      refreshTimestamp();
+      const isColdStorage = activeStatus === 'Cold Storage';
+      if (!isColdStorage && activeStatus !== 'all') {
+        params.status = activeStatus;
+      }
+
+      if (filters.sourceId)     params.source_id = filters.sourceId;
+      if (filters.counselorId)  params.assigned_user_id = filters.counselorId;
+      if (filters.quality)      params.lead_quality = filters.quality;
+      if (filters.startDate)    params.startDate = filters.startDate;
+      if (filters.endDate)      params.endDate = filters.endDate;
+
+      const baseRoute = isColdStorage ? '/api/leads/archive' : '/api/leads';
+      const res = await apiGet(`${baseRoute}?${new URLSearchParams(params)}`);
+
+      if (res) {
+        const rows = res.data ?? (Array.isArray(res) ? res : []);
+        setLeads(rows);
+        setTotalCount(res.pagination?.totalItems ?? rows.length);
+        setTotalPages(res.pagination?.totalPages ?? 1);
+        refreshTimestamp();
+      }
+
+      setIsInitialLoad(false);
+
+      apiGet(`/api/leads/kpis?${new URLSearchParams({
+        startDate: filters.startDate || '',
+        endDate: filters.endDate || ''
+      })}`).then((kpiResult) => {
+        if (kpiResult) {
+          const payload = kpiResult.success && kpiResult.data ? kpiResult.data : kpiResult;
+          setStats((prev: any) => ({
+            ...prev,
+            totalLeads: Number(payload?.totalLeads ?? payload?.stats?.all ?? 0),
+            newToday: Number(payload?.newToday ?? 0),
+            highIntentLeads: Number(payload?.highIntentLeads ?? 0),
+            pendingFollowUps: Number(payload?.pendingFollowUps ?? 0),
+          }));
+        }
+      }).catch(err => console.error("KPI deferred loop error:", err));
+
+      apiGet('/api/dashboard/notifications').then((notifResult) => {
+        if (notifResult) {
+          const liveUnassigned = Number(notifResult?.newLeads ?? notifResult?.data?.newLeads ?? 0);
+          setGlobalUnassigned(liveUnassigned);
+          window.dispatchEvent(
+            new CustomEvent('crm:notifications-badge-sync', { detail: { newLeads: liveUnassigned } })
+          );
+        }
+      }).catch(err => console.error("Badges background loop error:", err));
+
+    } catch (error) {
+      console.error('loadPayload error:', error);
+    } finally {
+      setLoading(false);
     }
-
-    // ⚡ Complete the initial load sequence loop
-    setIsInitialLoad(false);
-
-    // Stream counters quietly in the background layout
-    apiGet(`/api/leads/kpis?${new URLSearchParams({
-      startDate: filters.startDate || '',
-      endDate: filters.endDate || ''
-    })}`).then((kpiResult) => {
-      if (kpiResult) {
-        const payload = kpiResult.success && kpiResult.data ? kpiResult.data : kpiResult;
-        setStats((prev: any) => ({
-          ...prev,
-          totalLeads: Number(payload?.totalLeads ?? payload?.stats?.all ?? 0),
-          newToday: Number(payload?.newToday ?? 0),
-          highIntentLeads: Number(payload?.highIntentLeads ?? 0),
-          pendingFollowUps: Number(payload?.pendingFollowUps ?? 0),
-        }));
-      }
-    }).catch(err => console.error("KPI deferred loop error:", err));
-
-    apiGet('/api/dashboard/notifications').then((notifResult) => {
-      if (notifResult) {
-        const liveUnassigned = Number(notifResult?.newLeads ?? notifResult?.data?.newLeads ?? 0);
-        setGlobalUnassigned(liveUnassigned);
-        window.dispatchEvent(
-          new CustomEvent('crm:notifications-badge-sync', { detail: { newLeads: liveUnassigned } })
-        );
-      }
-    }).catch(err => console.error("Badges background loop error:", err));
-
-  } catch (error) {
-    console.error('loadPayload error:', error);
-  } finally {
-    setLoading(false);
-  }
-}, [
-  currentPage, 
-  rowsPerPage, 
-  debouncedSearch, 
-  activeStatus, 
-  filters.sourceId, 
-  filters.counselorId, 
-  filters.quality, 
-  filters.startDate, 
-  filters.endDate, 
-  isInitialLoad, // 🚀 Added dependency hook
-  refreshTimestamp
-]);
-  // ─── EFFECTS ─────────────────────────────────────────────────────────────────
+  }, [currentPage, rowsPerPage, debouncedSearch, activeStatus, filters.sourceId, filters.counselorId, filters.quality, filters.startDate, filters.endDate, isInitialLoad, refreshTimestamp]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -323,15 +285,13 @@ const [globalUnassigned, setGlobalUnassigned] = useState<number>(0);
     return () => clearTimeout(t);
   }, [filters.search]);
 
-useEffect(() => {
+  useEffect(() => {
+    loadPayload();
+  }, [loadPayload]);
 
-  loadPayload();
-}, [loadPayload]);
-
-useEffect(() => {
-
-  fetchSummaryStats();
-}, [activeStatus, fetchSummaryStats]);
+  useEffect(() => {
+    fetchSummaryStats();
+  }, [activeStatus, fetchSummaryStats]);
 
   useEffect(() => {
     apiGet('/api/users')
@@ -340,12 +300,7 @@ useEffect(() => {
         const filtered = allUsers.filter((user: any) => {
           if (!user) return false;
           const role = String(user.role || user.user_role || user.position || '').toLowerCase().trim();
-          return role.includes('counselor') || 
-                 role.includes('telecaller') || 
-                 role.includes('tele caller') ||
-                 role.includes('tele-caller') ||
-                 role.includes('counselor') ||
-                 role.includes('telecaller');
+          return role.includes('counselor') || role.includes('telecaller') || role.includes('tele caller') || role.includes('tele-caller');
         });
         setCounselors(filtered);
       })
@@ -359,12 +314,10 @@ useEffect(() => {
     apiGet('/api/lead-sources')
       .then((res: any) => {
         let raw = Array.isArray(res) ? res : (res?.data || res?.sources || res?.channels || []);
-        const formatted = raw
-          .map((s: any) => ({
-            id: String(s.id ?? s.source_id ?? s.lead_source_id ?? ''),
-            name: String(s.name ?? s.channel_name ?? s.title ?? 'Unknown Channel'),
-          }))
-          .filter(s => s.id && s.name);
+        const formatted = raw.map((s: any) => ({
+          id: String(s.id ?? s.source_id ?? s.lead_source_id ?? ''),
+          name: String(s.name ?? s.channel_name ?? s.title ?? 'Unknown Channel'),
+        })).filter(s => s.id && s.name);
         setSourceOptions(formatted.length > 0 ? formatted : FALLBACK_SOURCES);
       })
       .catch((err) => {
@@ -373,45 +326,28 @@ useEffect(() => {
       });
   }, []);
 
-useEffect(() => {
-  const sync = (e: any) => { 
-    loadPayload(true); 
-    fetchSummaryStats(); 
-    
-    // 🚀 FIXED: Captures real-time notifications numbers whenever an event fires across panels
-    if (e?.detail?.unassignedCount || e?.detail?.newLeads) {
-      setGlobalUnassigned(Number(e.detail.unassignedCount ?? e.detail.newLeads));
-    }
-  };
-  
-  window.addEventListener('refreshDashboardStats', sync);
-  window.addEventListener('crm:stats-update',      sync);
-  return () => {
-    window.removeEventListener('refreshDashboardStats', sync);
-    window.removeEventListener('crm:stats-update',      sync);
-  };
-}, [loadPayload, fetchSummaryStats]);
-
-  const realLiveUnassignedCount = useMemo(() => {
-  // 🚀 FIXED: Scans your active memory state array directly to see what matches the screen rules
-  const unassignedRows = leads.filter(l => 
-    l && 
-    (l.assigned_user_id === null || l.assigned_to === null || !l.assigned_user_id) &&
-    l.is_archived !== 1
-  );
-  
-  // If your rows match your active viewing list total, return that length. 
-  // Otherwise, fallback directly to your validated notification base baseline total (25).
-  return unassignedRows.length > 0 ? unassignedRows.length : 25;
-}, [leads]);
-  // ─── BULK ACTIONS ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const sync = (e: any) => { 
+      loadPayload(true); 
+      fetchSummaryStats(); 
+      if (e?.detail?.unassignedCount || e?.detail?.newLeads) {
+        setGlobalUnassigned(Number(e.detail.unassignedCount ?? e.detail.newLeads));
+      }
+    };
+    window.addEventListener('refreshDashboardStats', sync);
+    window.addEventListener('crm:stats-update', sync);
+    return () => {
+      window.removeEventListener('refreshDashboardStats', sync);
+      window.removeEventListener('crm:stats-update', sync);
+    };
+  }, [loadPayload, fetchSummaryStats]);
 
   const handleBulkAssign = useCallback(async () => {
     if (!selectedLeads.length) return addToast('Select at least one lead', 'error');
     if (!targetCounselorId)    return addToast('Choose a counselor to assign', 'error');
     setIsBulkLoading(true);
     try {
-      const assignedStatus = activeStatus !== 'All' && activeStatus !== 'Cold Storage' ? activeStatus : 'New';
+      const assignedStatus = activeStatus !== 'all' && activeStatus !== 'Cold Storage' ? activeStatus : 'New';
       await apiPut('/api/leads/bulk-assign', {
         leadIds: selectedLeads,
         assigned_user_id: parseInt(targetCounselorId, 10),
@@ -455,12 +391,10 @@ useEffect(() => {
     try {
       let res = await apiPost('/api/leads/bulk-restore', { ids });
       let isSuccess = res?.success || res?.data?.success || (!res?.error && !res?.data?.error);
-
       if (!isSuccess) {
         res = await apiPost('/api/leads/archive/restore', { ids });
         isSuccess = res?.success || res?.data?.success || (!res?.error && !res?.data?.error);
       }
-
       if (isSuccess) {
         addToast(`${ids.length} lead${ids.length > 1 ? 's' : ''} recovered to pipeline`, 'success');
         await Promise.all([loadPayload(true), fetchSummaryStats()]);
@@ -489,10 +423,7 @@ useEffect(() => {
       const res = await apiPost(targetRoute, { ids: targetIds });
       const isSuccess = res?.success || res?.data?.success || (!res?.error && !res?.data?.error);
       if (isSuccess) {
-        addToast(
-          isColdStorage ? `Permanently erased ${targetIds.length} archived entries` : `Moved ${targetIds.length} leads to cold storage`,
-          'success',
-        );
+        addToast(isColdStorage ? `Permanently erased ${targetIds.length} archived entries` : `Moved ${targetIds.length} leads to cold storage`, 'success');
         await Promise.all([loadPayload(true), fetchSummaryStats()]);
       } else {
         throw new Error('Bulk delete rejected');
@@ -505,8 +436,6 @@ useEffect(() => {
       setIsDeleting(false);
     }
   }, [selectedLeads, activeStatus, loadPayload, fetchSummaryStats, addToast]);
-
-  // ─── SINGLE ROW ACTIONS ───────────────────────────────────────────────────────
 
   const handleSingleRestore = useCallback(async (id: number) => {
     setLeads(prev => prev.filter(lead => lead.id !== id));
@@ -548,8 +477,6 @@ useEffect(() => {
     }
   }, [activeStatus, loadPayload, fetchSummaryStats, addToast]);
 
-  // ─── ADD / EDIT HANDLERS ──────────────────────────────────────────────────────
-
   const handleAddSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -587,8 +514,6 @@ useEffect(() => {
     }
   }, [editingLead, editStatus, editUrgency, followUpDate, isFollowUpStatus, loadPayload, fetchSummaryStats, addToast]);
 
-  // ─── MODAL TRIGGERS ───────────────────────────────────────────────────────────
-
   const triggerViewModal = useCallback((l: any) => { setEditingLead(l); setShowViewForm(true); }, []);
   const triggerEditModal = useCallback((l: any) => {
     setEditingLead(l);
@@ -617,7 +542,7 @@ useEffect(() => {
 
   const fetchAllLeadsForExport = async () => {
     try {
-      const queryStatus = activeStatus === 'Cold Storage' ? 'archive' : (activeStatus === 'All' ? 'all' : activeStatus);
+      const queryStatus = activeStatus === 'Cold Storage' ? 'archive' : (activeStatus === 'all' ? 'all' : activeStatus);
       const res = await apiGet(`/api/leads?status=${queryStatus.toLowerCase()}&limit=15000&page=1`) as any;
       const unpackedLeads = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
       const currentQuery = (filters.search || "").toLowerCase().trim();
@@ -653,9 +578,7 @@ useEffect(() => {
     const csvContent = [
       headers.join(","),
       ...allLeads.map((l: any) => {
-        const clean = (val: any) =>
-          `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
-
+        const clean = (val: any) => `"${String(val || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`;
         return [
           l.id,
           l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : "",
@@ -674,11 +597,9 @@ useEffect(() => {
 
     const BOM = "\uFEFF";
     const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
-
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `WebGyor_Media_Leads_${new Date().toISOString().split("T")[0]}.csv`;
-
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -733,48 +654,24 @@ useEffect(() => {
         </div>
       </header>
 
-      {/* 🚀 FIXED UP CARD BLOCK: Safely extracts and renders the live 25 unassigned Leads total */}
-<LeadKPICards
-  totalLeads={stats?.totalLeads ?? totalCount ?? 0}
-  newToday={stats?.newToday ?? 0}
-  highIntentLeads={stats?.highIntentLeads ?? 0}
-  pendingFollowUps={stats?.pendingFollowUps ?? 0}
-  
-  // 🚀 FIXED: Bypasses paginated arrays completely. 
-  // Reads the real-time pipeline total, defaulting safely to your verified notification base of 25.
-  unassignedLeads={globalUnassigned}
-  
-  loading={loading}
-/>
+      <LeadKPICards
+        totalLeads={stats?.totalLeads ?? totalCount ?? 0}
+        newToday={stats?.newToday ?? 0}
+        highIntentLeads={stats?.highIntentLeads ?? 0}
+        pendingFollowUps={stats?.pendingFollowUps ?? 0}
+        unassignedLeads={globalUnassigned}
+        loading={loading}
+      />
 
       <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-2xl shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center gap-2 p-3 sm:p-2.5">
-          <div
-            className="flex items-center gap-1 overflow-x-auto w-full pb-2 lg:pb-0 select-none scrollbar-none"
-            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
-          >
-            {TAB_CONFIG.map((t) => {
-              const isActive = activeStatus === t.name;
-              return (
-                <button
-                  key={t.name}
-                  type="button"
-                  onClick={() => { setActiveStatus(t.name); setCurrentPage(1); }}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer border shrink-0 ${
-                    isActive
-                      ? 'bg-slate-900 border-slate-900 text-white dark:bg-white dark:border-white dark:text-slate-900'
-                      : 'bg-transparent border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  <span className="opacity-60">{t.icon}</span>
-                  <span className="whitespace-nowrap">{t.name}</span>
-                  <span className={`px-1 py-0.5 rounded text-[10px] font-mono font-medium ${isActive ? 'bg-white/20 text-white' : t.color}`}>
-                    {statusCounts[t.name] ?? 0}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          
+          {/* 🚀 FIXED: RENDER THE GENUINE OPTIMIZED COMPONENT WE CREATED INSTEAD OF LOCAL COPIES */}
+          <LeadStatusTabs 
+            activeStatus={activeStatus}
+            setActiveStatus={(status) => { setActiveStatus(status); setCurrentPage(1); }}
+            counts={statusCounts}
+          />
 
           <div className="hidden lg:block h-5 w-px bg-slate-200 dark:bg-slate-700/80 shrink-0 mx-1" />
 
