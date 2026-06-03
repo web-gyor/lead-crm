@@ -64,27 +64,45 @@ exports.updatePermission = async (req, res) => {
   const actionLower = action.toLowerCase();
 
   if (!allowed.includes(actionLower)) {
-    return res.status(400).json({
-      error: `Invalid action "${action}". Must be one of: ${allowed.join(', ')}`
-    });
+    return res.status(400).json({ error: `Invalid action "${action}"` });
   }
 
   const column = `can_${actionLower}`;
   const intVal = value ? 1 : 0;
+  const roleName = String(name).trim();
 
   try {
-    await pool.query(
-      `INSERT INTO permissions (name, slug, ${column}, updated_at)
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE
-         ${column}  = VALUES(${column}),
-         updated_at = NOW()`,
-      [name, slug, intVal]
+    // First try to update existing row
+    const [updateResult] = await pool.query(
+      `UPDATE permissions 
+       SET ${column} = ?, updated_at = NOW()
+       WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) 
+         AND LOWER(TRIM(slug)) = LOWER(TRIM(?))`,
+      [intVal, roleName, slug]
     );
+
+    if (updateResult.affectedRows === 0) {
+      // No row existed → create full row with defaults
+      await pool.query(
+        `INSERT INTO permissions 
+         (name, slug, can_view, can_create, can_edit, can_delete, can_export, updated_at)
+         VALUES (?, ?, 0, 0, 0, 0, 0, NOW())`,
+        [roleName, slug]
+      );
+
+      // Now set the specific permission
+      await pool.query(
+        `UPDATE permissions 
+         SET ${column} = ?, updated_at = NOW()
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) 
+           AND LOWER(TRIM(slug)) = LOWER(TRIM(?))`,
+        [intVal, roleName, slug]
+      );
+    }
 
     return res.status(200).json({
       success: true,
-      updated: { name, slug, action: column, value: intVal }
+      updated: { name: roleName, slug, action: column, value: intVal }
     });
   } catch (err) {
     console.error('updatePermission error:', err.message);
@@ -99,8 +117,8 @@ exports.updatePermission = async (req, res) => {
 const bulkUpdateRolePermissions = async (req, res) => {
   let connection;
   try {
-    const { role, name, slugActions, is_enabled } = req.body;
-    const targetRoleName = name || role;
+    const { name, role, slugActions, is_enabled } = req.body;
+    const targetRoleName = String(name || role).trim();
     const binaryValue = Number(is_enabled) === 1 ? 1 : 0;
 
     if (!targetRoleName || !slugActions) {
@@ -110,15 +128,35 @@ const bulkUpdateRolePermissions = async (req, res) => {
     connection = await pool.getConnection();
 
     for (const [slug, actions] of Object.entries(slugActions)) {
+      const cleanSlug = String(slug).trim();
+
+      // Ensure row exists
+      const [existing] = await connection.query(
+        `SELECT 1 FROM permissions 
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) 
+           AND LOWER(TRIM(slug)) = LOWER(TRIM(?))`,
+        [targetRoleName, cleanSlug]
+      );
+
+      if (existing.length === 0) {
+        await connection.query(
+          `INSERT INTO permissions (name, slug, can_view, can_create, can_edit, can_delete, can_export, updated_at)
+           VALUES (?, ?, 0, 0, 0, 0, 0, NOW())`,
+          [targetRoleName, cleanSlug]
+        );
+      }
+
+      // Update the relevant columns
       const updateFields = (actions as string[])
         .map(action => `can_${action} = ${binaryValue}`)
         .join(', ');
 
       await connection.query(
         `UPDATE permissions 
-         SET ${updateFields}
-         WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(slug)) = LOWER(TRIM(?))`,
-        [targetRoleName, slug]
+         SET ${updateFields}, updated_at = NOW()
+         WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) 
+           AND LOWER(TRIM(slug)) = LOWER(TRIM(?))`,
+        [targetRoleName, cleanSlug]
       );
     }
 

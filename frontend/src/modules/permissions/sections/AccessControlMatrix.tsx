@@ -90,29 +90,28 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   const isInteractionAllowed = canEdit && !isTargetSuperAdmin;
 
   // 🚀 FIXED PERMISSION MAP: Comprehensive matching layer maps name, role, or role_name keys safely
-  const permMap = useMemo(() => {
-    const map = new Map<string, any>();
-    const targetRoleName = cleanStr(selectedRole.name);
-    
-    dbPermissions.forEach((p) => {
-      const dbRoleName = cleanStr(p.name || p.role || p.role_name || "");
-      if (dbRoleName === targetRoleName) {
-        map.set(cleanStr(p.slug), p);
-      }
-    });
-    return map;
-  }, [dbPermissions, selectedRole.name]);
+const permMap = useMemo(() => {
+  const map = new Map<string, any>();
+  const targetRoleName = cleanStr(selectedRole.name);
+  
+  dbPermissions.forEach((p) => {
+    const dbRoleName = cleanStr(p.name || p.role || p.role_name || p.slug_name || "");
+    if (dbRoleName === targetRoleName) {
+      map.set(cleanStr(p.slug), p);
+    }
+  });
+  return map;
+}, [dbPermissions, selectedRole.name]);
 
   // 🚀 FIXED CELL STATUS LOGIC: Loose casting reads numeric TINYINT numbers (1/0) or text parameters securely
-  const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
-    if (isTargetSuperAdmin) return true;
-    const row = permMap.get(cleanStr(featureKey));
-    if (!row) return false;
-    
-    const val = row[`can_${actionKey}`];
-    return val === 1 || val === true || String(val) === "1" || String(val) === "true";
-  };
-
+ const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
+  if (isTargetSuperAdmin) return true;
+  const row = permMap.get(cleanStr(featureKey));
+  if (!row) return false;
+  
+  const val = row[`can_${actionKey}`];
+  return Boolean(val) || val === 1 || String(val) === "1";
+};
   const totalEnabled = useMemo(() => {
     if (isTargetSuperAdmin) {
       return PERMISSION_MODULE_GROUPS.flatMap((g) => g.items)
