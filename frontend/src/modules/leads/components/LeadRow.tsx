@@ -119,7 +119,12 @@ export const LeadRow = React.memo(({
 
   // 🚀 FIXED: Defensive parsing layer to handle snake_case, camelCase, or variant payload fields safely
   const displayEducation = lead.education || (lead as any).qualification || (lead as any).course_education || "—";
-  const displayPassingYear = lead.passing_year || (lead as any).passingYear || (lead as any).graduation_year || null;
+  const displayPassingYear = 
+  lead.passing_year || 
+  (lead as any).year_of_passing ||  
+  (lead as any).passingYear || 
+  (lead as any).graduation_year || 
+  null;
 
   return (
     <tr className={`group transition-colors hover:bg-blue-50/20 dark:hover:bg-gray-800/10 ${
