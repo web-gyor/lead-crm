@@ -112,16 +112,18 @@ export default function Analytics() {
 
       console.log("🔍 Raw Analytics Response:", finalData); 
 
-      const rawFunnel = finalData.funnel ?? finalData.data?.funnel ?? {};
+     const rawFunnel = finalData.funnel ?? finalData.data?.funnel ?? {};
 
-      // 🚀 RESTORED PURE DATA MAPPINGS WITHOUT INTERCEPTIONS
-      const processedFunnel = {
-        total:     Number(rawFunnel.total     ?? rawFunnel.leads ?? 0),
-        converted: Number(rawFunnel.closed    ?? rawFunnel.converted ?? 0),
-        lost:      Number(rawFunnel.lost      ?? 0),
-        engaged:   Number(rawFunnel.engaged   ?? 0),
-        followUp:  Number(rawFunnel.followUp  ?? rawFunnel.followup ?? 0),
-      };
+// Log exact keys so you can verify field names
+console.log("🔍 rawFunnel exact keys:", JSON.stringify(rawFunnel, null, 2));
+
+const processedFunnel = {
+  total:     Number(rawFunnel.total     ?? 0),
+  converted: Number(rawFunnel.converted ?? rawFunnel.closed ?? 0),
+  lost:      Number(rawFunnel.lost      ?? 0),
+  engaged:   Number(rawFunnel.engaged   ?? 0),
+  followUp:  Number(rawFunnel.followup  ?? rawFunnel.follow_up ?? rawFunnel.followUp ?? 0),
+};
 
       setData({
         trends: Array.isArray(finalData.trends) ? finalData.trends : [],
