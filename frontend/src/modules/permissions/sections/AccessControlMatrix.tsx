@@ -76,7 +76,8 @@ interface AccessControlMatrixProps {
   onFilterChange?: (val: string) => void;
 }
 
-const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
+// 🚀 UNIFIED STRING NORMALIZATION FUNCTION
+const cleanStr = (s: string) => String(s || "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
 
 export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   selectedRole,
@@ -89,31 +90,30 @@ export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
   const isTargetSuperAdmin = selectedRole.id === "super-admin";
   const isInteractionAllowed = canEdit && !isTargetSuperAdmin;
 
-  // 🚀 FIXED PERMISSION MAP: Comprehensive matching layer maps name, role, or role_name keys safely
-const cleanStr = (s: string) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  // 🚀 FIXED PERMISSION MAP: Cleared internal duplicate declaration to fix the scope leak
+  const permMap = useMemo(() => {
+    const map = new Map<string, any>();
+    const targetRoleName = cleanStr(selectedRole.name);
+    
+    dbPermissions.forEach((p) => {
+      const dbRoleName = cleanStr(p.name || p.role || p.role_name || "");
+      if (dbRoleName === targetRoleName) {
+        map.set(cleanStr(p.slug), p);
+      }
+    });
+    return map;
+  }, [dbPermissions, selectedRole.name]);
 
-const permMap = useMemo(() => {
-  const map = new Map<string, any>();
-  const targetRoleName = cleanStr(selectedRole.name);
-  
-  dbPermissions.forEach((p) => {
-    const dbRoleName = cleanStr(p.name || p.role || p.role_name || "");
-    if (dbRoleName === targetRoleName) {
-      map.set(cleanStr(p.slug), p);
-    }
-  });
-  return map;
-}, [dbPermissions, selectedRole.name]);
+  // 🚀 FIXED CELL STATUS LOGIC: Securely casts boolean evaluations against raw database integers
+  const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
+    if (isTargetSuperAdmin) return true;
+    const row = permMap.get(cleanStr(featureKey));
+    if (!row) return false;
+    
+    const val = row[`can_${actionKey}`];
+    return val === 1 || val === true || String(val) === "1" || String(val) === "true";
+  };
 
-  // 🚀 FIXED CELL STATUS LOGIC: Loose casting reads numeric TINYINT numbers (1/0) or text parameters securely
- const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
-  if (isTargetSuperAdmin) return true;
-  const row = permMap.get(cleanStr(featureKey));
-  if (!row) return false;
-  
-  const val = row[`can_${actionKey}`];
-  return Boolean(val) || val === 1 || String(val) === "1";
-};
   const totalEnabled = useMemo(() => {
     if (isTargetSuperAdmin) {
       return PERMISSION_MODULE_GROUPS.flatMap((g) => g.items)
