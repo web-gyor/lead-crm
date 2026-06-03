@@ -1,222 +1,269 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCw } from "lucide-react";
-import { apiGet, apiPost } from "../../../utils/api";
-import { useToast } from "../../../hooks/useToast";
+import React, { useEffect, useMemo } from "react";
+import {
+  LayoutDashboard, Users, Layers, Calendar, MessageCircle,
+  Upload, Bot, FileText, Activity, Database, Settings,
+  ShieldCheck, BarChart3, ShieldAlert, Medal,
+} from "lucide-react";
+import { EnterpriseRole } from "./RoleSidebarPanel";
 
-import { RoleSidebarPanel, INITIAL_ENTERPRISE_ROLES } from "../sections/RoleSidebarPanel";
-import { AccessControlMatrix, PERMISSION_MODULE_GROUPS } from "../sections/AccessControlMatrix";
-import { SafetyAuditPanel } from "../sections/SafetyAuditPanel";
+type ActionKey = "view" | "create" | "edit" | "delete" | "export";
 
-const buildSlugActions = (): Record<string, string[]> => {
-  const map: Record<string, string[]> = {};
-  PERMISSION_MODULE_GROUPS.forEach(g =>
-    g.items.forEach(item => {
-      map[item.key] = item.supportedActions as unknown as string[];
-    })
-  );
-  return map;
-};
+interface MatrixItem {
+  name:             string;
+  key:              string;
+  icon:             React.ReactNode;
+  supportedActions: ActionKey[];
+}
 
-export default function AccessControlCenter() {
-  const { addToast } = useToast();
+export interface PermissionGroup {
+  group: string;
+  items: MatrixItem[];
+}
 
-  const [loading,        setLoading]        = useState(true);
-  const [updating,       setUpdating]       = useState<string | null>(null);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>("super-admin");
-  const [matrixFilter,   setMatrixFilter]   = useState<string>("all");
-  const [dbPermissions,  setDbPermissions]  = useState<any[]>([]);
+export const PERMISSION_MODULE_GROUPS: PermissionGroup[] = [
+  {
+    group: "1. Overview Section",
+    items: [
+      { name: "Dashboard Analytics", key: "dashboard", icon: <LayoutDashboard size={13} />, supportedActions: ["view", "export"] },
+      { name: "Lead Workspace",      key: "leads",     icon: <Users size={13} />,           supportedActions: ["view", "create", "edit", "delete", "export"] },
+    ],
+  },
+  {
+    group: "2. Operations Section",
+    items: [
+      { name: "Pipeline Board",       key: "pipeline",      icon: <Layers size={13} />,        supportedActions: ["view", "create", "edit", "delete", "export"] },
+      { name: "Follow-up Tasks",      key: "tasks",         icon: <Calendar size={13} />,      supportedActions: ["view", "create", "edit", "delete"] },
+      { name: "Communication Logs",   key: "communication", icon: <MessageCircle size={13} />, supportedActions: ["view", "create", "delete", "export"] },
+      { name: "Import Data Hub",      key: "import",        icon: <Upload size={13} />,        supportedActions: ["view", "create", "export"] },
+      { name: "AI Automation Engine", key: "automation",    icon: <Bot size={13} />,           supportedActions: ["view", "create", "edit"] },
+    ],
+  },
+  {
+    group: "3. Admin Section",
+    items: [
+      { name: "Analytics Intel",   key: "analytics",   icon: <BarChart3 size={13} />, supportedActions: ["view", "export"] },
+      { name: "Staff Performance", key: "performance", icon: <Medal size={13} />,     supportedActions: ["view", "export"] },
+      { name: "Lead Reports",      key: "reports",     icon: <FileText size={13} />,  supportedActions: ["view", "export"] },
+      { name: "Audit & Logs",      key: "audit",       icon: <Activity size={13} />,  supportedActions: ["view", "export"] },
+      { name: "System Masters",    key: "masters",     icon: <Database size={13} />,  supportedActions: ["view", "create", "edit", "delete"] },
+    ],
+  },
+  {
+    group: "4. System Section",
+    items: [
+      { name: "Settings Panel",        key: "settings", icon: <Settings size={13} />,    supportedActions: ["view", "edit"] },
+      { name: "Access Control Matrix", key: "rbac",     icon: <ShieldCheck size={13} />, supportedActions: ["view", "edit"] },
+    ],
+  },
+];
 
-  const selectedRole = useMemo(
-    () => INITIAL_ENTERPRISE_ROLES.find(r => r.id === selectedRoleId) || INITIAL_ENTERPRISE_ROLES[0],
-    [selectedRoleId],
-  );
+const ACTION_COLUMNS: { key: ActionKey; label: string }[] = [
+  { key: "view",   label: "View"   },
+  { key: "create", label: "Create" },
+  { key: "edit",   label: "Edit"   },
+  { key: "delete", label: "Delete" },
+  { key: "export", label: "Export" },
+];
 
-  const fetchPermissionsMatrix = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await apiGet(`/api/permissions?t=${Date.now()}`);
-      setDbPermissions(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Failed to fetch permissions:", err);
-      addToast("Failed to load permission matrix", "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [addToast]);
+interface AccessControlMatrixProps {
+  selectedRole:         EnterpriseRole;
+  dbPermissions:        any[];
+  updating:             string | null;
+  // ✅ NEW PROP: passed in from AccessControlCenter which already knows the logged-in user
+  canEdit:              boolean;
+  onToggleCell:         (roleKey: string, featureKey: string, actionType: string, current: boolean) => void;
+  onBulkToggle:         (roleKey: string, enableAll: boolean) => void;
+  matrixFilter?:        string;
+  onFilterChange?:      (val: string) => void;
+}
 
-  useEffect(() => { fetchPermissionsMatrix(); }, [fetchPermissionsMatrix]);
+const cleanStr = (s: string) => String(s || "").trim().toLowerCase();
 
-  const handleToggleCell = useCallback(async (
-    roleKey:      string,   // e.g. "admin", "manager", "counselor"
-    featureKey:   string,   // DB slug row identifier
-    actionKey:    string,   // e.g. "view", "create"
-    currentState: boolean,
-  ) => {
-    if (!roleKey || roleKey === "super-admin") return;
+export const AccessControlMatrix: React.FC<AccessControlMatrixProps> = ({
+  selectedRole,
+  dbPermissions,
+  updating,
+  canEdit,           // ✅ Received from parent — no more localStorage guessing
+  onToggleCell,
+  onBulkToggle,
+}) => {
+  // Super Admin row is always read-only regardless of who's logged in
+  const isTargetSuperAdmin = selectedRole.id === "super-admin";
 
-    const updatingKey = `${roleKey}-${featureKey}-${actionKey}`;
-    const newValue    = !currentState;
-    
-    // 🎯 FIX: Match backend role assignments using explicit IDs to prevent casing conflicts
-    const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
-    const roleName = targetedRoleObject ? targetedRoleObject.name : roleKey;
-
-    setUpdating(updatingKey);
-
-    setDbPermissions(prev => {
-      const exists = prev.some(
-        p => p.slug?.toLowerCase() === featureKey.toLowerCase() &&
-             p.name?.toLowerCase() === roleName.toLowerCase()
-      );
-
-      const updated = prev.map(p =>
-        p.slug?.toLowerCase() === featureKey.toLowerCase() &&
-        p.name?.toLowerCase() === roleName.toLowerCase()
-          ? { ...p, [`can_${actionKey}`]: newValue ? 1 : 0 }
-          : p
-      );
-
-      if (!exists) {
-        updated.push({
-          name:       roleName,
-          slug:       featureKey,
-          can_view:   0,
-          can_create: 0,
-          can_edit:   0,
-          can_delete: 0,
-          can_export: 0,
-          [`can_${actionKey}`]: newValue ? 1 : 0,
-        });
+  const permMap = useMemo(() => {
+    const map = new Map<string, any>();
+    const targetRoleName = cleanStr(selectedRole.name);
+    dbPermissions.forEach((p) => {
+      const dbRoleName = cleanStr(p.name || p.role || "");
+      if (dbRoleName === targetRoleName) {
+        map.set(cleanStr(p.slug), p);
       }
-
-      return updated;
     });
+    return map;
+  }, [dbPermissions, selectedRole.name]);
 
-    try {
-      const res = await apiPost("/api/permissions/update", {
-        name:   roleName,
-        slug:   featureKey,   
-        action: actionKey,    
-        value:  newValue,
-      });
+  const getCellStatus = (featureKey: string, actionKey: ActionKey): boolean => {
+    if (isTargetSuperAdmin) return true;
+    const row = permMap.get(cleanStr(featureKey));
+    if (!row) return false;
+    const val = row[`can_${actionKey}`];
+    return val === 1 || val === true || String(val) === "1";
+  };
 
-      if (!res?.success) throw new Error("Server rejected update");
-      addToast("Permission updated", "success");
-
-    } catch (err) {
-      console.error("Single toggle failed:", err);
-      setDbPermissions(prev =>
-        prev.map(p =>
-          p.slug?.toLowerCase() === featureKey.toLowerCase() &&
-          p.name?.toLowerCase() === roleName.toLowerCase()
-            ? { ...p, [`can_${actionKey}`]: currentState ? 1 : 0 }
-            : p
-        )
-      );
-      addToast("Update failed — change reverted", "error");
-    } finally {
-      setUpdating(null);
+  const totalEnabled = useMemo(() => {
+    if (isTargetSuperAdmin) {
+      return PERMISSION_MODULE_GROUPS.flatMap((g) => g.items)
+        .reduce((sum, item) => sum + item.supportedActions.length, 0);
     }
-  }, [addToast]);
-
-  const handleBulkToggle = useCallback(async (roleKey: string, enableAll: boolean) => {
-    if (roleKey === "super-admin") return;
-
-    const targetedRoleObject = INITIAL_ENTERPRISE_ROLES.find(r => r.id === roleKey);
-    // 🚀 FIXED: Enforce string mapping uniformity matching your exact DB rows
-    const roleName = targetedRoleObject ? targetedRoleObject.name : roleKey;
-    const slugActions = buildSlugActions();
-
-    setUpdating(`bulk-${roleKey}`);
-
-    setDbPermissions(prev => {
-      const next = [...prev];
-      Object.entries(slugActions).forEach(([slug, actions]) => {
-        // Strict case-insensitive fallback loop mapping
-        const idx = next.findIndex(
-          p => String(p.slug).toLowerCase() === slug.toLowerCase() &&
-               String(p.name || p.role).toLowerCase() === roleName.toLowerCase()
-        );
-        const patch: Record<string, number> = {};
-        (actions as string[]).forEach(a => { patch[`can_${a}`] = enableAll ? 1 : 0; });
-
-        if (idx !== -1) {
-          next[idx] = { ...next[idx], ...patch };
-        } else {
-          next.push({
-            name: roleName, 
-            slug,
-            can_view: 0, can_create: 0, can_edit: 0, can_delete: 0, can_export: 0,
-            ...patch,
-          });
-        }
+    let count = 0;
+    permMap.forEach((row) => {
+      ACTION_COLUMNS.forEach((c) => {
+        const val = row[`can_${c.key}`];
+        if (val === 1 || val === true || String(val) === "1") count++;
       });
-      return next;
     });
+    return count;
+  }, [isTargetSuperAdmin, permMap]);
 
-    try {
-      // 🚀 FIXED: Ensure data object keys align with backend router expected fields
-      const res = await apiPost("/api/permissions/bulk-update", {
-        name: roleName,       // Unified variable naming
-        role: roleName,       // Fallback tracking naming
-        slugActions,            
-        is_enabled: enableAll ? 1 : 0, // Pass as a clean numeric binary parameter
-      });
-
-      if (!res?.success) throw new Error("Bulk update rejected");
-      addToast(enableAll ? "All permissions granted" : "All permissions revoked", "success");
-
-    } catch (err) {
-      console.error("Bulk toggle failed:", err);
-      addToast("Bulk update failed", "error");
-      await fetchPermissionsMatrix(); // Sync state back instantly on error
-    } finally {
-      setUpdating(null);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      console.log("[RBAC] Role:", selectedRole.name, "| canEdit:", canEdit, "| Active caps:", totalEnabled);
     }
-  }, [addToast, fetchPermissionsMatrix]);
-  
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh] text-slate-400 font-bold uppercase tracking-wider text-[10px] animate-pulse">
-        Loading Security Matrix…
-      </div>
-    );
-  }
+  }, [selectedRole.id, canEdit, totalEnabled]);
 
   return (
-    <div className="space-y-4 pb-12 text-sm text-slate-900 dark:text-slate-100 font-normal antialiased">
-      <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 select-none">
-        <div>
-          <h1 className="text-sm font-black uppercase tracking-wide">Identity & Access Management</h1>
-          <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-widest mt-1">
-            RBAC Guard Operational Deck
-          </p>
+    <div className="border border-slate-200/60 dark:border-slate-800/80 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-sm w-full">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/10 select-none">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 bg-blue-50 dark:bg-blue-950/40 border border-blue-100/30 dark:border-blue-900/40 rounded-xl flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+            <ShieldAlert size={15} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider">
+              Access Control Matrix
+            </h2>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              <span className="font-black text-slate-600 dark:text-slate-300">{totalEnabled}</span> capabilities active
+            </p>
+          </div>
+          <span className={`shrink-0 px-2 py-0.5 rounded-xl text-[9px] font-black border uppercase tracking-wider ${selectedRole.badgeColor}`}>
+            {selectedRole.name}
+          </span>
         </div>
-        <button
-          onClick={fetchPermissionsMatrix}
-          disabled={updating !== null}
-          title="Refresh matrix"
-          className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50"
-        >
-          <RefreshCw size={13} className={updating?.startsWith("bulk-") ? "animate-spin text-blue-500" : ""} />
-        </button>
+
+        {canEdit && !isTargetSuperAdmin && (
+          <div className="flex gap-2 shrink-0 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={() => onBulkToggle(selectedRole.id, true)}
+              className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-95 transition-all cursor-pointer"
+            >
+              Grant all
+            </button>
+            <button
+              type="button"
+              onClick={() => onBulkToggle(selectedRole.id, false)}
+              className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 active:scale-95 transition-all cursor-pointer"
+            >
+              Revoke all
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-6 items-start w-full">
-        <RoleSidebarPanel selectedId={selectedRoleId} onSelect={setSelectedRoleId} />
-        <div className="flex-1 w-full min-w-0">
-          <AccessControlMatrix
-            selectedRole={selectedRole}
-            dbPermissions={dbPermissions}
-            updating={updating}
-            onToggleCell={handleToggleCell}
-            onBulkToggle={handleBulkToggle}
-            matrixFilter={matrixFilter}
-            onFilterChange={setMatrixFilter}
-          />
-        </div>
-        <SafetyAuditPanel selectedRole={selectedRole} dbPermissions={dbPermissions} />
+      <div className="w-full overflow-x-auto">
+        <table className="w-full text-left min-w-[640px]">
+          <thead>
+            <tr className="bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest select-none">
+              <th className="px-5 py-3 w-[240px]">Module</th>
+              {ACTION_COLUMNS.map((c) => (
+                <th key={c.key} className="px-3 py-3 text-center">{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40 font-medium text-slate-700 dark:text-slate-300">
+            {PERMISSION_MODULE_GROUPS.map((group) => (
+              <React.Fragment key={group.group}>
+                <tr className="bg-slate-50/60 dark:bg-slate-900/20 select-none">
+                  <td
+                    colSpan={ACTION_COLUMNS.length + 1}
+                    className="px-5 py-2 text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest border-y border-slate-100 dark:border-slate-800/60"
+                  >
+                    {group.group}
+                  </td>
+                </tr>
+
+                {group.items.map((item) => (
+                  <tr key={item.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-slate-400 dark:text-slate-500 shrink-0">{item.icon}</span>
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          {item.name}
+                        </span>
+                      </div>
+                    </td>
+
+                    {ACTION_COLUMNS.map((col) => {
+                      const supported   = item.supportedActions.includes(col.key);
+                      const isActive    = getCellStatus(item.key, col.key);
+                      const updatingKey = `${selectedRole.id}-${item.key}-${col.key}`;
+                      const isUpdating  = updating === updatingKey;
+
+                      if (!supported) {
+                        return (
+                          <td key={col.key} className="px-3 py-3.5 text-center text-slate-300 dark:text-slate-700 select-none font-normal">—</td>
+                        );
+                      }
+
+                      return (
+                        <td key={col.key} className="px-3 py-3.5 text-center">
+                          <button
+                            type="button"
+                            disabled={!canEdit || isTargetSuperAdmin || isUpdating}
+                            onClick={() => onToggleCell(selectedRole.id, item.key, col.key, isActive)}
+                            title={`${isActive ? "Revoke" : "Grant"} ${col.label} — ${item.name}`}
+                            aria-pressed={isActive}
+                            className={[
+                              "relative inline-flex h-4 w-7 rounded-full transition-colors duration-200 focus:outline-none",
+                              (!canEdit || isTargetSuperAdmin)
+                                ? "cursor-not-allowed opacity-40"
+                                : "cursor-pointer hover:opacity-90",
+                              isUpdating ? "opacity-40 animate-pulse pointer-events-none" : "",
+                              isActive ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700",
+                            ].filter(Boolean).join(" ")}
+                          >
+                            <span
+                              className={[
+                                "inline-block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform duration-200 my-auto",
+                                isActive ? "translate-x-[14px]" : "translate-x-[2px]",
+                              ].join(' ')}
+                            />
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10 flex items-center justify-between select-none">
+        <p className="text-[10px] text-slate-400">
+          {!canEdit
+            ? "You do not have write permissions to modify configurations."
+            : isTargetSuperAdmin
+            ? "Super Admin has unrestricted access to all modules."
+            : "Toggles persist immediately to the database."}
+        </p>
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+          {PERMISSION_MODULE_GROUPS.flatMap((g) => g.items).length} modules · {ACTION_COLUMNS.length} actions
+        </span>
       </div>
     </div>
   );
-}
+};
