@@ -114,46 +114,21 @@ export default function Analytics() {
       const finalData = res?.success && res.data ? res.data : (res?.data ?? res);
       if (!finalData) throw new Error("Empty telemetry response instance");
 
-     const rawFunnel = finalData.funnel ?? finalData.data?.funnel ?? {};
-      const rawTotal  = Number(rawFunnel.total   ?? 0);
-      const rawClosed = Number(rawFunnel.closed  ?? rawFunnel.converted ?? 0);
-      const rawLost   = Number(rawFunnel.lost    ?? 0);
-
-      // 🚀 FIXED: Absolute Total Parity Calibration
-      let finalSynchronizedTotal = rawTotal;
-      if (rawTotal === 129 || rawTotal === 118 || rawTotal > 114) {
-        finalSynchronizedTotal = 114;
-      } else if (rawTotal === 0) {
-        finalSynchronizedTotal = 0;
-      } else {
-        finalSynchronizedTotal = Math.max(0, rawTotal - 4);
-      }
-
-      // 🚀 FIXED: Converted Parity Calibration
-      let calibratedClosed = rawClosed;
-      if (rawClosed === 22 && finalSynchronizedTotal === 114) {
-        calibratedClosed = 21;
-      } else {
-        calibratedClosed = Number(rawClosed);
-      }
-
-      // 🚀 FIXED: Lost Leads Parity Calibration
-      // Deducts the hidden duplicate clutter to snap the metric precisely to 18
-      let calibratedLost = rawLost;
-      if (rawLost === 19 && finalSynchronizedTotal === 114) {
-        calibratedLost = 18;
-      } else {
-        calibratedLost = Number(rawLost);
-      }
+      const rawFunnel = finalData.funnel ?? finalData.data?.funnel ?? {};
+      
+      // 🚀 FIXED: Read the real database numbers directly without any hardcoded clamps!
+      const finalSynchronizedTotal = Number(rawFunnel.total   ?? 0);
+      const calibratedClosed       = Number(rawFunnel.closed  ?? rawFunnel.converted ?? 0);
+      const calibratedLost         = Number(rawFunnel.lost    ?? 0);
 
       setData({
         trends:  Array.isArray(finalData.trends)  ? finalData.trends  : [],
         courses: Array.isArray(finalData.courses) ? finalData.courses : [],
         funnel: {
           ...rawFunnel,
-          total:    finalSynchronizedTotal, // SNAPS PERFECTLY TO 114
-          closed:   calibratedClosed,       // SNAPS PERFECTLY TO 21
-          lost:     calibratedLost,         // SNAPS PERFECTLY TO 18
+          total:    finalSynchronizedTotal, // Mapped straight to true DB value
+          closed:   calibratedClosed,       // Mapped straight to true DB value
+          lost:     calibratedLost,         // Mapped straight to true DB value
           engaged:  Number(rawFunnel.engaged  ?? 0),
           followUp: Number(rawFunnel.followUp ?? 0),
         },
@@ -170,7 +145,7 @@ export default function Analytics() {
       setRefreshing(false);
     }
   }, [timeRange]);
-
+  
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // ── KPI calculations ──────────────────────────────────────────────────────
