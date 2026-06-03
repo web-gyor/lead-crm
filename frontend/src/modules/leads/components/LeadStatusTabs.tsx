@@ -6,7 +6,6 @@ import {
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-// ✅ FIXED: Separated raw system value tokens from customer presentation text strings
 export type TabValue = 'all' | 'New' | 'Contacted' | 'Interested' | 'Follow-up' | 'Converted' | 'Lost' | 'Not Interested' | 'Cold Storage';
 
 interface TabConfig {
@@ -27,7 +26,7 @@ interface LeadStatusTabsProps {
 const TABS: TabConfig[] = [
   {
     name: 'All',
-    value: 'all', // ✅ FIXED: Keeps database pipeline values synchronized in lowercase
+    value: 'all',
     icon: <LayoutGrid size={13} />,
     badgeColor: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
   },
@@ -68,13 +67,13 @@ const TABS: TabConfig[] = [
     badgeColor: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400',
   },
   {
-    name: 'Not Interested',
+    name: 'Not Int', // 🚀 RENAME ONLY FOR DISPLAY LABEL
     value: 'Not Interested',
     icon: <HelpCircle size={13} />,
     badgeColor: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
   },
   {
-    name: 'Cold Storage',
+    name: 'Cold', // 🚀 RENAME ONLY FOR DISPLAY LABEL
     value: 'Cold Storage',
     icon: <Archive size={13} />,
     badgeColor: 'bg-cyan-50 text-cyan-600 dark:bg-cyan-950/40 dark:text-cyan-400',
@@ -94,7 +93,6 @@ export const LeadStatusTabs = React.memo(({
       style={{ scrollbarWidth: 'none' }}
     >
       {TABS.map((tab) => {
-        // ✅ FIXED: Evaluates states against the exact system token key strings
         const isActive = activeStatus === tab.value;
         const count = counts[tab.value] ?? 0;
 
@@ -104,7 +102,7 @@ export const LeadStatusTabs = React.memo(({
             type="button"
             onClick={() => setActiveStatus(tab.value)}
             className={[
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium',
+              'flex items-center gap-1 px-2 lg:px-2.5 py-1.5 rounded-xl border text-xs font-medium', // 🚀 REDUCED CONTAINER CONTAINER PADDINGS FOR LAPTOPS
               'transition-all duration-150 cursor-pointer shrink-0 whitespace-nowrap focus:outline-none',
               isActive
                 ? 'bg-slate-900 border-slate-900 text-white dark:bg-white dark:border-white dark:text-slate-900 shadow-sm font-bold'
@@ -128,7 +126,7 @@ export const LeadStatusTabs = React.memo(({
             {/* Count badge */}
             <span
               className={[
-                'px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold tabular-nums',
+                'px-1 py-0.5 rounded-md text-[10px] font-mono font-bold tabular-nums',
                 isActive
                   ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900'
                   : tab.badgeColor,
