@@ -89,11 +89,14 @@ function PipelineCard({ lead, stage, isOverlay }) {
           </div>
 
           {/* 🚀 FIXED: Dynamic Agent Designation Label displays Counselor/Telecaller handles visually */}
-          {(lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name) && (
+        {(lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name || lead.assigned_to) && (
             <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 rounded-lg text-slate-600 dark:text-slate-400 select-none max-w-full">
               <User size={10} className="shrink-0 text-slate-400" />
               <p className="text-[8px] font-black uppercase truncate tracking-wider leading-none">
-                {lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name}
+                {lead.assigned_user_name || 
+                 lead.counsellor_name || 
+                 lead.telecaller_name || 
+                 (typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : lead.assigned_to)}
               </p>
             </div>
           )}
