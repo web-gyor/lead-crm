@@ -1,213 +1,539 @@
-import React, { useState, useEffect } from 'react';
-import { Phone, MessageCircle, Edit3, Trash2, RotateCcw, Eye, Clock } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
-interface LeadMobileCardProps {
-  lead: any;
-  index: number;
-  isAdmin: boolean;
-  onEdit: (lead: any) => void;
-  onView: (lead: any) => void; 
-  onDelete: (id: number) => void;
-  getFollowUpStatus: (date?: string) => "overdue" | "today" | "future" | null;
-  fmtDate: (iso?: string) => string;
-  activeStatus?: string;
-  onRestore?: (ids: number[]) => void;
-  isSelected: boolean;      
-  onToggleSelect: () => void;    
+import { useToast } from "../../hooks/useToast";
+
+import { apiGet, apiPut } from "../../utils/api";
+import { getISTDateString, getStatusBucket } from "../../utils/date";
+import { SECTIONS, FINAL_STATUSES, SectionId, LEAD_STATUS } from "../../constants/leadStatus";
+import { FollowUpLead, StaffUser, LeadSource } from "../../types/followup";
+
+import { FollowUpHeader } from "./components/FollowUpHeader";
+import { FollowUpFilters } from "./components/FollowUpFilters";
+import { FollowUpBoard } from "./components/FollowUpBoard";
+import { NoteModal } from "./components/NoteModal";
+import { MarkAllConfirm } from "./MarkAllConfirm";
+
+// ─── 🚀 FIXED: Robust Extraction Layer Decouples Nested Relational Entities ───
+function normaliseLead(
+  l: FollowUpLead,
+  sourceMap: Map<number, string>,
+  staffMap: Map<number, string>
+): FollowUpLead {
+  
+  // Extract plain string ID from primitive fields or object layouts
+  const rawTargetId = l.assigned_user_id ?? (typeof l.assigned_to === "object" ? (l.assigned_to as any)?.id : l.assigned_to);
+  const byId = staffMap.get(Number(rawTargetId));
+  
+  const rawName = l.assigned_user_name || l.counsellor_name || l.telecaller_name;
+  const fallbackObjName = typeof l.assigned_to === "object" ? (l.assigned_to as any)?.name : null;
+  
+  const resolvedStaff =
+    (rawName && isNaN(Number(rawName)) ? rawName : null) ??
+    (fallbackObjName && isNaN(Number(fallbackObjName)) ? fallbackObjName : null) ??
+    byId ??
+    null;
+
+  return {
+    ...l,
+    assigned_user_name: resolvedStaff,
+    lead_source_name:
+      l.lead_source_name ||
+      l.source_name ||
+      sourceMap.get(Number(l.lead_source_id)) ||
+      "Unknown Source",
+  };
 }
 
-export const LeadMobileCard = React.memo(({ 
-  lead, 
-  index, 
-  isAdmin, 
-  onEdit, 
-  onView, 
-  onDelete, 
-  getFollowUpStatus, 
-  fmtDate,
-  activeStatus,
-  onRestore,
-  isSelected,      
-  onToggleSelect    
-}: LeadMobileCardProps) => {
-  const fuStatus = getFollowUpStatus(lead.next_follow_up_date);
-  
-  const normalizedActiveStatus = String(activeStatus || "").toLowerCase();
-  const isColdStorageView = normalizedActiveStatus.includes("cold") || normalizedActiveStatus.includes("archive");
+const FALLBACK_SOURCES = [
+  { id: "1",  name: "WhatsApp" },
+  { id: "2",  name: "Phone Call" },
+  { id: "3",  name: "Walk-in" },
+  { id: "4",  name: "Website Inquiry" },
+  { id: "5",  name: "Referral" },
+  { id: "6",  name: "Social Media" },
+  { id: "7",  name: "Meta Ads" },
+  { id: "8",  name: "Google Ads" },
+  { id: "9",  name: "Bulk Import" },
+  { id: "10", name: "Unknown" },
+];
 
-  // ✅ DESKTOP-STYLE LOCAL CONFIRMATION STATES FOR INLINE LABELS
-  const [isRestoreConfirming, setIsRestoreConfirming] = useState(false);
-  const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
+const sameId = (
+  a: number | string | undefined,
+  b: number | string | undefined
+) => Number(a) === Number(b);
 
-  // Auto-dismiss confirmation overlays on click elsewhere
+export default function FollowUps() {
+  const { addToast } = useToast();
+
+  const [leads, setLeads]               = useState<FollowUpLead[]>([]);
+  const [staff, setStaff]               = useState<StaffUser[]>([]);
+  const [sources, setSources]           = useState<LeadSource[]>([]);
+  const [loading, setLoading]           = useState<boolean>(true);
+  const [refreshing, setRefreshing]     = useState<boolean>(false);
+  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [noteLead, setNoteLead]         = useState<FollowUpLead | null>(null);
+  const [showFilters, setShowFilters]   = useState<boolean>(false);
+  const [activeSection, setActiveSection] = useState<SectionId>("overdue");
+  const [showConfirm, setShowConfirm]   = useState<boolean>(false);
+
+  // Request lock mechanisms
+  const isMutatingLock  = useRef<boolean>(false);
+  const isFetchingRef   = useRef<boolean>(false);
+
+  // Optimistic state architecture with auto-expiry tracker
+  const optimisticState = useRef<Map<number, { patch: Record<string, any>; until: number }>>(new Map());
+  const isUpdating      = useRef<boolean>(false);
+
+  const [searchTerm,    setSearchTerm]    = useState<string>("");
+  const [courseFilter,  setCourseFilter]  = useState<string>("");
+  const [userFilter,    setUserFilter]    = useState<string>("");
+  const [sourceFilter,  setSourceFilter]  = useState<string>("");
+
+  // Cleans stale locks to safeguard component synchronization pipelines
+  const enforceOptimisticCleanup = useCallback(() => {
+    const now = Date.now();
+    optimisticState.current.forEach((value, key) => {
+      if (now > value.until) optimisticState.current.delete(key);
+    });
+  }, []);
+
+  const uniqueCourses = useMemo(() => {
+    const set = new Set<string>();
+    leads.forEach((l) => {
+      const course = (l.interested_course || "").toString().trim();
+      if (
+        course &&
+        course.toLowerCase() !== "null" &&
+        course.toLowerCase() !== "undefined"
+      ) {
+        set.add(course.toUpperCase());
+      }
+    });
+    return Array.from(set).sort();
+  }, [leads]);
+
+  // ── Fetch ──────────────────────────────────────────────────────────────────
+  const fetchData = useCallback(async (silent = false) => {
+    console.count("FOLLOWUPS_FETCH");
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
+    if (silent && isUpdating.current) {
+      isFetchingRef.current = false;
+      return;
+    }
+
+    enforceOptimisticCleanup();
+
+    try {
+      if (!silent) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+
+      const localDate = getISTDateString();
+
+      const [fuRes, staffRes, sourcesRes] = await Promise.all([
+        apiGet(`/api/leads?status=Follow-up&limit=2000&localDate=${localDate}`),
+        apiGet("/api/users").catch(() => ({ data: [] })),
+        apiGet("/api/lead-sources").catch(() => ({ data: [] })),
+      ]);
+
+      // ── Parse leads ──
+      const rawLeads: FollowUpLead[] =
+        fuRes?.leads ?? fuRes?.data ?? (Array.isArray(fuRes) ? fuRes : []);
+
+      // ── Parse sources ──
+      const rawSources: LeadSource[] = Array.isArray(sourcesRes)
+        ? sourcesRes
+        : (sourcesRes?.data ??
+           sourcesRes?.sources ??
+           sourcesRes?.channels ??
+           sourcesRes?.lead_sources ??
+           sourcesRes?.rows ??
+           []);
+
+      const sourceMap = new Map<number, string>();
+      rawSources.forEach((s) => {
+        const id   = Number(s?.id ?? s?.source_id);
+        const name = (s?.name || s?.source_name || "").trim();
+        if (!isNaN(id) && name) sourceMap.set(id, name);
+      });
+
+      // ── Parse staff — MUST happen before normalizing leads ──
+      const rawStaff: StaffUser[] = Array.isArray(staffRes)
+        ? staffRes
+        : (staffRes?.data ?? staffRes?.users ?? []);
+
+      const filteredStaff = rawStaff.filter((s) => {
+        const role = String(
+          s.role?.name ?? s.role ?? s.role_name ?? ""
+        ).toLowerCase();
+        return role.includes("counselor") || role.includes("telecaller");
+      });
+
+      // Build staff ID → name map for normaliseLead lookup
+      const staffMap = new Map<number, string>(
+        filteredStaff.map((s) => [Number(s.id), s.name])
+      );
+
+      setStaff(filteredStaff);
+      setSources(rawSources.length > 0 ? rawSources : FALLBACK_SOURCES);
+
+      // ── Normalize leads with both maps ──
+      const now = Date.now();
+
+      const normalized = rawLeads.map((l) => {
+        const cleanDate = l.next_follow_up_date
+          ? String(l.next_follow_up_date).split("T")[0]
+          : null;
+        return normaliseLead({ ...l, next_follow_up_date: cleanDate }, sourceMap, staffMap);
+      });
+
+      // Merge with any live optimistic patches
+      const merged = normalized.map((l) => {
+        const id       = Number(l.id ?? l.lead_id);
+        const optimistic = optimisticState.current.get(id);
+        return optimistic && optimistic.until > now
+          ? { ...l, ...optimistic.patch }
+          : l;
+      });
+
+      setLeads(merged);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to load follow-ups", "error");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      isFetchingRef.current = false;
+    }
+  }, [addToast, enforceOptimisticCleanup]);
+
+  const initialLoadRef = useRef(false);
   useEffect(() => {
-    if (!isRestoreConfirming && !isDeleteConfirming) return;
-    const dismiss = () => { setIsRestoreConfirming(false); setIsDeleteConfirming(false); };
-    window.addEventListener('click', dismiss);
-    return () => window.removeEventListener('click', dismiss);
-  }, [isRestoreConfirming, isDeleteConfirming]);
+    if (!initialLoadRef.current) {
+      initialLoadRef.current = true;
+      fetchData();
+    }
+  }, []);
 
-  // Compute card background and border colors systematically
-  const cardTheme = React.useMemo(() => {
-    if (isSelected) return "border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 dark:border-blue-700 dark:bg-blue-950/10"; 
-    if (fuStatus === "overdue") return "border-rose-200 bg-rose-50/20 dark:border-rose-900/40 dark:bg-rose-950/10";
-    if (fuStatus === "today") return "border-blue-200 bg-blue-50/20 dark:border-blue-900/40 dark:bg-blue-950/10";
-    return "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900";
-  }, [fuStatus, isSelected]);
+  useEffect(() => {
+    if (leads.length > 0) {
+      console.log(
+        "DEBUG: First 3 leads for bucket analysis:",
+        leads.slice(0, 3).map((l) => ({
+          name:   l.full_name,
+          date:   l.next_follow_up_date,
+          bucket: getStatusBucket(l.next_follow_up_date),
+        }))
+      );
+    }
+  }, [leads]);
+
+  // ── Filtering ──────────────────────────────────────────────────────────────
+  const filteredLeads = useMemo(() => {
+    return leads.filter((l) => {
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        if (
+          !(l.full_name ?? "").toLowerCase().includes(q) &&
+          !(l.phone ?? "").includes(q)
+        )
+          return false;
+      }
+      if (courseFilter && (l.interested_course ?? "").trim().toUpperCase() !== courseFilter)
+        return false;
+      
+      // 🚀 FIXED SYSTEM FILTER LOOKUP: Maps nested relational lookup attributes accurately
+      const targetUserId = l.assigned_user_id ?? (typeof l.assigned_to === 'object' ? (l.assigned_to as any)?.id : l.assigned_to);
+      if (userFilter && String(targetUserId) !== userFilter)
+        return false;
+      if (sourceFilter && String(l.lead_source_id) !== sourceFilter)
+        return false;
+      return true;
+    });
+  }, [leads, searchTerm, courseFilter, userFilter, sourceFilter]);
+
+  const hasFilters = !!(searchTerm || courseFilter || userFilter || sourceFilter);
+
+  const handleClearFilters = useCallback(() => {
+    setSearchTerm("");
+    setCourseFilter("");
+    setUserFilter("");
+    setSourceFilter("");
+  }, []);
+
+  const getBucketLeads = useCallback(
+    (sid: SectionId) => {
+      const freshTodayIST = getISTDateString();
+      return filteredLeads.filter(
+        (l) => getStatusBucket(l.next_follow_up_date, freshTodayIST) === sid
+      );
+    },
+    [filteredLeads]
+  );
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+  const handleMarkDone = async (leadId: number) => {
+    if (isMutatingLock.current) return;
+    const nId  = Number(leadId);
+    const lead = leads.find((l) => sameId(l.id ?? l.lead_id, nId));
+    if (!lead) return;
+
+    const status = (lead.lead_status ?? "").trim();
+    if (status === LEAD_STATUS.FOLLOW_UP) {
+      addToast("Change the status first before marking as done", "error");
+      return;
+    }
+
+    isMutatingLock.current = true;
+    setProcessingId(nId);
+    try {
+      await apiPut(`/api/leads/${nId}`, {
+        lead_status:        status,
+        next_follow_up_date: null,
+        last_follow_up_date: getISTDateString(),
+      });
+      setLeads((prev) => prev.filter((l) => !sameId(l.id ?? l.lead_id, nId)));
+      addToast("Marked as done", "success");
+    } catch {
+      addToast("Failed to update lead", "error");
+    } finally {
+      setProcessingId(null);
+      isMutatingLock.current = false;
+    }
+  };
+
+  const handleStatusChange = async (leadId: number, newStatus: string) => {
+    if (isMutatingLock.current) return;
+    const nId = Number(leadId);
+
+    if (FINAL_STATUSES.has(newStatus)) {
+      setLeads((prev) => prev.filter((l) => !sameId(l.id ?? l.lead_id, nId)));
+    } else {
+      optimisticState.current.set(nId, {
+        patch: { lead_status: newStatus },
+        until: Date.now() + 15_000,
+      });
+      setLeads((prev) =>
+        prev.map((l) =>
+          sameId(l.id ?? l.lead_id, nId) ? { ...l, lead_status: newStatus } : l
+        )
+      );
+    }
+
+    isUpdating.current    = true;
+    isMutatingLock.current = true;
+    try {
+      await apiPut(`/api/leads/${nId}`, { lead_status: newStatus });
+      if (!FINAL_STATUSES.has(newStatus)) addToast("Status updated", "success");
+    } catch {
+      optimisticState.current.delete(nId);
+      addToast("Update failed", "error");
+      fetchData(true);
+    } finally {
+      isUpdating.current    = false;
+      isMutatingLock.current = false;
+    }
+  };
+
+  const handleReschedule = async (leadId: number, newDate: string) => {
+    if (!newDate || isMutatingLock.current) return;
+    const nId   = Number(leadId);
+    const patch = { next_follow_up_date: newDate };
+
+    optimisticState.current.set(nId, { patch, until: Date.now() + 30_000 });
+    setLeads((prev) =>
+      prev.map((l) =>
+        sameId(l.id ?? l.lead_id, nId) ? { ...l, ...patch } : l
+      )
+    );
+
+    isUpdating.current    = true;
+    isMutatingLock.current = true;
+    try {
+      await apiPut(`/api/leads/${nId}`, patch);
+      addToast(`Rescheduled → ${newDate}`, "success");
+    } catch {
+      addToast("Reschedule failed", "error");
+      optimisticState.current.delete(nId);
+      fetchData(true);
+    } finally {
+      isUpdating.current    = false;
+      isMutatingLock.current = false;
+    }
+  };
+
+  const handleNoteSave = async (text: string) => {
+    if (!noteLead || isMutatingLock.current) return;
+    const nId = Number(noteLead.id ?? noteLead.lead_id);
+
+    isUpdating.current    = true;
+    isMutatingLock.current = true;
+    optimisticState.current.set(nId, {
+      patch: { counselor_remarks: text },
+      until: Date.now() + 10_000,
+    });
+
+    try {
+      await apiPut(`/api/leads/${nId}`, { counselor_remarks: text });
+      setLeads((prev) =>
+        prev.map((l) =>
+          sameId(l.id ?? l.lead_id, nId) ? { ...l, counselor_remarks: text } : l
+        )
+      );
+      setNoteLead(null);
+      addToast("Note saved", "success");
+    } catch {
+      setTimeout(() => optimisticState.current.delete(nId), 5000);
+      addToast("Save failed", "error");
+    } finally {
+      isUpdating.current    = false;
+      isMutatingLock.current = false;
+    }
+  };
+
+  const handleMarkAllDone = async () => {
+    if (isMutatingLock.current) return;
+    setShowConfirm(false);
+    if (!filteredLeads.length) return;
+
+    setLoading(true);
+    isMutatingLock.current = true;
+    try {
+      const todayString = getISTDateString();
+      await Promise.allSettled(
+        filteredLeads.map((l) =>
+          apiPut(`/api/leads/${Number(l.id ?? l.lead_id)}`, {
+            next_follow_up_date:  null,
+            last_follow_up_date:  todayString,
+          })
+        )
+      );
+      setLeads([]);
+      addToast(`${filteredLeads.length} follow-ups cleared`, "success");
+    } catch {
+      addToast("Some updates failed", "error");
+      setLoading(false);
+    } finally {
+      isMutatingLock.current = false;
+    }
+  };
+
+  const handleOpenConfirm  = useCallback(() => setShowConfirm(true), []);
+  const handleCloseConfirm = useCallback(() => setShowConfirm(false), []);
+  const handleCloseNoteModal = useCallback(() => setNoteLead(null), []);
+  const handleToggleFilters  = useCallback(() => setShowFilters((v) => !v), []);
+
+  const handleRefreshClick = useCallback(() => {
+    if (isFetchingRef.current) return;
+    fetchData(true);
+  }, [fetchData]);
 
   return (
-    <div className={`rounded-xl border p-3.5 space-y-3 shadow-sm transition-transform active:scale-[0.995] select-none ${cardTheme}`}>
-      
-      {/* ── HEADER ROW ── */}
-      <div className="flex justify-between items-start gap-2">
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <input 
-            type="checkbox" 
-            checked={isSelected}
-            onChange={onToggleSelect}
-            className="w-4 h-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 focus:ring-blue-500/20 cursor-pointer accent-blue-600 shrink-0 mr-1"
+    <div className="space-y-4 pb-8 antialiased">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div className="w-full px-5 pt-4 pb-1">
+          <FollowUpHeader
+            filteredLeads={filteredLeads}
+            getBucketLeads={getBucketLeads}
+            refreshing={refreshing}
+            onRefresh={handleRefreshClick}
+            showFilters={showFilters}
+            onToggleFilters={handleToggleFilters}
+            hasFilters={Boolean(showFilters)}
+            onOpenConfirm={handleOpenConfirm}
           />
-
-          <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 font-mono font-bold text-xs flex items-center justify-center shrink-0">
-            {index}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
-              {lead.full_name}
-            </h4>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-tight mt-0.5 truncate">
-              {lead.interested_course || "General Enquiry"}
-            </p>
-          </div>
         </div>
-        <span className="px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wide bg-blue-50 text-blue-600 border border-blue-100 dark:bg-blue-950/50 dark:text-blue-400 dark:border-blue-900/50 shrink-0">
-          {lead.lead_status || "New"}
-        </span>
+
+        {showFilters && (
+          <FollowUpFilters
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            userFilter={userFilter}
+            setUserFilter={setUserFilter}
+            courseFilter={courseFilter}
+            setCourseFilter={setCourseFilter}
+            sourceFilter={sourceFilter}
+            setSourceFilter={setSourceFilter}
+            staff={staff}
+            uniqueCourses={uniqueCourses}
+            sources={sources}
+            hasFilters={hasFilters}
+            clearFilters={handleClearFilters}
+          />
+        )}
       </div>
 
-      {/* ── CENTRAL DATA MATRIX ── */}
-      <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-800/60 font-medium text-slate-600 dark:text-slate-400 text-[11px]">
-        <div className="min-w-0">
-          <span className="text-[8px] font-bold text-slate-400 block uppercase tracking-wider mb-0.5">Contact Phone</span>
-          <span className="font-mono text-slate-800 dark:text-slate-200 block truncate">
-            {lead.phone ? `+91 ${lead.phone}` : "—"}
-          </span>
-        </div>
-        <div className="min-w-0">
-          <span className="text-[8px] font-bold text-slate-400 block uppercase tracking-wider mb-0.5">Target Destination</span>
-          <span className="text-slate-800 dark:text-slate-200 block truncate">
-            {lead.city || "—"}
-          </span>
-        </div>
+      <div className="lg:hidden flex bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm select-none">
+        {SECTIONS.map((s) => {
+          const count    = getBucketLeads(s.id).length;
+          const isActive = activeSection === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setActiveSection(s.id)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-3 border-b-2 transition-all cursor-pointer ${
+                isActive
+                  ? `border-current ${s.color}`
+                  : "border-transparent text-gray-400"
+              }`}
+            >
+              <span className="text-base">{s.emoji}</span>
+              <span className="text-[9px] font-black uppercase tracking-widest">
+                {s.label}
+              </span>
+              <span
+                className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                  isActive
+                    ? `${s.bg} ${s.color}`
+                    : "bg-gray-100 text-gray-400"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── FOLLOW-UP INDICATOR ── */}
-      {lead.next_follow_up_date && (
-        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium tracking-tight ${
-          fuStatus === 'overdue' 
-            ? 'bg-rose-100/70 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400' 
-            : fuStatus === 'today'
-              ? 'bg-blue-100/70 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
-              : 'bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-        }`}>
-          <Clock size={11} className="shrink-0 opacity-80" />
-          <span className="truncate">Follow-up: {fmtDate(lead.next_follow_up_date)}</span>
-          {fuStatus === 'overdue' && <span className="font-bold uppercase text-[8px] ml-auto shrink-0 tracking-wider">Overdue</span>}
-          {fuStatus === 'today' && <span className="font-bold uppercase text-[8px] ml-auto shrink-0 tracking-wider">Today</span>}
+      {loading ? (
+        <div className="flex items-center justify-center py-20 gap-3 select-none">
+          <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-black uppercase tracking-widest text-gray-400">
+            Loading follow-ups…
+          </p>
         </div>
+      ) : (
+        <FollowUpBoard
+          getBucketLeads={getBucketLeads}
+          activeSection={activeSection}
+          processingId={processingId}
+          onMarkDone={handleMarkDone}
+          onOpenNote={setNoteLead}
+          onReschedule={handleReschedule}
+          onStatusChange={handleStatusChange}
+        />
       )}
 
-      {/* ── ACTION FOOTER TOOLBAR ── */}
-      <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl -mx-3.5 -mb-3.5 px-3.5 py-2 relative min-h-[40px]">
-        <div className="flex items-center gap-3.5">
-          <a 
-            href={`tel:${lead.phone}`} 
-            className="flex items-center gap-1 text-[11px] font-bold uppercase text-blue-600 dark:text-blue-400 tracking-wider hover:opacity-80 transition-opacity"
-          >
-            <Phone size={11} /> Call
-          </a>
-          <a 
-            href={`https://wa.me/91${lead.phone?.replace(/\D/g, "")}`} 
-            target="_blank" 
-            rel="noreferrer" 
-            className="flex items-center gap-1 text-[11px] font-bold uppercase text-emerald-600 dark:text-emerald-400 tracking-wider hover:opacity-80 transition-opacity"
-          >
-            <MessageCircle size={11} /> WhatsApp
-          </a>
-        </div>
-        
-        <div className="flex items-center gap-0.5">
-          {(() => {
-            let userObj: any = {};
-            try { userObj = JSON.parse(localStorage.getItem('user') || '{}'); } catch { userObj = {}; }
-            const userRole = String(userObj.role || '').toLowerCase();
-            const hasFullPerms = isAdmin || 
-                                 userObj.is_super_admin === 1 || userObj.is_super_admin === true ||
-                                 userObj.is_branch_admin === 1 || userObj.is_branch_admin === true ||
-                                 ['admin', 'super admin', 'branch admin'].includes(userRole);
+      {noteLead && (
+        <NoteModal
+          lead={noteLead}
+          onClose={handleCloseNoteModal}
+          onSave={handleNoteSave}
+        />
+      )}
 
-            return isColdStorageView ? (
-              <div className="relative flex items-center justify-end h-8">
-                {/* Standard Base Icons State Group */}
-                <div className={`flex items-center gap-1 transition-opacity ${isRestoreConfirming || isDeleteConfirming ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onView(lead); }} title="View Lead Profile" className="p-1.5 text-cyan-600 hover:bg-cyan-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"><Eye size={13} /></button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(false); setIsRestoreConfirming(true); }} title="Restore Record" className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"><RotateCcw size={13} /></button>
-                  {hasFullPerms && <button type="button" onClick={(e) => { e.stopPropagation(); setIsRestoreConfirming(false); setIsDeleteConfirming(true); }} title="Wipe Permanently" className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"><Trash2 size={13} /></button>}
-                </div>
-
-                {/* ✅ DESKTOP STYLE INLINE LABEL: COLD STORAGE RESTORE */}
-                {isRestoreConfirming && (
-                  <div onClick={(e) => e.stopPropagation()} className="absolute right-0 flex items-center gap-1.5 bg-cyan-50 dark:bg-cyan-950/30 border border-cyan-100 dark:border-cyan-900/30 px-2 rounded-xl h-7 z-20 whitespace-nowrap animate-in fade-in zoom-in-95 duration-150">
-                    <span className="text-[9px] font-black text-cyan-700 dark:text-cyan-400 tracking-wider">Restore?</span>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsRestoreConfirming(false); }} className="px-1 text-[9px] font-black text-slate-400">No</button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsRestoreConfirming(false); onRestore && onRestore([lead.id]); }} className="px-2.5 py-0.5 bg-cyan-600 text-white text-[9px] font-black rounded-md">Yes</button>
-                  </div>
-                )}
-
-                {/* ✅ DESKTOP STYLE INLINE LABEL: COLD STORAGE PERMANENT WIPE */}
-                {isDeleteConfirming && (
-                  <div onClick={(e) => e.stopPropagation()} className="absolute right-0 flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30 px-2 rounded-xl h-7 z-20 whitespace-nowrap animate-in fade-in zoom-in-95 duration-150">
-                    <span className="text-[9px] font-black text-rose-700 dark:text-rose-400 tracking-wider">Wipe?</span>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(false); }} className="px-1 text-[9px] font-black text-slate-400">No</button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(false); onDelete(lead.id); }} className="px-2.5 py-0.5 bg-rose-600 text-white text-[9px] font-black rounded-md">Wipe</button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="relative flex items-center justify-end h-8">
-                {/* Standard Base Icons State Group */}
-                <div className={`flex items-center gap-1 transition-opacity ${isDeleteConfirming ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-                  <button type="button" onClick={() => onEdit(lead)} title="Edit Lead" className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"><Edit3 size={13} /></button>
-                  {hasFullPerms && <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(true); }} title="Delete Lead" className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"><Trash2 size={13} /></button>}
-                </div>
-
-                {/* ✅ DESKTOP STYLE INLINE LABEL: PIPELINE PIPELINE DROP/DELETE */}
-                {isDeleteConfirming && (
-                  <div onClick={(e) => e.stopPropagation()} className="absolute right-0 flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30 px-2 rounded-xl h-7 z-20 whitespace-nowrap animate-in fade-in zoom-in-95 duration-150">
-                    <span className="text-[9px] font-black text-rose-700 dark:text-rose-400 tracking-wider">Delete?</span>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsDeleteConfirming(false); }} className="px-1 text-[9px] font-black text-slate-400">No</button>
-                    <button 
-                      type="button" 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        // Fires deletion routine immediately on the master tracking thread
-                        onDelete(lead.id); 
-                        // Safe micro-delay timeout guarantees query completion before state mutations reset UI views
-                        setTimeout(() => setIsDeleteConfirming(false), 50); 
-                      }} 
-                      className="px-2.5 py-0.5 bg-rose-600 text-white text-[9px] font-black rounded-md"
-                    >
-                      Drop
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-      </div>
+      {showConfirm && (
+        <MarkAllConfirm
+          count={filteredLeads.length}
+          onConfirm={handleMarkAllDone}
+          onCancel={handleCloseConfirm}
+        />
+      )}
     </div>
   );
-});
-
-LeadMobileCard.displayName = 'LeadMobileCard';
+}
