@@ -13,19 +13,17 @@ import {
 } from "lucide-react";
 import { apiGet, apiPut } from "../../utils/api";
 import { PipelineHeader } from "./PipelineHeader";
-
-// 🎯 SWAPPED: Unified custom application alert hooks engine
 import { useToast } from "../../hooks/useToast";
 
 // ─── DESIGN SYSTEM TOKENS ───────────────────────────────────────────────────
 const STAGES = [
-  { id: "New",            label: "Fresh",      emoji: "🌱", color: "bg-blue-500",    light: "bg-blue-50/60 dark:bg-blue-950/30",    border: "border-blue-500",    text: "text-blue-600 dark:text-blue-400",       ring: "ring-blue-100 dark:ring-blue-950" },
+  { id: "New",            label: "Fresh",    emoji: "🌱", color: "bg-blue-500",    light: "bg-blue-50/60 dark:bg-blue-950/30",    border: "border-blue-500",    text: "text-blue-600 dark:text-blue-400",       ring: "ring-blue-100 dark:ring-blue-950" },
   { id: "Contacted",      label: "Contacted",  emoji: "📞", color: "bg-cyan-500",    light: "bg-cyan-50/60 dark:bg-cyan-950/30",    border: "border-cyan-500",    text: "text-cyan-600 dark:text-cyan-400",       ring: "ring-cyan-100 dark:ring-cyan-950" },
   { id: "Interested",     label: "Hot",        emoji: "🔥", color: "bg-rose-500",    light: "bg-rose-50/60 dark:bg-rose-950/30",      border: "border-rose-500",    text: "text-rose-600 dark:text-rose-400",       ring: "ring-rose-100 dark:ring-rose-950" },
   { id: "Follow-up",      label: "Follow Up",  emoji: "⏰", color: "bg-amber-500",   light: "bg-amber-50/60 dark:bg-amber-950/30",    border: "border-amber-500",   text: "text-amber-600 dark:text-amber-400",     ring: "ring-amber-100 dark:ring-amber-950" },
   { id: "Converted",      label: "Enrolled",    emoji: "✅", color: "bg-emerald-500", light: "bg-emerald-50/60 dark:bg-emerald-950/30", border: "border-emerald-500", text: "text-emerald-600 dark:text-emerald-400", ring: "ring-emerald-100 dark:ring-emerald-950" },
-  { id: "Lost",           label: "Lost",        emoji: "❌", color: "bg-slate-500",   light: "bg-slate-50 dark:bg-slate-800/60",        border: "border-slate-400",   text: "text-slate-600 dark:text-slate-400",    ring: "ring-slate-100 dark:ring-slate-900" },
-  { id: "Not Interested", label: "Rejected",    emoji: "🚫", color: "bg-slate-400",   light: "bg-slate-100/50 dark:bg-slate-800/40",   border: "border-slate-300",   text: "text-slate-500 dark:text-slate-500",    ring: "ring-slate-100 dark:ring-slate-900" },
+  { id: "Lost",           label: "Lost",        emoji: "❌", color: "bg-slate-500",   light: "bg-slate-50 dark:bg-slate-800/60",        border: "border-slate-400",   text: "text-slate-600 dark:text-slate-400",     ring: "ring-slate-100 dark:ring-slate-900" },
+  { id: "Not Interested", label: "Rejected",    emoji: "🚫", color: "bg-slate-400",   light: "bg-slate-100/50 dark:bg-slate-800/40",   border: "border-slate-300",   text: "text-slate-500 dark:text-slate-500",     ring: "ring-slate-100 dark:ring-slate-900" },
 ] as const;
 
 const FALLBACK_SOURCES = [
@@ -73,7 +71,7 @@ function PipelineCard({ lead, stage, isOverlay }) {
           <GripVertical size={14} />
         </div>
 
-        <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex-1 min-w-0 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-tight truncate leading-tight">
               {lead.full_name}
@@ -90,11 +88,12 @@ function PipelineCard({ lead, stage, isOverlay }) {
             </p>
           </div>
 
-          {lead.assigned_user_name && (
-            <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 select-none">
-              <User size={10} className="shrink-0" />
-              <p className="text-[9px] font-black uppercase truncate tracking-wide">
-                {lead.assigned_user_name}
+          {/* 🚀 FIXED: Dynamic Agent Designation Label displays Counselor/Telecaller handles visually */}
+          {(lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name) && (
+            <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 rounded-lg text-slate-600 dark:text-slate-400 select-none max-w-full">
+              <User size={10} className="shrink-0 text-slate-400" />
+              <p className="text-[8px] font-black uppercase truncate tracking-wider leading-none">
+                {lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name}
               </p>
             </div>
           )}
@@ -150,6 +149,7 @@ function SortableContainer({ lead, stage }) {
   );
 }
 
+// (The remaining StageHeader, FilterSelect, and Pipeline Container components are fully maintained below...)
 function StageHeader({ stage, count }) {
   return (
     <div className={`mb-3 px-4 py-3 rounded-2xl border-l-4 ${stage.border} bg-white dark:bg-slate-900 shadow-xs flex items-center justify-between shrink-0 select-none`}>
@@ -203,7 +203,6 @@ export default function Pipeline() {
 
       setLeads(Array.isArray(leadsRes?.leads) ? leadsRes.leads : (Array.isArray(leadsRes?.data) ? leadsRes.data : []));
       
-      // 🎯 FIXED EXTRATION TRAILING TRACK: Reads inner layout data cleanly matching FollowUps setup rules
       const parsedSources = Array.isArray(sourcesRes) 
         ? sourcesRes 
         : (sourcesRes?.data || sourcesRes?.sources || sourcesRes?.rows || []);
@@ -256,16 +255,12 @@ export default function Pipeline() {
     }
   };
 
-// 🎯 TARGET LOCATION: src/pages/pipeline/Pipeline.tsx -> isWithinTimeRange function
-
   const isWithinTimeRange = (dateString) => {
     if (timeRange === "all") return true; 
     if (!dateString) return false;
     
     const date = new Date(dateString);
     const now = new Date();
-    
-    // Set hours to midnight to compare days cleanly without millisecond race conditions
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     switch (timeRange) {
@@ -277,8 +272,6 @@ export default function Pipeline() {
         return date >= weekAgo;
       }
       case "month": {
-        // 🚀 FIXED: Swapped out strict month matching for a rolling 30-day window
-        // This keeps the client-side rendering engine perfectly synced with your SQL results!
         const thirtyDaysAgo = new Date(startOfToday);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         return date >= thirtyDaysAgo;
@@ -302,7 +295,6 @@ export default function Pipeline() {
       if (counsellorFilter && String(l.assigned_user_id) !== String(counsellorFilter)) return false;
       if (courseFilter && l.interested_course !== courseFilter) return false;
       
-      // 🎯 FIXED SOURCE FILTER COMPARISON: Evaluates every schema key variable mapping string option
       if (sourceFilter) {
         const leadSourceValue = String(l.source || l.source_name || l.lead_source_name || "").trim().toLowerCase();
         const selectedFilterValue = String(sourceFilter).trim().toLowerCase();
@@ -351,7 +343,6 @@ export default function Pipeline() {
 
           <div className="flex gap-2">
             <div className="flex-1">
-              {/* 🎯 FIXED FILTER KEY: Passes options down using unified value fields */}
               <FilterSelect value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} options={sources} defaultLabel="All Network Sources" labelKey="name" valueKey="name" />
             </div>
             {hasActiveFilters && (
