@@ -54,38 +54,40 @@ export const LeadMobileCard = React.memo(({
     return "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900";
   }, [fuStatus, isSelected]);
 
-  // 🚀 SELF-CONTAINED RESOLUTION LAYER: Evaluates direct attributes, objects, and local context caches
+  // 🚀 FIXED: Robust Name Resolver captures plain strings, nested objects, AND relational lookups
   const assignedName = React.useMemo(() => {
-    // 1. Check direct name property variants
-    const directName =
+    // 1. Try to read explicit text properties first
+    const explicitName =
       lead.assigned_user_name ||
       lead.counsellor_name    ||
       lead.telecaller_name    ||
-      (typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : null);
+      (typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : null) ||
+      (typeof lead.user === 'object' ? lead.user?.name : null);
 
-    if (directName && isNaN(Number(directName))) return String(directName);
+    if (explicitName && isNaN(Number(explicitName))) return String(explicitName);
 
-    // 2. Look up inside the provided staff prop array if available
-    const assignedId = lead.assigned_user_id ?? (typeof lead.assigned_to === 'object' ? lead.assigned_to?.id : lead.assigned_to);
-    if (assignedId && staff?.length) {
-      const found = staff.find(u => String(u.id) === String(assignedId));
-      if (found) return found.name;
+    // 2. Extract the numeric ID safely from alternative fields
+    const targetId = lead.assigned_user_id ?? (typeof lead.assigned_to === 'object' ? lead.assigned_to?.id : lead.assigned_to);
+    if (!targetId) return null;
+
+    // 3. Match against parent passed staff tracker list
+    if (staff && staff.length > 0) {
+      const foundStaff = staff.find(u => String(u.id) === String(targetId));
+      if (foundStaff) return foundStaff.name;
     }
 
-    // 3. Fallback to Local Storage Profile Session Context for single-agent validation scopes
+    // 4. Fallback lookup against active browser session storage user signature
     try {
-      const sessionUserObj = JSON.parse(localStorage.getItem('user') || '{}');
-      if (sessionUserObj?.id && assignedId && String(sessionUserObj.id) === String(assignedId)) {
-        if (sessionUserObj.name) return String(sessionUserObj.name);
+      const activeSessionUser = JSON.parse(localStorage.getItem('user') || '{}');
+      if (activeSessionUser?.id && String(activeSessionUser.id) === String(targetId)) {
+        return activeSessionUser.name || "My Lead";
       }
     } catch (e) {
-      console.error("Local session token trace drop:", e);
+      console.error("Local token profile scan error:", e);
     }
 
-    // 4. Default to matching structural tags if raw data contains safe text properties
-    if (lead.user?.name) return String(lead.user.name);
-
-    return null;
+    // 5. Hardcoded backup labels for raw IDs if the database values are populated
+    return `Staff (ID: ${targetId})`;
   }, [lead, staff]);
 
   return (
