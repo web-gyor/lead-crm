@@ -88,18 +88,33 @@ function PipelineCard({ lead, stage, isOverlay }) {
             </p>
           </div>
 
-          {/* 🚀 FIXED: Dynamic Agent Designation Label displays Counselor/Telecaller handles visually */}
-    {(lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name || lead.assigned_to) && (
-            <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 rounded-lg text-slate-600 dark:text-slate-400 select-none max-w-full">
-              <User size={10} className="shrink-0 text-slate-400" />
-              <p className="text-[8px] font-black uppercase truncate tracking-wider leading-none">
-                {lead.assigned_user_name || 
-                 lead.counsellor_name || 
-                 lead.telecaller_name || 
-                 (typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : lead.assigned_to)}
-              </p>
-            </div>
-          )}
+          {/* 🚀 FIXED: Type-Checked Counselor/Telecaller Name Resolution Layer */}
+          {(() => {
+            const rawName = lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name;
+            const fallbackObjName = typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : null;
+            const resolvedName = rawName || fallbackObjName;
+
+            // Only display the badge if resolvedName is a valid non-numeric string descriptor text handle
+            if (resolvedName && isNaN(Number(resolvedName))) {
+              return (
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 rounded-lg text-slate-600 dark:text-slate-400 select-none max-w-full">
+                  <User size={10} className="shrink-0 text-slate-400" />
+                  <p className="text-[8px] font-black uppercase truncate tracking-wider leading-none">
+                    {resolvedName}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50/50 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-700/40 rounded-lg text-slate-400 select-none">
+                <User size={10} className="shrink-0" />
+                <p className="text-[8px] font-bold uppercase tracking-wider leading-none">
+                  Unassigned
+                </p>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -152,7 +167,6 @@ function SortableContainer({ lead, stage }) {
   );
 }
 
-// (The remaining StageHeader, FilterSelect, and Pipeline Container components are fully maintained below...)
 function StageHeader({ stage, count }) {
   return (
     <div className={`mb-3 px-4 py-3 rounded-2xl border-l-4 ${stage.border} bg-white dark:bg-slate-900 shadow-xs flex items-center justify-between shrink-0 select-none`}>
@@ -311,8 +325,8 @@ export default function Pipeline() {
   const hasActiveFilters = !!(searchTerm || courseFilter || counsellorFilter || sourceFilter);
   const totalFiltered = STAGES.reduce((sum, s) => sum + getLeads(s.id).length, 0);
   const uniqueCourses = [...new Set(leads.map((l) => l.interested_course).filter(Boolean))].sort();
-  const currentDragLead = activeDragId ? leads.find(l => l.id === activeDragId) : null;
-  const currentDragStage = currentDragLead ? STAGES.find(s => s.id === currentDragLead.lead_status) : null;
+  const activeDragLead = activeDragId ? leads.find(l => l.id === activeDragId) : null;
+  const currentDragStage = activeDragLead ? STAGES.find(s => s.id === activeDragLead.lead_status) : null;
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden space-y-4 text-sm text-slate-900 dark:text-slate-100 font-normal antialiased">
@@ -455,8 +469,8 @@ export default function Pipeline() {
 
         {/* Drag Overlay Feedback pipeline */}
         <DragOverlay adjustScale={false}>
-          {activeDragId && currentDragLead && currentDragStage ? (
-            <PipelineCard lead={currentDragLead} stage={currentDragStage} isOverlay={true} />
+          {activeDragId && activeDragLead && currentDragStage ? (
+            <PipelineCard lead={activeDragLead} stage={currentDragStage} isOverlay={true} />
           ) : null}
         </DragOverlay>
       </DndContext>
