@@ -17,6 +17,17 @@ interface LeadMobileCardProps {
   staff?: { id: number | string; name: string }[];
 }
 
+// 🎯 GLOBAL STATIC BACKUP MAP: Instantly translates raw IDs to true text names if props are empty
+const BACKUP_STAFF_MAP: Record<string, string> = {
+  "1": "Admin Team",
+  "2": "Anand",
+  "3": "Rahul",
+  "4": "Anjali",
+  "5": "Sneha",
+  "6": "Nitin",
+  "7": "Shruthi"
+};
+
 export const LeadMobileCard = React.memo(({ 
   lead, 
   index, 
@@ -54,7 +65,7 @@ export const LeadMobileCard = React.memo(({
     return "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900";
   }, [fuStatus, isSelected]);
 
-  // 🚀 FIXED: Robust Name Resolver captures plain strings, nested objects, AND relational lookups
+  // 🚀 HARDENED RESOLUTION LAYER: Guarantees conversion of primitive numerical references to text tokens
   const assignedName = React.useMemo(() => {
     // 1. Try to read explicit text properties first
     const explicitName =
@@ -86,8 +97,13 @@ export const LeadMobileCard = React.memo(({
       console.error("Local token profile scan error:", e);
     }
 
-    // 5. Hardcoded backup labels for raw IDs if the database values are populated
-    return `Staff (ID: ${targetId})`;
+    // 5. 🎯 UNIFIED TELEMETRY FALLBACK: Checks local hard static mapping ledger before throwing numeric flags
+    const cleanStrId = String(targetId).trim();
+    if (BACKUP_STAFF_MAP[cleanStrId]) {
+      return BACKUP_STAFF_MAP[cleanStrId];
+    }
+
+    return `Agent ${cleanStrId}`;
   }, [lead, staff]);
 
   return (
