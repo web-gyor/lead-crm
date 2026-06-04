@@ -88,33 +88,20 @@ function PipelineCard({ lead, stage, isOverlay }) {
             </p>
           </div>
 
-          {/* 🚀 FIXED: Type-Checked Counselor/Telecaller Name Resolution Layer */}
-          {(() => {
-            const rawName = lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name;
-            const fallbackObjName = typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : null;
-            const resolvedName = rawName || fallbackObjName;
-
-            // Only display the badge if resolvedName is a valid non-numeric string descriptor text handle
-            if (resolvedName && isNaN(Number(resolvedName))) {
-              return (
-                <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 rounded-lg text-slate-600 dark:text-slate-400 select-none max-w-full">
-                  <User size={10} className="shrink-0 text-slate-400" />
-                  <p className="text-[8px] font-black uppercase truncate tracking-wider leading-none">
-                    {resolvedName}
-                  </p>
-                </div>
-              );
-            }
-
-            return (
-              <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50/50 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-700/40 rounded-lg text-slate-400 select-none">
-                <User size={10} className="shrink-0" />
-                <p className="text-[8px] font-bold uppercase tracking-wider leading-none">
-                  Unassigned
-                </p>
-              </div>
-            );
-          })()}
+          {/* 🚀 FIXED DISPLAY STRIP: Renders clean custom titles safely */}
+          {lead._displayName ? (
+            <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/50 rounded-lg text-slate-600 dark:text-slate-400 select-none max-w-full">
+              <User size={10} className="shrink-0 text-slate-400" />
+              <p className="text-[8px] font-black uppercase truncate tracking-wider leading-none">
+                {lead._displayName}
+              </p>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50/50 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-700/40 rounded-lg text-slate-400 select-none">
+              <User size={10} className="shrink-0" />
+              <p className="text-[8px] font-bold uppercase tracking-wider leading-none">Unassigned</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -218,21 +205,46 @@ export default function Pipeline() {
         apiGet("/api/users").catch(() => ({ data: [] })),
       ]);
 
-      setLeads(Array.isArray(leadsRes?.leads) ? leadsRes.leads : (Array.isArray(leadsRes?.data) ? leadsRes.data : []));
-      
-      const parsedSources = Array.isArray(sourcesRes) 
-        ? sourcesRes 
+      const rawLeads = Array.isArray(leadsRes?.leads)
+        ? leadsRes.leads
+        : Array.isArray(leadsRes?.data)
+        ? leadsRes.data
+        : [];
+
+      const parsedSources = Array.isArray(sourcesRes)
+        ? sourcesRes
         : (sourcesRes?.data || sourcesRes?.sources || sourcesRes?.rows || []);
       setSources(parsedSources.length > 0 ? parsedSources : FALLBACK_SOURCES);
 
-      const allUsers = Array.isArray(staffRes) ? staffRes : (staffRes?.data || staffRes?.users || []);
+      const allUsers = Array.isArray(staffRes)
+        ? staffRes
+        : (staffRes?.data || staffRes?.users || []);
       const counselorsOnly = allUsers
         .filter((u) => {
-          const roleName = String(u.role?.name || u.role || u.role_name || '').toLowerCase();
-          return roleName.includes('counselor') || roleName.includes('telecaller');
+          const roleName = String(u.role?.name || u.role || u.role_name || "").toLowerCase();
+          return roleName.includes("counselor") || roleName.includes("telecaller");
         })
         .map((u) => ({ id: u.id, name: u.name }));
       setStaff(counselorsOnly);
+
+      // 🚀 FIXED ENRICHMENT MAPPER: Extracts nested entity IDs safely to handle text mappings
+      const enrichedLeads = rawLeads.map((lead) => {
+        const rawName = lead.assigned_user_name || lead.counsellor_name || lead.telecaller_name;
+        const fallbackObjName = typeof lead.assigned_to === "object" ? lead.assigned_to?.name : null;
+        
+        // Extract plain string ID from primitive fields or object layouts
+        const rawTargetId = lead.assigned_user_id ?? (typeof lead.assigned_to === "object" ? lead.assigned_to?.id : lead.assigned_to);
+        
+        const byId = counselorsOnly.find((u) => String(u.id) === String(rawTargetId ?? ""));
+        const resolved = rawName || fallbackObjName || byId?.name;
+        
+        return {
+          ...lead,
+          _displayName: resolved && isNaN(Number(resolved)) ? resolved : byId?.name ?? null,
+        };
+      });
+
+      setLeads(enrichedLeads);
     } catch {
       addToast("Pipeline sync failed", "error");
     } finally {
@@ -309,7 +321,7 @@ export default function Pipeline() {
       
       if (!isWithinTimeRange(l.created_at)) return false;
       if (searchTerm && !l.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) && !l.phone?.includes(searchTerm)) return false;
-      if (counsellorFilter && String(l.assigned_user_id) !== String(counsellorFilter)) return false;
+      if (counsellorFilter && String(l.assigned_user_id ?? (typeof l.assigned_to === 'object' ? l.assigned_to?.id : l.assigned_to)) !== String(counsellorFilter)) return false;
       if (courseFilter && l.interested_course !== courseFilter) return false;
       
       if (sourceFilter) {
