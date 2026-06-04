@@ -52,14 +52,14 @@ export const LeadMobileCard = React.memo(({
     return "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900";
   }, [fuStatus, isSelected]);
 
-  // Resolve assigned staff name strings and filter numeric values out cleanly
+  // Resolve assigned staff name — mirrors the same logic used in normaliseLead
   const assignedName = React.useMemo(() => {
     const raw =
       lead.assigned_user_name ||
       lead.counsellor_name    ||
       lead.telecaller_name    ||
       (typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : null);
-    
+    // Reject numeric-only strings (bare IDs leaking through)
     return raw && isNaN(Number(raw)) ? String(raw) : null;
   }, [lead]);
 
