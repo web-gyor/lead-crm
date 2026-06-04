@@ -14,6 +14,7 @@ interface LeadMobileCardProps {
   onRestore?: (ids: number[]) => void;
   isSelected: boolean;      
   onToggleSelect: () => void;    
+  staff?: { id: number | string; name: string }[];
 }
 
 export const LeadMobileCard = React.memo(({ 
@@ -28,7 +29,8 @@ export const LeadMobileCard = React.memo(({
   activeStatus,
   onRestore,
   isSelected,      
-  onToggleSelect    
+  onToggleSelect,
+  staff
 }: LeadMobileCardProps) => {
   const fuStatus = getFollowUpStatus(lead.next_follow_up_date);
   
@@ -52,16 +54,39 @@ export const LeadMobileCard = React.memo(({
     return "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900";
   }, [fuStatus, isSelected]);
 
-  // Resolve assigned staff name strings and filter numeric values out cleanly
+  // 🚀 SELF-CONTAINED RESOLUTION LAYER: Evaluates direct attributes, objects, and local context caches
   const assignedName = React.useMemo(() => {
-    const raw =
+    // 1. Check direct name property variants
+    const directName =
       lead.assigned_user_name ||
       lead.counsellor_name    ||
       lead.telecaller_name    ||
       (typeof lead.assigned_to === 'object' ? lead.assigned_to?.name : null);
-    
-    return raw && isNaN(Number(raw)) ? String(raw) : null;
-  }, [lead]);
+
+    if (directName && isNaN(Number(directName))) return String(directName);
+
+    // 2. Look up inside the provided staff prop array if available
+    const assignedId = lead.assigned_user_id ?? (typeof lead.assigned_to === 'object' ? lead.assigned_to?.id : lead.assigned_to);
+    if (assignedId && staff?.length) {
+      const found = staff.find(u => String(u.id) === String(assignedId));
+      if (found) return found.name;
+    }
+
+    // 3. Fallback to Local Storage Profile Session Context for single-agent validation scopes
+    try {
+      const sessionUserObj = JSON.parse(localStorage.getItem('user') || '{}');
+      if (sessionUserObj?.id && assignedId && String(sessionUserObj.id) === String(assignedId)) {
+        if (sessionUserObj.name) return String(sessionUserObj.name);
+      }
+    } catch (e) {
+      console.error("Local session token trace drop:", e);
+    }
+
+    // 4. Default to matching structural tags if raw data contains safe text properties
+    if (lead.user?.name) return String(lead.user.name);
+
+    return null;
+  }, [lead, staff]);
 
   return (
     <div className={`rounded-xl border p-3.5 space-y-3 shadow-sm transition-transform active:scale-[0.995] select-none ${cardTheme}`}>
